@@ -132,18 +132,18 @@ test("the rail rotates the device and changes its appearance and location", asyn
   });
   await user.click(screen.getByRole("button", { name: "Device settings" }));
   await user.click(await screen.findByRole("radio", { name: "Dark" }));
-  expect(onEmulate).toHaveBeenLastCalledWith({
-    _tag: "appearance",
-    appearance: "dark",
-  });
+  // Settings carry a callback that counts them once the device accepts.
+  expect(onEmulate).toHaveBeenLastCalledWith(
+    { _tag: "appearance", appearance: "dark" },
+    expect.any(Function)
+  );
   await user.type(screen.getByRole("textbox", { name: "Latitude" }), "12.97");
   await user.type(screen.getByRole("textbox", { name: "Longitude" }), "77.59");
   await user.click(screen.getByRole("button", { name: "Apply" }));
-  expect(onEmulate).toHaveBeenLastCalledWith({
-    _tag: "location",
-    latitude: 12.97,
-    longitude: 77.59,
-  });
+  expect(onEmulate).toHaveBeenLastCalledWith(
+    { _tag: "location", latitude: 12.97, longitude: 77.59 },
+    expect.any(Function)
+  );
 });
 
 test("a secure pause names the hidden window instead of a disconnected device", () => {

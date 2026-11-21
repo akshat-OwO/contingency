@@ -108,3 +108,24 @@ test("excludes a replayed static image from capture latency and uses server rece
   expect(metrics.snapshot.ageP95Ms).toBe(5);
   expect(metrics.snapshot.receiveP95Ms).toBe(3);
 });
+
+test("counts the frames drawn in the last second as the frame rate", () => {
+  let metrics = emptyStreamMetrics;
+  for (let sequence = 1; sequence <= 40; sequence += 1) {
+    metrics = updateStreamMetrics(
+      metrics,
+      {
+        decodeMs: 2,
+        drawMs: 1,
+        frame: frame(sequence),
+        type: "rendered",
+      },
+      1000 + sequence * 25
+    );
+  }
+  // Frames drawn from 1025 to 2000; a second before 2100 keeps those after 1100.
+  metrics = updateStreamMetrics(metrics, { type: "tick" }, 2100);
+  expect(metrics.snapshot.framesPerSecond).toBe(36);
+  metrics = updateStreamMetrics(metrics, { type: "tick" }, 4000);
+  expect(metrics.snapshot.framesPerSecond).toBe(0);
+});

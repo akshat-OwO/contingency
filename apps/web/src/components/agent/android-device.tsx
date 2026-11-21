@@ -6,6 +6,7 @@ import type {
   NativeInput,
 } from "@contingency/protocol";
 import { useAtom, useAtomSet, useAtomValue } from "@effect/atom-react";
+import { Clock, Effect, Fiber } from "effect";
 import { Atom } from "effect/reactivity";
 import {
   ActivityIcon,
@@ -28,11 +29,16 @@ import type {
   ReactNode,
 } from "react";
 
-import { RailBadge, RailButton } from "@/components/browser/inspector-rail";
+import {
+  RailBadge,
+  RailButton,
+  RailDot,
+} from "@/components/browser/inspector-rail";
 import { LocationFields } from "@/components/browser/location-fields";
 import { SegmentedControl } from "@/components/browser/segmented-control";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useWorkspaceRefreshClock } from "@/lib/workspace-refresh";
 
 import { AndroidLiveStream } from "./android-live-stream";
 import { DeviceLastScreen } from "./android-run-summary";
@@ -40,6 +46,7 @@ import type { AndroidStreamFrame } from "./android-stream-point";
 import { InspectHint } from "./comment-card";
 import { ScreenElements } from "./device-elements";
 import { NativeAgentTouch } from "./native-agent-touch";
+import { NATIVE_FRAME_SAMPLES, readNativeStream } from "./native-stream-status";
 import type {
   NativeStreamState,
   NativeStreamStats,
@@ -244,6 +251,56 @@ const deviceCardTitles: Record<DeviceCard, string> = {
 const Icon = ({ icon: Glyph }: { readonly icon: ComponentType }) => <Glyph />;
 
 /**
+ * Sends a Device setting. `onApplied` runs once the device accepts it, so a
+ * refused or declined change never reads as this session's.
+ */
+export type EmulateDevice = (
+  change: NativeEmulationChange,
+  onApplied?: () => void
+) => void;
+
+/** The Device settings this session changed from the rail. */
+export type ChangedSettings = ReadonlySet<"appearance" | "location">;
+const noChangedSettings: ChangedSettings = new Set();
+
+/**
+ * The settings the shown session changed, and how to add one. The stage stays
+ * mounted when the route switches sessions, so changes are kept per session:
+ * a late response counts for the session that sent it, never the one shown,
+ * and each session keeps its own when the route returns to it.
+ */
+const useChangedSettings = (
+  sessionId: string
+): readonly [ChangedSettings, (setting: "appearance" | "location") => void] => {
+  const [changedAtom] = useState(() =>
+    Atom.make<ReadonlyMap<string, ChangedSettings>>(new Map())
+  );
+  const [bySession, setBySession] = useAtom(changedAtom);
+  return [
+    bySession.get(sessionId) ?? noChangedSettings,
+    (setting) =>
+      setBySession((current) =>
+        new Map(current).set(
+          sessionId,
+          new Set(current.get(sessionId)).add(setting)
+        )
+      ),
+  ];
+};
+
+/**
+ * How many settings this session changed away from the device's own: dark
+ * appearance and a location. What the device already reported is its
+ * environment, not a change, so it counts for nothing.
+ */
+const changedSettingCount = (
+  emulation: NativeEmulation | undefined,
+  changed: ChangedSettings
+) =>
+  (changed.has("appearance") && emulation?.appearance === "dark" ? 1 : 0) +
+  (changed.has("location") && emulation?.location ? 1 : 0);
+
+/**
  * The rail beside the frame (ADR 0082): the platform's device keys and
  * Rotate, then Device settings, then Screen elements and Stream diagnostics.
  * What drives the device acts only while the user is in control; Stream
@@ -252,6 +309,7 @@ const Icon = ({ icon: Glyph }: { readonly icon: ComponentType }) => <Glyph />;
 export const DeviceRail = ({
   canAct,
   card,
+  changed = noChangedSettings,
   elements,
   emulation,
   lockedReason,
@@ -263,6 +321,8 @@ export const DeviceRail = ({
 }: {
   readonly canAct: boolean;
   readonly card: DeviceCard | null;
+  /** The settings this session changed, which the settings badge counts. */
+  readonly changed?: ChangedSettings;
   /** How many elements Screen elements would list. */
   readonly elements: number;
   readonly emulation: NativeEmulation | undefined;
@@ -278,8 +338,7 @@ export const DeviceRail = ({
   const landscape = emulation?.orientation === "landscape";
   const locked = canAct ? undefined : lockedReason;
   const rotate = landscape ? "Rotate to portrait" : "Rotate to landscape";
-  const overrides =
-    (emulation?.appearance === "dark" ? 1 : 0) + (emulation?.location ? 1 : 0);
+  const overrides = changedSettingCount(emulation, changed);
   return (
     <nav
       aria-label="Device controls"
@@ -338,15 +397,7 @@ export const DeviceRail = ({
       />
       <RailButton
         active={card === "stream"}
-        badge={
-          <span
-            aria-hidden="true"
-            className={cn(
-              "ring-background absolute top-1.5 right-1.5 size-2 rounded-full ring-2",
-              streamLive ? "bg-emerald-500" : "bg-destructive"
-            )}
-          />
-        }
+        badge={<RailDot status={streamLive ? "live" : "lost"} />}
         description={streamLive ? "Live" : "Not live"}
         icon={<ActivityIcon />}
         label="Stream diagnostics"
@@ -359,25 +410,28 @@ export const DeviceRail = ({
 /**
  * Appearance and location for the device (ADR 0082). Location uses the
  * browser Emulation's fields; on a device it moves the emulator or
- * simulator itself.
+ * simulator itself. A location reads as applied only once this session set
+ * it: the one the device reported was already there.
  */
 const DeviceSettings = ({
   canAct,
+  changed,
   emulation,
   onEmulate,
+  platform,
 }: {
   readonly canAct: boolean;
+  readonly changed: ChangedSettings;
   readonly emulation: NativeEmulation | undefined;
   readonly onEmulate: (change: NativeEmulationChange) => void;
+  readonly platform: "Android" | "iOS";
 }) => {
   const [errorAtom] = useState(() => Atom.make<string | null>(null));
   const [error, setError] = useAtom(errorAtom);
   return (
-    <div className="space-y-4">
-      <section className="space-y-1.5">
-        <h3 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-          Appearance
-        </h3>
+    <div className="space-y-4 text-xs">
+      <div className="flex min-h-[34px] items-center justify-between gap-3">
+        <span className="text-muted-foreground font-medium">Appearance</span>
         <SegmentedControl
           disabled={!canAct}
           label="Appearance"
@@ -390,66 +444,104 @@ const DeviceSettings = ({
           ]}
           value={emulation?.appearance}
         />
-      </section>
-      <section className="space-y-1.5">
-        <h3 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+      </div>
+      <fieldset className="min-w-0 space-y-2">
+        <legend className="text-muted-foreground mb-2 font-medium">
           Location
-        </h3>
+        </legend>
         <LocationFields
-          applied={emulation?.location}
+          applied={changed.has("location") ? emulation?.location : undefined}
           disabled={!canAct}
           onApply={(location) => onEmulate({ _tag: "location", ...location })}
           onError={(message) => setError(message ?? null)}
         />
         {error === null ? null : (
-          <p className="text-destructive text-xs" role="alert">
+          <p className="text-destructive" role="alert">
             {error}
           </p>
         )}
-      </section>
+      </fieldset>
+      <p className="text-muted-foreground text-pretty">
+        Applied to the {platform === "Android" ? "emulator" : "simulator"} now.
+        The Flow records them as Teaching evidence.
+      </p>
     </div>
   );
 };
 
-/** Copy for each stream state, as Stream diagnostics reads it. */
+/** Each stream state as Stream diagnostics' state row reads it. */
 const streamWords: Record<NativeStreamState, string> = {
   connecting: "Connecting…",
   live: "Live",
-  lost: "Lost: no frame after five tries",
+  lost: "Lost · no frame after 5 tries",
   reconnecting: "Reconnecting…",
-  secure: "Secure window: frames hidden",
+  secure: "Secure window · frames hidden",
   unclassified: "Screen hidden",
   unsupported: "This browser cannot decode the stream",
 };
 
-/** Samples the stream's running counts while the card is open. */
-const useStreamStats = (stats: () => NativeStreamStats) => {
-  const [snapshotAtom] = useState(() => Atom.make(stats()));
-  const [snapshot, setSnapshot] = useAtom(snapshotAtom);
+/** How often the open card re-reads the stream's running counts. */
+const STREAM_READ_INTERVAL = "500 millis";
+
+/**
+ * Re-renders the open card on a steady beat, so it reads the stream's counts
+ * fresh. The counts are read at render, never kept from when the card
+ * opened, so a re-render for any reason (the stream going live, a parent
+ * update) shows them current, and re-renders never restart the beat.
+ */
+const useStreamBeat = () => {
+  const clock = useWorkspaceRefreshClock();
+  const [beatAtom] = useState(() => Atom.make(0));
+  const [, setBeat] = useAtom(beatAtom);
   useEffect(() => {
-    const timer = setInterval(() => setSnapshot(stats()), 1000);
-    return () => clearInterval(timer);
-  }, [setSnapshot, stats]);
-  return snapshot;
+    const fiber = Effect.runFork(
+      Effect.gen(function* readStream() {
+        while (true) {
+          yield* Effect.sleep(STREAM_READ_INTERVAL);
+          setBeat((beat) => beat + 1);
+        }
+      }).pipe(Effect.provideService(Clock.Clock, clock))
+    );
+    return () => {
+      Effect.runFork(Fiber.interrupt(fiber));
+    };
+  }, [clock, setBeat]);
 };
 
 const streamDot = (state: NativeStreamState) => {
   if (state === "live") {
-    return "bg-emerald-500";
+    return "bg-status-ready";
   }
   return state === "connecting" || state === "reconnecting"
     ? "bg-brand"
-    : "bg-destructive";
+    : "bg-status-recording";
 };
 
-const StreamDiagnostics = ({ stream }: { readonly stream: NativeStream }) => {
-  const stats = useStreamStats(stream.stats);
+/** A latency not yet measured reads as a dash, never as a missing stream. */
+const milliseconds = (value: number | undefined) =>
+  value === undefined ? "—" : `${value.toFixed(1)} ms`;
+
+const StreamDiagnostics = ({
+  platform,
+  since,
+  stream,
+}: {
+  readonly platform: "Android" | "iOS";
+  /** When this stage started, so earlier sessions' input is not counted. */
+  readonly since: number;
+  readonly stream: NativeStream;
+}) => {
+  useStreamBeat();
+  const stats = stream.stats();
+  const reading = readNativeStream(
+    stats,
+    platform === "Android" ? "android" : "ios",
+    since
+  );
+  const live = stream.state === "live";
   return (
-    <div className="space-y-3">
-      <div
-        className="bg-island-hover flex min-h-10 items-center gap-2 rounded-xl py-1 pr-1 pl-3 text-sm font-medium"
-        role="status"
-      >
+    <div className="grid gap-3 text-xs">
+      <div className="bg-island-hover flex min-h-10 items-center gap-2 rounded-xl py-1 pr-1 pl-3 text-sm font-medium">
         <span
           aria-hidden="true"
           className={cn(
@@ -457,7 +549,13 @@ const StreamDiagnostics = ({ stream }: { readonly stream: NativeStream }) => {
             streamDot(stream.state)
           )}
         />
-        {streamWords[stream.state]}
+        <span>
+          {/* Only the state is announced; the frame rate changes too often. */}
+          <span role="status">{streamWords[stream.state]}</span>
+          {live && stats.frames.length > 0
+            ? ` · ${reading.framesPerSecond} fps`
+            : null}
+        </span>
         {stream.state === "lost" && stream.onReconnect !== undefined ? (
           <Button
             className="ml-auto"
@@ -471,23 +569,28 @@ const StreamDiagnostics = ({ stream }: { readonly stream: NativeStream }) => {
       </div>
       <dl
         aria-label="Stream diagnostics"
-        className="grid grid-cols-[1fr_auto] gap-x-3 gap-y-1.5 text-xs"
+        className="[&_dt]:text-muted-foreground grid grid-cols-[1fr_auto] gap-x-3 gap-y-1.5 [&_dd]:text-right [&_dd]:font-mono [&_dd]:tabular-nums"
       >
-        <dt className="text-muted-foreground">Device</dt>
-        <dd className="text-right font-mono">{stream.device}</dd>
-        <dt className="text-muted-foreground">Stream</dt>
-        <dd className="text-right font-mono">
+        <dt>Device</dt>
+        <dd>{stream.device}</dd>
+        <dt>Stream</dt>
+        <dd>
           {stats.width === 0
-            ? "Waiting for frames"
-            : `${stats.codec ?? stream.format} · ${stats.width} × ${stats.height}`}
+            ? "—"
+            : `${stream.format} · ${stats.width} × ${stats.height}`}
         </dd>
-        <dt className="text-muted-foreground">Frames shown</dt>
-        <dd className="text-right font-mono">
-          {stats.decoded.toLocaleString()}
+        <dt>Input to frame, p95</dt>
+        <dd>{milliseconds(reading.inputToFrameP95Ms)}</dd>
+        <dt>Decode, p95</dt>
+        <dd>{milliseconds(reading.decodeP95Ms)}</dd>
+        <dt>Decoded / dropped</dt>
+        <dd>
+          {stats.decoded.toLocaleString()} / {stats.dropped.toLocaleString()}
         </dd>
-        <dt className="text-muted-foreground">Keyframe rejoins</dt>
-        <dd className="text-right font-mono">{stats.resyncs}</dd>
       </dl>
+      <p className="text-muted-foreground">
+        Last {NATIVE_FRAME_SAMPLES} decoded frames.
+      </p>
     </div>
   );
 };
@@ -618,6 +721,7 @@ export const NativeStage = ({
   onKey,
   pick,
   platform,
+  sessionId,
   stream,
   takeover,
 }: {
@@ -631,12 +735,14 @@ export const NativeStage = ({
   readonly lockedReason: string | undefined;
   readonly observation: AndroidWorkspaceObservation | null;
   readonly onActivate: (inputs: readonly NativeInput[]) => void;
-  readonly onEmulate: (change: NativeEmulationChange) => void;
+  readonly onEmulate: EmulateDevice;
   readonly onKey: (key: DeviceKey) => void;
   readonly pick?: NativeElementPick | undefined;
   /** The recording's comment pins, while Teaching records. */
   readonly comments?: NativeCommentPins | undefined;
   readonly platform: "Android" | "iOS";
+  /** The session shown, which owns the settings it changed. */
+  readonly sessionId: string;
   readonly stream: NativeStream;
   readonly takeover: boolean;
 }) => {
@@ -644,6 +750,8 @@ export const NativeStage = ({
   const [card, setCard] = useAtom(cardAtom);
   const [highlightAtom] = useState(() => Atom.make<ScreenBox | null>(null));
   const [highlight, setHighlight] = useAtom(highlightAtom);
+  const [changed, addChanged] = useChangedSettings(sessionId);
+  const [since] = useState(() => performance.now());
   const active = activePick(pick, observation, setHighlight);
   const stage = useRef<HTMLElement>(null);
   const cardRef = useRef<HTMLElement>(null);
@@ -698,7 +806,7 @@ export const NativeStage = ({
       style={{ containerType: "size" }}
     >
       {active === undefined ? null : (
-        <InspectHint error={undefined} verb="Click" />
+        <InspectHint error={undefined} verb="Tap" />
       )}
       <div className="relative flex items-center gap-3">
         {hasLeading ? (
@@ -719,6 +827,7 @@ export const NativeStage = ({
         <DeviceRail
           canAct={canAct}
           card={shown}
+          changed={changed}
           elements={screenElementCount(observation)}
           emulation={emulation}
           lockedReason={lockedReason}
@@ -750,8 +859,16 @@ export const NativeStage = ({
               {shown === "settings" ? (
                 <DeviceSettings
                   canAct={canAct}
+                  changed={changed}
                   emulation={emulation}
-                  onEmulate={onEmulate}
+                  onEmulate={(change) => {
+                    const tag = change._tag;
+                    onEmulate(
+                      change,
+                      tag === "orientation" ? undefined : () => addChanged(tag)
+                    );
+                  }}
+                  platform={platform}
                 />
               ) : null}
               {shown === "elements" ? (
@@ -767,7 +884,11 @@ export const NativeStage = ({
                 />
               ) : null}
               {shown === "stream" ? (
-                <StreamDiagnostics stream={stream} />
+                <StreamDiagnostics
+                  platform={platform}
+                  since={since}
+                  stream={stream}
+                />
               ) : null}
             </div>
           </section>
@@ -895,7 +1016,7 @@ export const AndroidDevice = ({
   readonly onDeviceKey: (key: DeviceKey) => void;
   /** The device's Emulation as last read or set. */
   readonly emulation?: NativeEmulation | undefined;
-  readonly onEmulate: (change: NativeEmulationChange) => void;
+  readonly onEmulate: EmulateDevice;
   readonly onInput: (input: NativeInput) => void;
   /** The agent holds the device, so its touches are drawn on the screen. */
   readonly agentDriving: boolean;
@@ -956,6 +1077,7 @@ export const AndroidDevice = ({
       pick={pick}
       comments={comments}
       platform="Android"
+      sessionId={sessionId}
       stream={{
         device,
         format: "H.264",

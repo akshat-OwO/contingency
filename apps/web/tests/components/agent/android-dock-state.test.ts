@@ -48,6 +48,25 @@ const pending = {
   takeoverOccurred: false,
 } satisfies AndroidWorkspaceSnapshot;
 
+/** A recording whose Dry Run has decided, with the given outcome. */
+const decided = (_tag: "dry-run-failed" | "dry-run-passed") =>
+  ({
+    _tag,
+    draftedAt: pending.startedAt,
+    dryRunEndedAt: pending.startedAt,
+    dryRunResult: {
+      completedAt: pending.startedAt,
+      inputs: [],
+      observableOutcome: "The order was confirmed.",
+      outcome: _tag === "dry-run-passed" ? "passed" : "failed",
+    },
+    dryRunSessionId: AgentSessionId.make("agent-dry-run"),
+    dryRunStartedAt: pending.startedAt,
+    readyAt: pending.startedAt,
+    startedAt: pending.startedAt,
+    stoppedAt: pending.startedAt,
+  }) satisfies AndroidWorkspaceSnapshot["captureState"];
+
 test("offers initial preparation retry and recovery only after preparation", () => {
   const presentation = androidDockPresentation(pending);
   expect(presentation.action?.label).toBe("Prepare emulator");
@@ -99,24 +118,58 @@ test("Confirmation pauses request a decision and preserve Takeover", () => {
   ).toBe("take-control");
 });
 
-test("an ended session's verdict sets its tone", () => {
-  const verdict = (
-    outcome: "blocked" | "inconclusive" | "not-working" | "working"
-  ) =>
-    androidDockPresentation({
+test("an ended Run reads Ended whatever its verdict, as the Web ended Run", () => {
+  for (const outcome of [
+    "blocked",
+    "inconclusive",
+    "not-working",
+    "working",
+  ] as const) {
+    const presentation = androidDockPresentation({
       ...pending,
       assessment: { explanation: "Seen.", observationId: "final", outcome },
-      kind: "run",
+      kind: "dry-run",
       phase: "completed",
-    }).tone;
-  expect(verdict("working")).toBe("success");
-  expect(verdict("not-working")).toBe("failed");
-  expect(verdict("blocked")).toBe("attention");
-  expect(verdict("inconclusive")).toBe("attention");
+    });
+    expect(presentation).toMatchObject({
+      action: null,
+      badge: "Ended",
+      nextStep: "The Run ended. Its summary is beside it.",
+      rejectable: false,
+      tone: "ended",
+    });
+  }
+  // A failed Dry Run's verdict is the Summary's, not the chip's.
   expect(
-    androidDockPresentation({ ...pending, kind: "run", phase: "completed" })
-      .tone
-  ).toBe("default");
+    androidDockPresentation({
+      ...pending,
+      captureState: decided("dry-run-failed"),
+      kind: "dry-run",
+      phase: "closed",
+    })
+  ).toMatchObject({ action: null, badge: "Ended", tone: "ended" });
+});
+
+test("an ended Dry Run keeps a Flow decision the recording waits on", () => {
+  expect(
+    androidDockPresentation({
+      ...pending,
+      captureState: decided("dry-run-passed"),
+      kind: "dry-run",
+      phase: "completed",
+    })
+  ).toMatchObject({
+    action: { gesture: "verify-flow" },
+    badge: "Ended",
+    rejectable: true,
+    tone: "ended",
+  });
+});
+
+test("an ended Teaching session keeps its own verdict", () => {
+  expect(androidDockPresentation({ ...pending, phase: "closed" }).badge).toBe(
+    "Closed"
+  );
 });
 
 test("a recoverable pause asks for attention rather than failing", () => {
@@ -128,14 +181,19 @@ test("a recoverable pause asks for attention rather than failing", () => {
   );
 });
 
-test("a driven session is live", () => {
+test("the agent driving a Run reads Running; the user driving is live", () => {
   const running = { ...pending, kind: "run", phase: "running" } as const;
-  expect(androidDockPresentation(running).tone).toBe("live");
-  expect(androidDockPresentation(running).badge).toBe("You have control");
+  expect(androidDockPresentation(running)).toMatchObject({
+    badge: "You have control",
+    tone: "live",
+  });
   expect(
-    androidDockPresentation({ ...running, controller: "agent" }).badge
-  ).toBe("Agent driving");
-  expect(
-    androidDockPresentation({ ...running, controller: "agent" }).tone
-  ).toBe("live");
+    androidDockPresentation({ ...running, controller: "agent" })
+  ).toMatchObject({
+    action: { gesture: "take-control" },
+    badge: "Running",
+    nextStep:
+      "The agent is following the Flow on its own. Take control at any time; the agent waits until you return it.",
+    tone: "busy",
+  });
 });

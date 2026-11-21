@@ -1,5 +1,11 @@
 import { RegistryProvider } from "@effect/atom-react";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Effect } from "effect";
 import { Atom } from "effect/reactivity";
@@ -88,15 +94,21 @@ const Harness = ({ children }: { readonly children: ReactNode }) => (
   </RpcDependenciesProvider>
 );
 
-const renderSetup = (userHoldsBrowser = true, emulationFixed = false) =>
+const renderSetup = (
+  userHoldsBrowser = true,
+  emulationFixed = false,
+  ended = false
+) =>
   render(
     <Harness>
       <WorkspaceBrowserStage
         browserControls={null}
         consoleEntries={[]}
         emulationFixed={emulationFixed}
+        ended={ended}
         onClearConsole={() => {}}
         sessionId={sessionId}
+        streamStatus="live"
         teaching={false}
         userHoldsBrowser={userHoldsBrowser}
 
@@ -280,4 +292,40 @@ test("docks an inspection panel beside the stage and moves it below", async () =
   // Docking, moving, and closing the inspector keep the same live frame
   // rather than remounting it.
   expect(screen.getByLabelText("Live browser viewport")).toBe(canvas);
+});
+
+test("switches DevTools panels from its header", async () => {
+  renderSetup();
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Console" }));
+  const panels = await screen.findByRole("group", { name: "DevTools panels" });
+  await user.click(within(panels).getByRole("button", { name: "Network" }));
+  expect(await screen.findByRole("region", { name: "Network" })).toBeVisible();
+  expect(
+    screen.queryByRole("region", { name: "Console" })
+  ).not.toBeInTheDocument();
+  expect(
+    within(screen.getByRole("navigation", { name: "Browser tools" })).getByRole(
+      "button",
+      { name: "Network" }
+    )
+  ).toHaveAttribute("aria-pressed", "true");
+});
+
+test("marks the live stream on the rail", async () => {
+  renderSetup();
+  expect(
+    await screen.findByRole("button", { name: "Stream diagnostics" })
+  ).toHaveAttribute("aria-description", "Live");
+});
+
+test("an ended stage hides the device bar and the tools rail", () => {
+  renderSetup(false, false, true);
+  expect(
+    screen.queryByRole("toolbar", { name: "Device controls" })
+  ).not.toBeInTheDocument();
+  expect(
+    screen.queryByRole("navigation", { name: "Browser tools" })
+  ).not.toBeInTheDocument();
+  expect(screen.getByRole("region", { name: "Browser stage" })).toBeVisible();
 });

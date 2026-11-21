@@ -290,6 +290,93 @@ const useSeekThumbnail = (playerSrc: string, hoverMs: number | undefined) => {
   return { frame, load, video };
 };
 
+/** How far before the end the last frame is taken, inside the last frame. */
+const LAST_FRAME_LEAD_S = 0.05;
+
+/**
+ * The recording's last frame, as an image URL, or `undefined` until it is
+ * drawn or when it cannot be. A detached video on the same file seeks to its
+ * end and draws that frame once; the player and its stage show what the Run
+ * ended on instead of the blank page most recordings open with. A WebM
+ * written without a duration reports one only after a seek past its end, so
+ * that seek comes first. Pass `undefined` while the file is not ready.
+ */
+export const useRunVideoLastFrame = (
+  src: string | undefined
+): string | undefined => {
+  const [frame, setFrame] = useState<{
+    readonly src: string;
+    readonly url: string;
+  }>();
+  useEffect(() => {
+    if (src === undefined) {
+      return;
+    }
+    let done = false;
+    const video = document.createElement("video");
+    // Dropping the source and loading again aborts the rest of the fetch.
+    const release = () => {
+      video.removeAttribute("src");
+      video.load();
+    };
+    const toEnd = () => {
+      if (done) {
+        return;
+      }
+      if (video.duration === Number.POSITIVE_INFINITY) {
+        video.currentTime = Number.MAX_SAFE_INTEGER;
+        return;
+      }
+      if (Number.isFinite(video.duration) && video.duration > 0) {
+        const end = Math.max(0, video.duration - LAST_FRAME_LEAD_S);
+        if (Math.abs(video.currentTime - end) > 0.01) {
+          video.currentTime = end;
+        }
+      }
+    };
+    const draw = () => {
+      if (
+        done ||
+        !Number.isFinite(video.duration) ||
+        video.videoWidth === 0 ||
+        video.currentTime < video.duration - 2 * LAST_FRAME_LEAD_S
+      ) {
+        return;
+      }
+      const canvas = document.createElement("canvas");
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const context = canvas.getContext("2d");
+      if (context === null) {
+        return;
+      }
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      done = true;
+      try {
+        setFrame({ src, url: canvas.toDataURL("image/jpeg", 0.9) });
+      } catch {
+        // A frame the page may not read leaves the player as it was.
+      }
+      release();
+    };
+    video.muted = true;
+    video.playsInline = true;
+    video.preload = "auto";
+    video.addEventListener("loadedmetadata", toEnd);
+    video.addEventListener("durationchange", toEnd);
+    video.addEventListener("seeked", draw);
+    video.src = src;
+    return () => {
+      done = true;
+      video.removeEventListener("loadedmetadata", toEnd);
+      video.removeEventListener("durationchange", toEnd);
+      video.removeEventListener("seeked", draw);
+      release();
+    };
+  }, [src]);
+  return frame !== undefined && frame.src === src ? frame.url : undefined;
+};
+
 /**
  * The bars, grouped into chapters. A chapter is as wide as its share of the
  * video, so a pointer maps to time through the chapter under it; the gap
@@ -504,7 +591,13 @@ const Scrubber = ({
  * local evidence, so the path is shown and copied, never uploaded
  * ([ADR 0010](../../../../../docs/adr/0010-run-video-is-unredacted.md)).
  */
-const VideoPath = ({ path }: { readonly path: string }) => {
+const VideoPath = ({
+  className = "mt-2 border-t pt-2",
+  path,
+}: {
+  readonly className?: string;
+  readonly path: string;
+}) => {
   const [copy, setCopy] = useState<"idle" | "copied" | "failed">("idle");
   useEffect(() => {
     if (copy === "idle") {
@@ -519,7 +612,7 @@ const VideoPath = ({ path }: { readonly path: string }) => {
     idle: "Copy path",
   }[copy];
   return (
-    <div className="mt-2 flex items-center gap-2 border-t pt-2">
+    <div className={cn("flex items-center gap-2", className)}>
       <FileVideoIcon
         aria-hidden="true"
         className="text-muted-foreground size-3.5 shrink-0"
@@ -728,17 +821,13 @@ const useFullscreen = (element: RefObject<HTMLElement | null>) => {
 };
 
 const PlayerControls = ({
-  current,
   fullscreen,
   onToggleFullscreen,
   playback,
-  total,
 }: {
-  readonly current: RunVideoChapter | undefined;
   readonly fullscreen: boolean;
   readonly onToggleFullscreen: () => Promise<void> | void;
   readonly playback: Playback;
-  readonly total: number;
 }) => (
   <>
     <div className="mt-3 flex items-center gap-1">
@@ -778,15 +867,6 @@ const PlayerControls = ({
             : "—"}
         </span>
       </span>
-      {current === undefined ? null : (
-        <span
-          className="ml-2 hidden min-w-0 truncate border-l pl-2.5 text-xs @[20rem]:block"
-          // A truncated chapter reads in full on hover.
-          title={current.label}
-        >
-          <ChapterName chapter={current} total={total} />
-        </span>
-      )}
       <span className="flex-1" />
       <Button
         aria-label={`Playback speed, ${playback.rate}×`}
@@ -811,13 +891,32 @@ const PlayerControls = ({
         )}
       </DockButton>
     </div>
-    {current === undefined ? null : (
-      <p className="mt-2 truncate text-xs @[20rem]:hidden">
-        <ChapterName chapter={current} total={total} />
-      </p>
-    )}
   </>
 );
+
+/**
+ * The chapter on screen, on its own bar between the picture and the seek
+ * bar, so a long label wraps rather than being cut beside the controls.
+ */
+const ChapterCaption = ({
+  current,
+  fullscreen,
+  total,
+}: {
+  readonly current: RunVideoChapter | undefined;
+  readonly fullscreen: boolean;
+  readonly total: number;
+}) =>
+  current === undefined ? null : (
+    <p
+      className={cn(
+        "bg-foreground/[0.04] px-3 py-1.5 font-mono text-xs text-pretty wrap-anywhere dark:bg-black/30",
+        fullscreen ? "mt-1.5 rounded-xl border" : "border-t"
+      )}
+    >
+      <ChapterName chapter={current} total={total} />
+    </p>
+  );
 
 /**
  * The player: the video on top and its controls below it, so no control
@@ -855,6 +954,7 @@ export const RunVideoPlayer = ({
 }) => {
   const rootRef = useRef<HTMLDivElement>(null);
   const playback = usePlayback();
+  const lastFrame = useRunVideoLastFrame(src);
   const { seek, durationMs } = playback;
   const seekKey = seekRequest?.key;
   const seekMs = seekRequest?.ms;
@@ -957,6 +1057,9 @@ export const RunVideoPlayer = ({
             fullscreen ? "h-full" : videoClassName
           )}
           onClick={playback.toggle}
+          // Until it plays, the player shows what the Run ended on rather
+          // than the blank page a recording usually opens with.
+          poster={lastFrame}
           preload="metadata"
           ref={playback.videoRef}
           src={src}
@@ -981,6 +1084,11 @@ export const RunVideoPlayer = ({
           </div>
         )}
       </div>
+      <ChapterCaption
+        current={chapterAt(chapters, playback.currentMs)}
+        fullscreen={fullscreen}
+        total={total}
+      />
       <div
         className={cn(
           "@container px-3 py-2.5",
@@ -998,11 +1106,9 @@ export const RunVideoPlayer = ({
           videoRef={playback.videoRef}
         />
         <PlayerControls
-          current={chapterAt(chapters, playback.currentMs)}
           fullscreen={fullscreen}
           onToggleFullscreen={toggleFullscreen}
           playback={playback}
-          total={total}
         />
         {fullscreen || path === undefined ? null : <VideoPath path={path} />}
       </div>
@@ -1037,6 +1143,7 @@ const runVideoSeek = (
 export const RunVideo = ({
   className,
   note,
+  pathInPlayer = true,
   seekAt,
   src,
   timeMap,
@@ -1046,6 +1153,12 @@ export const RunVideo = ({
   readonly className?: string;
   /** Said under a video that exists, such as where it is kept. */
   readonly note?: React.ReactNode;
+  /**
+   * Whether the player ends on the file's path. A docked summary leaves it
+   * to `RunVideoLocation` elsewhere, so the player stays frame, caption, and
+   * seek bar.
+   */
+  readonly pathInPlayer?: boolean;
   /**
    * A moment of the Run to show, as an ISO time, such as a finding chosen
    * beside the video. A new `key` repeats the same moment.
@@ -1096,7 +1209,7 @@ export const RunVideo = ({
       <RunVideoPlayer
         className={className}
         condensed={status?.condensed ?? false}
-        path={status?.path}
+        path={pathInPlayer ? status?.path : undefined}
         seekRequest={runVideoSeek(timeMap, status?.condensed ?? false, seekAt)}
         src={src}
         timeMap={timeMap}
@@ -1113,4 +1226,18 @@ export const RunVideo = ({
       )}
     </>
   );
+};
+
+/**
+ * Where a ready Run video is kept on this machine, with its copy button, for
+ * a summary whose player leaves the path out. Nothing shows until the video
+ * is ready.
+ */
+export const RunVideoLocation = ({ src }: { readonly src: string }) => {
+  const { runVideoStatusAtom } = useRpcDependencies();
+  const result = useAtomValue(runVideoStatusAtom(src));
+  if (result._tag !== "Success" || result.value.state !== "ready") {
+    return null;
+  }
+  return <VideoPath className="min-w-0" path={result.value.path} />;
 };

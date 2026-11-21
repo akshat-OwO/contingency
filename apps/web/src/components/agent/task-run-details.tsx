@@ -2,6 +2,7 @@ import type {
   AgentPursuitEnding,
   AgentPursuitRecord,
   AgentTaskAssessment,
+  DraftEmulation,
   TaskAgentRunState,
   TaskAgentRunSummary,
 } from "@contingency/protocol";
@@ -29,6 +30,7 @@ import {
 } from "./run-detail-parts";
 import { runProvenance } from "./run-provenance.ts";
 import { ScanResults } from "./scan-results.tsx";
+import { webViewportPresets } from "./workspace-home-state";
 
 type TaskRun = TaskAgentRunState | TaskAgentRunSummary;
 
@@ -237,15 +239,35 @@ const emulationChange = (
     : changes.join(", ");
 };
 
+/**
+ * The starting viewport as the start card names it, `Desktop 1280×800`, with
+ * the locale when the Run set one. A viewport no preset matches is its size.
+ */
+const viewportSummary = (emulation: DraftEmulation): string => {
+  const { userAgentProfile, viewport } = emulation;
+  const preset = webViewportPresets.find(
+    (entry) =>
+      (entry.userAgentProfile ?? "default") === userAgentProfile &&
+      entry.viewport.width === viewport.width &&
+      entry.viewport.height === viewport.height
+  );
+  const size = `${viewport.width}×${viewport.height}`;
+  return [
+    preset === undefined ? size : `${preset.label} ${size}`,
+    emulation.locale ?? undefined,
+  ]
+    .filter((part) => part !== undefined)
+    .join(" · ");
+};
+
 export const EmulationSection = ({ run }: { readonly run: TaskRun }) => {
-  const { viewport } = run.startingEmulation;
   const changes = run.emulationChanges ?? [];
   return (
     <DetailSection label="Emulation">
       <DetailFacts>
         <dt>Viewport</dt>
         <dd className="tabular-nums">
-          {viewport.width}×{viewport.height}
+          {viewportSummary(run.startingEmulation)}
         </dd>
         <dt>Page zoom</dt>
         <dd className="tabular-nums">
@@ -321,7 +343,7 @@ export const TaskRunDetails = ({
             {live ? "No findings yet." : noFindings(run.assessment !== null)}
           </DetailEmpty>
         ) : (
-          <ul className="grid gap-3.5">
+          <ul aria-label="Findings" className="grid gap-3.5">
             {run.findings.map((finding) => (
               <li key={finding.id}>
                 <Assessment assessment={finding} />

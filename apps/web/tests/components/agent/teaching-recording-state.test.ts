@@ -2,6 +2,7 @@ import { makeBrowserRpcError } from "@contingency/protocol";
 import { expect, test } from "vitest";
 
 import {
+  elapsedClock,
   gestureFailureMessage,
   teachingRecordingPresentation,
 } from "@/components/agent/teaching-recording-state";
@@ -147,7 +148,9 @@ test("offers Start only once the agent hands Teaching setup to the user", () => 
 
   const handedOff = teachingRecordingPresentation(setup, undefined, "user");
   expect(handedOff.action?.gesture).toBe("start");
-  expect(handedOff.badge).toBe("Not recording");
+  // Handed over and ready to record: the prototype's Ready chip (#753).
+  expect(handedOff.badge).toBe("Ready");
+  expect(handedOff.tone).toBe("success");
 });
 
 test("offers nothing once a session ends before recording started", () => {
@@ -160,4 +163,15 @@ test("offers nothing once a session ends before recording started", () => {
   expect(ended.action).toBeNull();
   expect(ended.secondaries).toEqual([]);
   expect(ended.badge).toBe("Not recorded");
+});
+
+test("reads every Teaching elapsed time as mm:ss, and h:mm:ss past an hour", () => {
+  const start = "2026-09-16T10:00:00.000Z";
+  const at = (iso: string) => elapsedClock(start, Date.parse(iso));
+  expect(at("2026-09-16T10:00:31.900Z")).toBe("00:31");
+  expect(at("2026-09-16T10:12:05.000Z")).toBe("12:05");
+  expect(at("2026-09-16T11:02:03.000Z")).toBe("1:02:03");
+  // A moment before Start, or a start the Workspace cannot read, is 00:00.
+  expect(at("2026-09-16T09:59:00.000Z")).toBe("00:00");
+  expect(elapsedClock("not a time", 0)).toBe("00:00");
 });

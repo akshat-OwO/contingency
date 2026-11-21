@@ -152,16 +152,6 @@ export const iosHomeSession = (session: IosWorkspaceSummary): HomeSession => ({
   title: session.flowName,
 });
 
-/** What a session has been recording for, as `mm:ss`. */
-export const elapsedClock = (startedAt: string, now: number): string => {
-  const seconds = Math.max(
-    0,
-    Math.floor((now - Date.parse(startedAt)) / 1000) || 0
-  );
-  const minutes = String(Math.floor(seconds / 60)).padStart(2, "0");
-  return `${minutes}:${String(seconds % 60).padStart(2, "0")}`;
-};
-
 /**
  * A Viewport the Web start card offers. A phone or tablet brings its own
  * Chromium identity, so the session is that device rather than a narrow

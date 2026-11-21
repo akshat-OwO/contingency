@@ -36,8 +36,6 @@ import {
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
-import { BrowserModificationBadge } from "./browser-modifications";
-
 /** Minutes are the notice's granularity, so a slower tick is never stale. */
 const IDLE_TICK_MS = 15_000;
 
@@ -212,12 +210,41 @@ const TaskDetails = ({
         sideOffset={8}
         className="max-h-[min(60svh,35rem)] w-100 max-w-[calc(100vw-2rem)] overflow-y-auto whitespace-normal"
       >
-        <PopoverTitle>{title}</PopoverTitle>
+        {/* The prototype's popover eyebrow: small, uppercase and faint. */}
+        <PopoverTitle className="text-muted-foreground/70 text-[11px] font-semibold tracking-[0.04em] uppercase">
+          {title}
+        </PopoverTitle>
         <TaskRunDetails run={run} />
       </PopoverContent>
     </Popover>
   );
 };
+
+/**
+ * How an ended Run leaves: **Back to Teaching** as a ghost button while the
+ * Teaching session it rehearsed still runs, otherwise a filled **Done** (#757).
+ */
+const DismissButton = ({
+  backToTeaching,
+  onDismiss,
+}: {
+  readonly backToTeaching: boolean;
+  readonly onDismiss: () => void;
+}) =>
+  backToTeaching ? (
+    <Button
+      className="text-foreground ring-island-border ring-1 ring-inset"
+      onClick={onDismiss}
+      type="button"
+      variant="ghost"
+    >
+      Back to Teaching
+    </Button>
+  ) : (
+    <Button onClick={onDismiss} type="button">
+      Done
+    </Button>
+  );
 
 /**
  * The session status for a Dry Run and an Interactive Run, on the same
@@ -283,9 +310,7 @@ export const RunDock = ({
               )}
               <AgentIdle session={session} />
               <ProvenanceBadge provenance={provenance} />
-              <BrowserModificationBadge
-                modifications={taskRun?.browserModifications ?? []}
-              />
+              {/* Browser Modifications are in Task details, not here (#778). */}
             </>
           }
         >
@@ -300,24 +325,31 @@ export const RunDock = ({
         />
       )}
       {onDismiss === undefined ? null : (
-        <Button onClick={onDismiss} type="button" variant="outline">
-          {session.dryRun &&
-          sessions.some(
-            (candidate) =>
-              candidate.activity === "teaching" &&
-              candidate.recordingId === session.dryRun?.recordingId
-          )
-            ? "Back to Teaching"
-            : "Done"}
-        </Button>
+        <DismissButton
+          backToTeaching={
+            (session.dryRun ?? null) !== null &&
+            sessions.some(
+              (candidate) =>
+                candidate.activity === "teaching" &&
+                candidate.recordingId === session.dryRun?.recordingId
+            )
+          }
+          onDismiss={onDismiss}
+        />
       )}
       {control.action === null ? null : (
         <Button
-          className="ml-auto"
+          className={cn(
+            "ml-auto",
+            // Taking control is the quiet offer while the agent drives; the
+            // prototype draws it as a ghost button (#753).
+            control.action === "Take control" &&
+              "text-foreground ring-island-border ring-1 ring-inset"
+          )}
           disabled={controlPending}
           onClick={onControl}
           type="button"
-          variant={session.controller === "user" ? "outline" : "default"}
+          variant={control.action === "Take control" ? "ghost" : "default"}
         >
           {control.action}
         </Button>

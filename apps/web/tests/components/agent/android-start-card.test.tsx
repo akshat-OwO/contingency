@@ -77,6 +77,19 @@ const Card = ({
   );
 };
 
+/** The installed-app picker, a combobox as on the #744 card. */
+const targetApp = () => screen.getByRole("combobox", { name: "Target App" });
+
+/** Picks the installed Shop once the device's apps are listed. */
+const chooseShop = async (user: ReturnType<typeof userEvent.setup>) => {
+  // The picker waits, disabled, until the apps are read.
+  await vi.waitFor(() => expect(targetApp()).toBeEnabled());
+  await user.click(targetApp());
+  await user.click(
+    await screen.findByRole("option", { name: "Shop dev.shop · build 1" })
+  );
+};
+
 /** Opens the collapsed Setup section of the card. */
 const openSetup = (user: ReturnType<typeof userEvent.setup>) =>
   user.click(screen.getByRole("button", { name: /^Setup/u }));
@@ -93,10 +106,14 @@ test("unlocks setup sequentially and submits selectable permission decisions wit
   ).toBeDisabled();
   // The one ready device is the device: Target App opens without a click.
   expect(
-    await screen.findByRole("button", { name: /Pixel_9/u })
-  ).toHaveAttribute("aria-pressed", "true");
-  expect(screen.getByRole("group", { name: "Target App" })).toBeEnabled();
-  await user.click(await screen.findByRole("button", { name: /Shop/u }));
+    await screen.findByRole("group", { name: "Pixel_9" })
+  ).toHaveTextContent("Running · emulator-5554");
+  // The field reads as the prototype: the device, then its Android version.
+  expect(screen.getByRole("combobox", { name: "Device" })).toHaveTextContent(
+    /^Pixel_9 · Android 16$/u
+  );
+  await chooseShop(user);
+  expect(targetApp()).toHaveValue("Shop");
   expect(
     screen.getByRole("textbox", { name: "Starting screen element" })
   ).toBeEnabled();
@@ -151,6 +168,7 @@ test("unlocks setup sequentially and submits selectable permission decisions wit
 });
 
 test("waits for a choice when more than one device is ready", async () => {
+  const user = userEvent.setup();
   const [emulator] = await Effect.runPromise(discovery.devices);
   render(
     <Card
@@ -163,29 +181,188 @@ test("waits for a choice when more than one device is ready", async () => {
       }}
     />
   );
-  expect(
-    await screen.findByRole("button", { name: /Pixel_8/u })
-  ).toHaveAttribute("aria-pressed", "false");
-  expect(screen.getByRole("group", { name: "Target App" })).toBeDisabled();
+  const field = await screen.findByRole("combobox", { name: "Device" });
+  expect(field).toHaveTextContent("Choose a device");
+  expect(targetApp()).toBeDisabled();
+  await user.click(field);
+  await user.click(
+    await screen.findByRole("option", {
+      name: "Pixel_8 · Android 16 emulator-5556",
+    })
+  );
+  expect(field).toHaveTextContent("Pixel_8");
+  await vi.waitFor(() => expect(targetApp()).toBeEnabled());
 });
 
-test("keeps the installed-app frame in place while the apps load", async () => {
+test("asks for a new choice when the picked device leaves, rather than taking another", async () => {
+  const user = userEvent.setup();
+  const [emulator] = await Effect.runPromise(discovery.devices);
+  const other = { ...emulator, avd: "Pixel_8", serial: "emulator-5556" };
+  let pickedGone = false;
+  render(
+    <Card
+      discovery={{
+        ...discovery,
+        devices: Effect.sync(() => (pickedGone ? [other] : [emulator, other])),
+      }}
+    />
+  );
+  const field = await screen.findByRole("combobox", { name: "Device" });
+  await user.click(field);
+  await user.click(await screen.findByRole("option", { name: /Pixel_9/u }));
+  expect(field).toHaveTextContent("Pixel_9");
+  pickedGone = true;
+  await user.click(screen.getByRole("button", { name: "Refresh devices" }));
+  // The only device left is not the one the user picked.
+  expect(await screen.findByText("Choose a device")).toBeVisible();
+  expect(field).not.toHaveTextContent("Pixel_8");
+  expect(targetApp()).toBeDisabled();
+});
+
+test("keeps a picked emulator chosen when it comes back under a new serial", async () => {
+  const user = userEvent.setup();
+  const [emulator] = await Effect.runPromise(discovery.devices);
+  const other = { ...emulator, avd: "Pixel_8", serial: "emulator-5556" };
+  let rebooted = false;
+  let reused = false;
+  const stranger = { ...emulator, avd: "Pixel_7", serial: "emulator-5554" };
+  render(
+    <Card
+      discovery={{
+        ...discovery,
+        devices: Effect.sync(() => {
+          if (!rebooted) {
+            return [emulator, other];
+          }
+          const moved = { ...emulator, serial: "emulator-5558" };
+          return reused ? [stranger, moved, other] : [moved, other];
+        }),
+      }}
+    />
+  );
+  const field = await screen.findByRole("combobox", { name: "Device" });
+  await user.click(field);
+  await user.click(await screen.findByRole("option", { name: /Pixel_9/u }));
+  rebooted = true;
+  await user.click(screen.getByRole("button", { name: "Refresh devices" }));
+  expect(await screen.findByText("Running · emulator-5558")).toBeVisible();
+  expect(field).toHaveTextContent("Pixel_9");
+  // Another AVD takes the old serial: the pick stays with its AVD.
+  reused = true;
+  await user.click(screen.getByRole("button", { name: "Refresh devices" }));
+  expect(await screen.findByText("Running · emulator-5558")).toBeVisible();
+  expect(field).toHaveTextContent("Pixel_9");
+});
+
+test("offers the .apk upload before a device is chosen", async () => {
+  const user = userEvent.setup({ pointerEventsCheck: 0 });
+  const [emulator] = await Effect.runPromise(discovery.devices);
+  const upload = vi.fn((file: File) =>
+    Effect.succeed({
+      apkPath: "/tmp/contingency-builds-x/1/target.apk",
+      app: {
+        label: "Shop",
+        launchActivity: "dev.shop/.Main",
+        package: "dev.shop",
+        versionCode: "2",
+        versionName: "2",
+      },
+      id: "33333333-3333-3333-3333-333333333333",
+      name: file.name,
+    })
+  );
+  render(
+    <Card
+      discovery={{
+        ...discovery,
+        devices: Effect.succeed([
+          emulator,
+          { ...emulator, avd: "Pixel_8", serial: "emulator-5556" },
+        ]),
+        upload,
+      }}
+    />
+  );
+  expect(
+    await screen.findByText("Choose a device to list its apps.")
+  ).toBeVisible();
+  expect(screen.getByRole("button", { name: "Upload an .apk" })).toBeEnabled();
+  const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
+  await user.upload(
+    picker ?? document.createElement("input"),
+    new File(["PK"], "shop.apk", {
+      type: "application/vnd.android.package-archive",
+    })
+  );
+  expect(
+    await screen.findByText("dev.shop · build 2 · installs with your consent")
+  ).toBeVisible();
+  // The build is the Target App; Start still waits for a device.
+  expect(
+    screen.getByRole("button", { name: "Start teaching" })
+  ).toHaveAccessibleDescription("Choose a running device to continue.");
+});
+
+test("keeps the Target App field in place while the apps load", async () => {
+  const user = userEvent.setup();
   const [shop] = await Effect.runPromise(discovery.apps());
   const listed = Effect.runSync(Deferred.make<readonly (typeof shop)[]>());
   render(
     <Card discovery={{ ...discovery, apps: () => Deferred.await(listed) }} />
   );
-  const loading = await screen.findByText("Reading installed apps…");
-  const frame = loading.parentElement;
-  expect(frame).toHaveClass("h-44", "rounded-lg", "border");
+  // The one field says it is reading, so nothing below it moves.
+  expect(
+    await screen.findByText("Reading installed apps…")
+  ).toBeInTheDocument();
+  expect(targetApp()).toBeDisabled();
+  expect(targetApp()).toHaveAttribute("placeholder", "Reading installed apps…");
+  expect(targetApp()).toHaveAccessibleDescription("Reading installed apps…");
   Effect.runSync(Deferred.succeed(listed, [shop]));
-  const list = await screen.findByRole("list", { name: "Installed apps" });
-  // The same frame holds the list, so the steps below it do not move.
-  expect(list.parentElement).toBe(frame);
-  expect(frame).toHaveClass("h-44");
+  await chooseShop(user);
+  expect(targetApp()).toHaveValue("Shop");
+});
+
+test("searches installed apps by name or package and says when none match", async () => {
+  const user = userEvent.setup();
+  render(
+    <Card
+      discovery={{
+        ...discovery,
+        apps: () =>
+          Effect.succeed([
+            {
+              label: "Shop",
+              launchActivity: "dev.shop/.Main",
+              package: "dev.shop",
+              versionCode: "1",
+              versionName: "1",
+            },
+            {
+              label: "Fixture Shop",
+              launchActivity: "dev.contingency.checkout/.Main",
+              package: "dev.contingency.checkout",
+              versionCode: "1",
+              versionName: "1",
+            },
+          ]),
+      }}
+    />
+  );
+  await vi.waitFor(() => expect(targetApp()).toBeEnabled());
+  await user.type(targetApp(), "contingency.check");
+  expect(
+    await screen.findByRole("option", {
+      name: "Fixture Shop dev.contingency.checkout · build 1",
+    })
+  ).toBeVisible();
+  expect(screen.queryByRole("option", { name: /^Shop /u })).toBeNull();
+  await user.clear(targetApp());
+  await user.type(targetApp(), "nothing-here");
+  expect(await screen.findByText("No launchable app matches.")).toBeVisible();
 });
 
 test("disables physical devices with their refusal reason before app discovery", async () => {
+  const user = userEvent.setup();
   const apps = vi.fn(discovery.apps);
   render(
     <Card
@@ -207,11 +384,12 @@ test("disables physical devices with their refusal reason before app discovery",
       }}
     />
   );
-  const phone = await screen.findByRole("button", {
+  await user.click(await screen.findByRole("combobox", { name: "Device" }));
+  const phone = await screen.findByRole("option", {
     name: /physical_device_unsupported/u,
   });
-  expect(phone).toBeDisabled();
-  expect(screen.getByRole("group", { name: "Target App" })).toBeDisabled();
+  expect(phone).toHaveAttribute("aria-disabled", "true");
+  expect(targetApp()).toBeDisabled();
   expect(apps).not.toHaveBeenCalled();
 });
 
@@ -252,10 +430,8 @@ test("starts a stopped emulator from its card and selects it once it boots", asy
   );
   expect(boot).toHaveBeenCalledWith("Pixel_9");
   // Discovery refreshes by itself; the one ready device is chosen.
-  expect(
-    await screen.findByRole("button", { name: /Pixel_9/u, pressed: true })
-  ).toBeEnabled();
-  expect(screen.getByRole("group", { name: "Target App" })).toBeEnabled();
+  expect(await screen.findByText("Running · emulator-5554")).toBeVisible();
+  await vi.waitFor(() => expect(targetApp()).toBeEnabled());
 });
 
 test("keeps the card usable and shows why a start failed", async () => {
@@ -315,7 +491,7 @@ test("uploads an .apk as the Target App and opens Teaching with its temporary co
   render(
     <Card discovery={{ ...discovery, discard, upload }} onStart={onOpen} />
   );
-  await screen.findByRole("button", { name: /Shop/u });
+  await vi.waitFor(() => expect(targetApp()).toBeEnabled());
   const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
   expect(picker).toBeInstanceOf(HTMLInputElement);
   await user.upload(
@@ -367,7 +543,7 @@ test("opens Teaching with Setup collapsed and empty optional conditions", async 
     "aria-expanded",
     "false"
   );
-  await user.click(await screen.findByRole("button", { name: /Shop/u }));
+  await chooseShop(user);
   await user.click(screen.getByRole("button", { name: "Start teaching" }));
   expect(onOpen).not.toHaveBeenCalled();
   const confirmation = screen.getByRole("dialog", {
@@ -396,7 +572,7 @@ test("cancel and Escape leave setup unsubmitted, then confirmation submits only 
   const user = userEvent.setup();
   const onOpen = vi.fn(() => true);
   render(<Card onStart={onOpen} />);
-  await user.click(await screen.findByRole("button", { name: /Shop/u }));
+  await chooseShop(user);
   const prepare = screen.getByRole("button", { name: "Start teaching" });
   await user.click(prepare);
   const dialog = screen.getByRole("dialog", { name: "Prepare and open app?" });
@@ -428,7 +604,7 @@ test("saves Clear Starting Data and names the data loss before preparing", async
   const user = userEvent.setup();
   const onOpen = vi.fn();
   render(<Card onStart={onOpen} />);
-  await user.click(await screen.findByRole("button", { name: /Shop/u }));
+  await chooseShop(user);
   await openSetup(user);
   const startingData = screen.getByRole("radiogroup", {
     name: "Starting data",
@@ -464,11 +640,11 @@ test("Start teaching waits for a device, a Target App and a valid Flow name", as
   const card = screen.getByRole("form", { name: "Teach on Android" });
   const start = within(card).getByRole("button", { name: "Start teaching" });
   expect(start).toBeDisabled();
-  const shop = await screen.findByRole("button", { name: /Shop/u });
+  await vi.waitFor(() => expect(targetApp()).toBeEnabled());
   expect(start).toHaveAccessibleDescription(
     "Choose the Target App to continue."
   );
-  await user.click(shop);
+  await chooseShop(user);
   expect(start).toBeEnabled();
   const name = within(card).getByRole("textbox", { name: "Flow name" });
   await user.clear(name);
@@ -483,7 +659,7 @@ test("Escape folds the card away, but only closes the confirmation over it", asy
   const onClose = vi.fn();
   const onStart = vi.fn();
   render(<Card onClose={onClose} onStart={onStart} />);
-  await user.click(await screen.findByRole("button", { name: /Shop/u }));
+  await chooseShop(user);
   await user.click(screen.getByRole("button", { name: "Start teaching" }));
   expect(
     screen.getByRole("dialog", { name: "Prepare and open app?" })
@@ -517,7 +693,7 @@ test("closing the card discards an upload no session claimed", async () => {
     })
   );
   const view = render(<Card discovery={{ ...discovery, discard, upload }} />);
-  await screen.findByRole("button", { name: /Shop/u });
+  await vi.waitFor(() => expect(targetApp()).toBeEnabled());
   const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
   await user.upload(
     picker ?? document.createElement("input"),
@@ -529,4 +705,21 @@ test("closing the card discards an upload no session claimed", async () => {
   expect(discard).not.toHaveBeenCalled();
   view.unmount();
   expect(discard).toHaveBeenCalledWith("22222222-2222-2222-2222-222222222222");
+});
+
+test("Escape closes the open Target App list before it folds the card", async () => {
+  const user = userEvent.setup();
+  const onClose = vi.fn();
+  render(<Card onClose={onClose} />);
+  await vi.waitFor(() => expect(targetApp()).toBeEnabled());
+  await user.click(targetApp());
+  expect(
+    await screen.findByRole("option", { name: "Shop dev.shop · build 1" })
+  ).toBeVisible();
+  expect(targetApp()).toHaveAttribute("aria-expanded", "true");
+  await user.keyboard("{Escape}");
+  expect(targetApp()).toHaveAttribute("aria-expanded", "false");
+  expect(onClose).not.toHaveBeenCalled();
+  await user.keyboard("{Escape}");
+  expect(onClose).toHaveBeenCalledTimes(1);
 });

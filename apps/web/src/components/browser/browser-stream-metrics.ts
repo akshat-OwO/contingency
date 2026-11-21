@@ -3,11 +3,15 @@ import { Atom } from "effect/reactivity";
 
 type Frame = Extract<BrowserStreamEvent, { readonly type: "frame" }>;
 const SAMPLE_LIMIT = 120;
+/** The window the frame rate counts rendered frames over. */
+const FRAME_RATE_WINDOW_MS = 1000;
 
 interface Sample {
   readonly ageMs: number | undefined;
   readonly decodeMs: number;
   readonly drawMs: number;
+  /** When the frame reached the canvas, on the local clock. */
+  readonly renderedAt: number;
 }
 
 export interface StreamMetrics {
@@ -46,6 +50,8 @@ export interface StreamMetricsSnapshot {
   readonly receiveP95Ms: number | undefined;
   readonly decodeP95Ms: number | undefined;
   readonly drawP95Ms: number | undefined;
+  /** Frames drawn in the last second; a still page sends none. */
+  readonly framesPerSecond: number;
 }
 
 const emptySnapshot: StreamMetricsSnapshot = {
@@ -55,6 +61,7 @@ const emptySnapshot: StreamMetricsSnapshot = {
   decoding: 0,
   drawP95Ms: undefined,
   failed: 0,
+  framesPerSecond: 0,
   maxPending: 0,
   pending: 0,
   receiveP95Ms: undefined,
@@ -163,6 +170,7 @@ export const updateStreamMetrics = (
             ageMs,
             decodeMs: event.decodeMs,
             drawMs: event.drawMs,
+            renderedAt: now,
           },
         ],
       };
@@ -211,6 +219,9 @@ export const updateStreamMetrics = (
       decoding: metrics.decoding,
       drawP95Ms: percentile95(metrics.samples.map((sample) => sample.drawMs)),
       failed: metrics.failed,
+      framesPerSecond: metrics.samples.filter(
+        (sample) => now - sample.renderedAt < FRAME_RATE_WINDOW_MS
+      ).length,
       maxPending: metrics.maxPending,
       pending: metrics.pending,
       receiveP95Ms: percentile95(metrics.receiveAges),
@@ -222,4 +233,22 @@ export const updateStreamMetrics = (
       upstreamSkipped: metrics.upstreamSkipped,
     },
   };
+};
+
+/** Whether frames are reaching the stage: the rail's dot and the card's row. */
+export type BrowserStreamStatus = "connecting" | "live" | "lost";
+
+export const browserStreamStatus = ({
+  connected,
+  failed,
+  frameReady,
+}: {
+  readonly connected: boolean;
+  readonly failed: boolean;
+  readonly frameReady: boolean;
+}): BrowserStreamStatus => {
+  if (failed) {
+    return "lost";
+  }
+  return connected && frameReady ? "live" : "connecting";
 };

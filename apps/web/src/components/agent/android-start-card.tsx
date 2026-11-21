@@ -13,10 +13,9 @@ import type {
 import { useAtom } from "@effect/atom-react";
 import { Effect, Fiber, Option, Schema } from "effect";
 import { Atom } from "effect/reactivity";
-import { LoaderCircleIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
+import { LoaderCircleIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -26,27 +25,34 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
 import {
   SegmentedControl,
   SegmentedControlItem,
 } from "@/components/ui/segmented-control";
 import type { TargetAppBuildUploadError } from "@/lib/rpc";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
-import { cn } from "@/lib/utils";
 
 import {
   androidDeviceChoice,
+  androidDeviceSerial,
   chosenSerial,
   deviceRelease,
+  pickedSerial,
   preparationDescription,
   selectable,
   setupMissing,
   setupSelection,
 } from "./android-setup-state";
-import type { AndroidCondition } from "./android-setup-state";
+import type {
+  AndroidCondition,
+  AndroidDevicePick,
+} from "./android-setup-state";
 import type { DeviceStart } from "./device-choice-state";
-import { DeviceChoices, useDeviceStarts } from "./device-choices";
+import {
+  DeviceChoices,
+  RefreshDevicesButton,
+  useDeviceStarts,
+} from "./device-choices";
 import { useDeviceErase } from "./device-erase";
 import type { DeviceEraseControls } from "./device-erase-state";
 import { ConditionInput, Part } from "./native-setup-fields";
@@ -59,14 +65,11 @@ import {
 } from "./start-card";
 import {
   BuildDropzone,
-  InstalledAppsFrame,
+  InstalledAppPicker,
   UploadedBuild,
   useBuildUpload,
 } from "./target-app-upload";
-import type {
-  BuildUploadState,
-  InstalledAppsNotice,
-} from "./target-app-upload";
+import type { BuildUploadState, InstalledAppsRead } from "./target-app-upload";
 import type { HomePlatform } from "./workspace-home-state";
 
 type Loaded<Value> =
@@ -76,11 +79,10 @@ type Loaded<Value> =
 
 interface SetupForm {
   readonly app: string | null;
-  readonly device: string | null;
+  readonly device: AndroidDevicePick | null;
   readonly privateInput: boolean;
   readonly permissions: Readonly<Record<string, "grant" | "revoke">>;
   readonly outcome: AndroidCondition;
-  readonly query: string;
   readonly start: AndroidCondition;
   readonly startingData: StartingData;
 }
@@ -91,7 +93,6 @@ const INITIAL_FORM: SetupForm = {
   outcome: { name: "", role: "text" },
   permissions: {},
   privateInput: false,
-  query: "",
   start: { name: "", role: "text" },
   startingData: "keep",
 };
@@ -162,42 +163,42 @@ const DeviceStep = ({
   readonly onStart: (avd: string) => void;
   readonly selected: string | null;
   readonly starts: Readonly<Record<string, DeviceStart>>;
-}) => (
-  <div className="space-y-2">
-    {devices._tag === "loading" ? (
-      <p className="text-muted-foreground flex items-center gap-2 text-xs">
-        <LoaderCircleIcon
-          aria-hidden="true"
-          className="size-3.5 animate-spin"
-        />
-        Asking ADB for devices…
-      </p>
-    ) : null}
-    {devices._tag === "failed" ? (
-      <p className="text-destructive text-xs">{devices.message}</p>
-    ) : null}
-    {devices._tag === "loaded" && devices.value.length === 0 ? (
-      <p className="text-muted-foreground text-xs">
-        No devices found. Create an emulator in Android Studio.
-      </p>
-    ) : null}
-    {devices._tag === "loaded" && devices.value.length > 0 ? (
-      <DeviceChoices
-        devices={devices.value.map(androidDeviceChoice)}
-        emptyMessage="No emulator is running. Create one in Android Studio, then refresh."
-        erase={erase}
-        onSelect={onSelect}
-        onStart={onStart}
-        selected={selected}
-        starts={starts}
-      />
-    ) : null}
-    <Button onClick={onRefresh} size="xs" variant="ghost">
-      <RefreshCwIcon />
-      Refresh devices
-    </Button>
-  </div>
-);
+}) =>
+  devices._tag === "loaded" && devices.value.length > 0 ? (
+    <DeviceChoices
+      devices={devices.value.map(androidDeviceChoice)}
+      emptyMessage="No emulator is running. Create one in Android Studio, then refresh."
+      erase={erase}
+      identify={androidDeviceSerial}
+      label="Device"
+      onRefresh={onRefresh}
+      onSelect={onSelect}
+      onStart={onStart}
+      selected={selected}
+      starts={starts}
+    />
+  ) : (
+    <div className="flex min-h-7 items-center justify-between gap-3">
+      {devices._tag === "loading" ? (
+        <p className="text-muted-foreground flex items-center gap-2 text-xs">
+          <LoaderCircleIcon
+            aria-hidden="true"
+            className="size-3.5 animate-spin motion-reduce:animate-none"
+          />
+          Asking ADB for devices…
+        </p>
+      ) : null}
+      {devices._tag === "failed" ? (
+        <p className="text-destructive text-xs">{devices.message}</p>
+      ) : null}
+      {devices._tag === "loaded" ? (
+        <p className="text-muted-foreground text-xs">
+          No devices found. Create an emulator in Android Studio.
+        </p>
+      ) : null}
+      <RefreshDevicesButton onRefresh={onRefresh} />
+    </div>
+  );
 
 /** The uploaded `.apk`, and whether installing it replaces a build. */
 const UploadedApk = ({
@@ -227,128 +228,55 @@ const UploadedApk = ({
   );
 };
 
-const installedAppsNotice = (
-  apps: Loaded<AndroidDiscoveredApp>,
-  matches: readonly AndroidDiscoveredApp[]
-): InstalledAppsNotice | null => {
-  if (apps._tag === "loading") {
-    return { _tag: "loading" };
+/** The device's apps as the Target App picker lists them. */
+const installedApps = (
+  apps: Loaded<AndroidDiscoveredApp> | null
+): InstalledAppsRead => {
+  if (apps === null) {
+    return { _tag: "idle" };
   }
-  if (apps._tag === "failed") {
-    return { _tag: "message", text: apps.message, tone: "destructive" };
+  if (apps._tag !== "loaded") {
+    return apps;
   }
-  if (matches.length === 0) {
-    return {
-      _tag: "message",
-      text: "No launchable app matches.",
-      tone: "muted",
-    };
-  }
-  return null;
+  return {
+    _tag: "loaded",
+    apps: apps.value.map((app) => ({
+      detail: `${app.package} · build ${app.versionCode}`,
+      id: app.package,
+      label: app.label || app.package,
+    })),
+  };
 };
 
-const InstalledApps = ({
-  apps,
-  matches,
-  onQuery,
-  onSelect,
-  query,
-  selected,
-}: {
-  readonly apps: Loaded<AndroidDiscoveredApp>;
-  readonly matches: readonly AndroidDiscoveredApp[];
-  readonly onQuery: (query: string) => void;
-  readonly onSelect: (appId: string) => void;
-  readonly query: string;
-  readonly selected: string | null;
-}) => (
-  <div className="space-y-1.5">
-    <div className="relative">
-      <SearchIcon
-        aria-hidden="true"
-        className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2"
-      />
-      <Input
-        aria-label="Search installed apps"
-        className="pl-9"
-        onChange={(event) => onQuery(event.currentTarget.value)}
-        placeholder="Search installed apps"
-        value={query}
-        variant="island"
-      />
-    </div>
-    <InstalledAppsFrame notice={installedAppsNotice(apps, matches)}>
-      {matches.map((app) => (
-        <li key={app.package}>
-          <button
-            aria-pressed={selected === app.package}
-            className={cn(
-              "hover:bg-island-hover flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm",
-              selected === app.package && "bg-island-hover"
-            )}
-            onClick={() => onSelect(app.package)}
-            type="button"
-          >
-            <span className="min-w-0 flex-1 truncate">
-              {app.label || app.package}
-              {app.label ? (
-                <span className="text-muted-foreground ml-2 font-mono text-xs">
-                  {app.package}
-                </span>
-              ) : null}
-            </span>
-            <Badge variant="outline">build {app.versionCode}</Badge>
-          </button>
-        </li>
-      ))}
-    </InstalledAppsFrame>
-  </div>
-);
-
+/**
+ * Section 2: an installed app from the chosen device, or an uploaded `.apk`.
+ * Uploading needs no device, so the `.apk` is offered before one is chosen.
+ */
 const AppStep = ({
   apps,
-  onQuery,
   onRemoveUpload,
   onSelect,
   onUpload,
-  query,
   selected,
   upload,
   uploadState,
 }: {
   readonly apps: Loaded<AndroidDiscoveredApp> | null;
-  readonly onQuery: (query: string) => void;
   readonly onRemoveUpload: () => void;
   readonly onSelect: (appId: string) => void;
   readonly onUpload: (file: File) => void;
-  readonly query: string;
   readonly selected: string | null;
   readonly upload: UploadedAndroidApp | null;
   readonly uploadState: BuildUploadState;
 }) => {
   const ids = useId();
-  if (apps === null) {
-    return (
-      <p className="text-muted-foreground text-xs">
-        Choose a device to list its apps.
-      </p>
-    );
-  }
-  const needle = query.trim().toLowerCase();
-  const matches =
-    apps._tag === "loaded"
-      ? apps.value.filter((app) =>
-          `${app.label} ${app.package}`.toLowerCase().includes(needle)
-        )
-      : [];
   return (
-    <div className="grid gap-3">
-      <InstalledApps
-        apps={apps}
-        matches={matches}
-        onQuery={onQuery}
+    <div className="grid min-w-0 grid-cols-1 gap-2.5">
+      <InstalledAppPicker
+        apps={installedApps(apps)}
+        emptyMessage="No launchable app matches."
+        idleMessage="Choose a device to list its apps."
         onSelect={onSelect}
-        query={query}
         selected={upload === null ? selected : null}
       />
       <div
@@ -361,7 +289,6 @@ const AppStep = ({
         <BuildDropzone
           accept=".apk,application/vnd.android.package-archive"
           describedBy={`${ids}-apk-status`}
-          kind=".apk"
           label="Upload an .apk"
           onFiles={([first]) => {
             if (first !== undefined) {
@@ -724,7 +651,8 @@ export const AndroidStartCard = ({
     setRefresh((value) => value + 1)
   );
   const listed = devices._tag === "loaded" ? devices.value : [];
-  const chosen = chosenSerial(listed, form.device);
+  const picked = pickedSerial(listed, form.device);
+  const chosen = picked === "missing" ? null : chosenSerial(listed, picked);
   const discovered = listed.find((entry) => entry.serial === chosen);
   const device = discovered === undefined ? null : selectable(discovered);
   const release = deviceRelease(discovered);
@@ -863,7 +791,12 @@ export const AndroidStartCard = ({
               setForm((current) => ({
                 ...current,
                 app: null,
-                device: serial,
+                device: {
+                  avd:
+                    listed.find((entry) => entry.serial === serial)?.avd ??
+                    null,
+                  serial,
+                },
                 ...CLEARED_CONDITIONS,
               }))
             }
@@ -873,29 +806,25 @@ export const AndroidStartCard = ({
       </StartSection>
 
       <StartSection label="Target App" number={2}>
-        <Part disabled={device === null} title="Target App">
-          <AppStep
-            apps={apps}
-            onQuery={(query) => setForm((current) => ({ ...current, query }))}
-            onRemoveUpload={() => {
-              letGo();
-              setForm((current) => ({ ...current, ...CLEARED_CONDITIONS }));
-            }}
-            onSelect={(appId) => {
-              letGo();
-              setForm((current) => ({
-                ...current,
-                app: appId,
-                ...CLEARED_CONDITIONS,
-              }));
-            }}
-            onUpload={(file) => upload.start(file, file.name)}
-            query={form.query}
-            selected={form.app}
-            upload={uploaded}
-            uploadState={upload.state}
-          />
-        </Part>
+        <AppStep
+          apps={apps}
+          onRemoveUpload={() => {
+            letGo();
+            setForm((current) => ({ ...current, ...CLEARED_CONDITIONS }));
+          }}
+          onSelect={(appId) => {
+            letGo();
+            setForm((current) => ({
+              ...current,
+              app: appId,
+              ...CLEARED_CONDITIONS,
+            }));
+          }}
+          onUpload={(file) => upload.start(file, file.name)}
+          selected={form.app}
+          upload={uploaded}
+          uploadState={upload.state}
+        />
       </StartSection>
 
       <StartSetup summary="Starting data, permissions, start and finish">

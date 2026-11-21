@@ -1,10 +1,11 @@
 import { useRouter } from "@tanstack/react-router";
 import { CircleCheckIcon, CircleMinusIcon, CircleXIcon } from "lucide-react";
 import type { ReactNode } from "react";
+import { useContext } from "react";
 
 import { cn } from "@/lib/utils";
 
-import { clockTime } from "./run-detail-state";
+import { clockTime, DetailHeadingLevel } from "./run-detail-state";
 
 /**
  * The parts every Run details section is built from (#778): an eyebrow
@@ -29,24 +30,27 @@ export const DetailSection = ({
   /** A count or coverage, beside the heading. */
   readonly meta?: ReactNode | undefined;
   readonly metaTone?: "failed" | undefined;
-}) => (
-  <section aria-label={label} className="grid min-w-0 gap-2">
-    <div className="flex items-baseline justify-between gap-2">
-      <h3 className={detailEyebrowClassName}>{heading ?? label}</h3>
-      {meta === undefined ? null : (
-        <span
-          className={cn(
-            "text-muted-foreground text-xs tabular-nums",
-            metaTone === "failed" && "text-destructive font-medium"
-          )}
-        >
-          {meta}
-        </span>
-      )}
-    </div>
-    {children}
-  </section>
-);
+}) => {
+  const Heading = useContext(DetailHeadingLevel) === 4 ? "h4" : "h3";
+  return (
+    <section aria-label={label} className="grid min-w-0 gap-2">
+      <div className="flex items-baseline justify-between gap-2">
+        <Heading className={detailEyebrowClassName}>{heading ?? label}</Heading>
+        {meta === undefined ? null : (
+          <span
+            className={cn(
+              "text-muted-foreground text-xs tabular-nums",
+              metaTone === "failed" && "text-destructive font-medium"
+            )}
+          >
+            {meta}
+          </span>
+        )}
+      </div>
+      {children}
+    </section>
+  );
+};
 
 /** One line where a section that always shows has nothing yet. */
 export const DetailEmpty = ({ children }: { readonly children: ReactNode }) => (

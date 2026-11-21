@@ -16,7 +16,7 @@ test("a failed dock state is a destructive chip behind the alert icon", () => {
   expect(state.querySelector("svg")).not.toBeNull();
 });
 
-test("an attention dock state is the needs-you chip behind the alert icon", () => {
+test("an attention dock state is the needs-you chip behind a hand", () => {
   render(<DockState tone="attention">Needs you</DockState>);
   const state = screen.getByText("Needs you");
   expect(state).toHaveClass("status-chip");
@@ -29,6 +29,24 @@ test("a recording dock state is the recording chip with a still dot", () => {
   const state = screen.getByText("Recording");
   expect(state).toHaveAttribute("data-status", "recording");
   expect(state.querySelector(".animate-ping")).toBeNull();
+});
+
+test("a busy dock state holds still: a progress ring, never a spinner", () => {
+  render(<DockState tone="busy">Agent preparing</DockState>);
+  const state = screen.getByText("Agent preparing");
+  expect(state).toHaveAttribute("data-status", "running");
+  expect(state.querySelector("svg")).not.toBeNull();
+  expect(state.querySelector(".animate-spin")).toBeNull();
+});
+
+test("an ended dock state is a muted chip behind a stop mark", () => {
+  render(<DockState tone="ended">Ended</DockState>);
+  const state = screen.getByText("Ended");
+  expect(state).toHaveClass(
+    "status-chip",
+    "[--status-tone:var(--muted-foreground)]"
+  );
+  expect(state).toHaveAttribute("data-tone", "ended");
 });
 
 test("a default dock state is a muted chip with no icon", () => {

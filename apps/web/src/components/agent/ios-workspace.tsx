@@ -6,7 +6,6 @@ import type {
   IosObservationRefusal,
   IosWorkspaceSnapshot,
   IosWorkspaceSelection,
-  IosWorkspaceSummary,
   NativeEmulationChange,
   NativeInput,
 } from "@contingency/protocol";
@@ -20,12 +19,10 @@ import { Effect, Fiber, Schema } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import {
   CheckIcon,
-  CircleIcon,
   MessageSquareTextIcon,
   RotateCwIcon,
   ShieldAlertIcon,
   SmartphoneIcon,
-  SquareIcon,
   UnplugIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -37,15 +34,6 @@ import {
 import { WatcherLoader } from "@/components/brand";
 import { FlowsButton } from "@/components/catalog/flows-button";
 import { Button } from "@/components/ui/button";
-import {
-  Select,
-  SelectContent,
-  SelectGroup,
-  SelectItem,
-  SelectLabel,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { decodeBase64 } from "@/lib/base64";
 import { isSessionNotFound } from "@/lib/failure-message";
 import {
@@ -61,10 +49,18 @@ import { cn } from "@/lib/utils";
 import { DeviceUnavailable, NativeStage } from "./android-device";
 import type {
   DeviceKey,
+  EmulateDevice,
   NativeCommentPins,
   NativeElementPick,
 } from "./android-device";
-import { AndroidVariables } from "./android-dock";
+import {
+  AndroidVariables,
+  NativeDoneButton,
+  NativeSessionSelect,
+  NativeStateBadge,
+  NativeTaskDetails,
+} from "./android-dock";
+import { isEndedNativeRun, nativeActionClassName } from "./android-dock-state";
 import { DeviceLastScreen, DeviceRunSummary } from "./android-run-summary";
 import { WorkspaceLayout } from "./android-workspace-layout";
 import {
@@ -95,7 +91,10 @@ import type { NativeComment } from "./native-comment-state";
 import { FieldVariableCard } from "./native-field-variable";
 import { makeNativeInputHandlers, makeNativeInputQueue } from "./native-input";
 import { clearDataQuestion } from "./native-starting-data-copy";
-import { emptyNativeStreamStats } from "./native-stream-status";
+import {
+  emptyNativeStreamStats,
+  nativeFrameShown,
+} from "./native-stream-status";
 import type {
   NativeStreamState,
   NativeStreamStats,
@@ -104,11 +103,11 @@ import { commentPins } from "./screen-elements";
 import {
   DockNotice,
   DockShell,
-  DockState,
   DockStatus,
   SessionTopBar,
 } from "./workspace-dock";
 import { iosStartGestureAtom, useWorkspaceGesture } from "./workspace-gesture";
+import { useWorkspaceHome } from "./workspace-home-context";
 import { WorkspaceHomeBar } from "./workspace-home-nav";
 import { NEW_NATIVE_SESSION } from "./workspace-platform-state";
 
@@ -219,7 +218,7 @@ const IosMirror = ({
   readonly onInput: (input: NativeInput) => void;
   /** Home and the App Switcher, sent through the session (ADR 0083). */
   readonly onDeviceKey: (key: DeviceKey) => void;
-  readonly onEmulate: (change: NativeEmulationChange) => void;
+  readonly onEmulate: EmulateDevice;
 }) => {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [probe] = useState(() =>
@@ -239,9 +238,11 @@ const IosMirror = ({
     // frame size changes, since a resize clears and reallocates it.
     const drawIosFrame = async (value: IosStreamFrame, signal: AbortSignal) => {
       const bytes = decodeBase64(value.data);
+      const decodeStart = performance.now();
       const bitmap = await createImageBitmap(
         new Blob([bytes], { type: "image/jpeg" })
       );
+      const decodeMs = performance.now() - decodeStart;
       try {
         const target = canvas.current;
         if (!target || signal.aborted) {
@@ -257,12 +258,11 @@ const IosMirror = ({
           );
         }
         target.getContext("2d")?.drawImage(bitmap, 0, 0);
-        stats.current = {
-          ...stats.current,
-          decoded: stats.current.decoded + 1,
+        stats.current = nativeFrameShown(stats.current, {
+          decodeMs,
           height: value.height,
           width: value.width,
-        };
+        });
         probe.frame();
         setTransport("live");
       } finally {
@@ -378,6 +378,7 @@ const IosMirror = ({
       onKey={onDeviceKey}
       pick={pick}
       comments={comments}
+      sessionId={session.id}
       platform="iOS"
       stream={{
         device: iosDeviceName(session.selection.device),
@@ -581,12 +582,7 @@ const gestureCommand = (
 
 const PrimaryIcon = ({ gesture }: { readonly gesture: IosDockGesture }) => {
   switch (gesture) {
-    case "start-recording": {
-      return <CircleIcon className="fill-current text-red-500" />;
-    }
-    case "stop-recording": {
-      return <SquareIcon className="fill-current" />;
-    }
+    // Start and Stop are labels alone, as in the prototype.
     case "verify-flow": {
       return <CheckIcon />;
     }
@@ -601,95 +597,21 @@ const PrimaryIcon = ({ gesture }: { readonly gesture: IosDockGesture }) => {
 
 const IosStateBadge = ({
   presentation,
+  session,
 }: {
   readonly presentation: IosDockPresentation;
-}) => <DockState tone={presentation.tone}>{presentation.badge}</DockState>;
-
-const IosSessionSelect = ({
-  onSelect,
-  session,
-  sessions,
-}: {
-  readonly onSelect: (session: string) => void;
-  readonly session: IosWorkspaceSnapshot | null;
-  readonly sessions: readonly IosWorkspaceSummary[];
-}) => {
-  const labels = new Map<string, string>(
-    sessions.map((entry) => [entry.id, iosSessionLabel(entry)])
-  );
-  // The shown ended session names itself, but is no longer a choice.
-  const ended =
-    session !== null && !sessions.some((entry) => entry.id === session.id);
-  const sessionLabel = (value: string | null) => {
-    if (ended && value === session?.id) {
-      return "Ended session";
+  readonly session: IosWorkspaceSnapshot;
+}) => (
+  <NativeStateBadge
+    badge={presentation.badge}
+    recordingStartedAt={
+      session.captureState?._tag === "recording"
+        ? session.captureState.startedAt
+        : undefined
     }
-    return value === null ? undefined : labels.get(value);
-  };
-  return (
-    <Select
-      onValueChange={(value) => {
-        if (value !== null) {
-          onSelect(value);
-        }
-      }}
-      value={session?.id ?? null}
-    >
-      <SelectTrigger
-        aria-label="iOS Agent Session"
-        // The home's "In progress" heading morphs into this trigger.
-        data-vt="switcher"
-        className="hover:bg-island-hover dark:hover:bg-island-hover h-[34px] max-w-80 min-w-28 shrink rounded-xl border-transparent bg-transparent pr-2 pl-3 text-sm font-medium dark:bg-transparent"
-      >
-        <SelectValue placeholder="iOS session">
-          {(value: string | null) => {
-            const label = sessionLabel(value);
-            return label === undefined ? (
-              <span className="text-muted-foreground truncate">
-                iOS session
-              </span>
-            ) : (
-              <span className="truncate" title={label}>
-                {label}
-              </span>
-            );
-          }}
-        </SelectValue>
-      </SelectTrigger>
-      <SelectContent
-        align="start"
-        alignItemWithTrigger={false}
-        className="w-96 max-w-[calc(100vw-2rem)]"
-        side="bottom"
-      >
-        <SelectGroup>
-          <SelectLabel>iOS sessions</SelectLabel>
-          <SelectItem label="New iOS session" value={NEW_NATIVE_SESSION}>
-            New iOS session
-          </SelectItem>
-          {ended && session !== null ? (
-            <SelectItem disabled label="Ended session" value={session.id}>
-              Ended session
-            </SelectItem>
-          ) : null}
-          {sessions.map((entry) => {
-            const label = labels.get(entry.id) ?? entry.id;
-            return (
-              <SelectItem
-                aria-label={label}
-                key={entry.id}
-                label={label}
-                value={entry.id}
-              >
-                <span className="truncate">{label}</span>
-              </SelectItem>
-            );
-          })}
-        </SelectGroup>
-      </SelectContent>
-    </Select>
-  );
-};
+    tone={presentation.tone}
+  />
+);
 
 /** Recovery a paused iOS session offers outside the dock, kept for callers. */
 export const IosRecovery = ({
@@ -706,11 +628,26 @@ export const IosRecovery = ({
   </Button>
 );
 
-/** The dock's controls row: navigation first, then the state's own actions. */
+/** The facts a native Run's Task details lists about its simulator setup. */
+const iosTaskFacts = (session: IosWorkspaceSnapshot) => [
+  { term: "Device", value: iosDeviceName(session.selection.device) },
+  {
+    term: "Target App",
+    value: `${session.selection.environment.bundleId} · build ${session.selection.environment.build}`,
+  },
+];
+
+/**
+ * The status island's controls, as on Android and the prototype: Comment
+ * while recording, a Flow decision's Reject flow, **Task details** on a Dry
+ * Run or Run, **Done** once a Run has ended, and the one action. Closing a
+ * live session is in the session picker, not here.
+ */
 const IosDockControls = ({
   commenting,
   gesture,
   onComment,
+  onDone,
   onNewSession,
   presentation,
   send,
@@ -719,12 +656,14 @@ const IosDockControls = ({
   readonly commenting: boolean;
   readonly gesture: { readonly pending: boolean };
   readonly onComment: () => void;
+  readonly onDone: () => void;
   readonly onNewSession: () => void;
   readonly presentation: IosDockPresentation;
   readonly send: (command: IosWorkspaceCommand) => boolean;
   readonly session: IosWorkspaceSnapshot;
 }) => {
   const primary = presentation.action;
+  const ended = isEndedNativeRun(session);
   return (
     <>
       {presentation.showsComment ? (
@@ -757,33 +696,21 @@ const IosDockControls = ({
           Reject flow
         </Button>
       ) : null}
-      {isLiveIosSession(session) ? (
-        <Button
-          disabled={gesture.pending}
-          onClick={() =>
-            send({
-              _tag: "close",
-              operationId: operationId(),
-              sessionId: session.id,
-            })
-          }
-          aria-label="Close session"
-          size="sm"
-          title="Close session"
-          variant="outline"
-        >
-          {/* A word, not a power glyph: it closes the session, not the device. */}
-          <span className="@md:hidden">Close</span>
-          <span className="hidden @md:inline">Close session</span>
-        </Button>
-      ) : (
+      {session.kind === "teaching" ? null : (
+        <NativeTaskDetails facts={iosTaskFacts(session)} session={session} />
+      )}
+      {ended ? (
+        <NativeDoneButton onDone={onDone} quiet={primary !== null} />
+      ) : null}
+      {/* An ended Teaching session starts over from the start card. */}
+      {isLiveIosSession(session) || ended ? null : (
         <Button onClick={onNewSession} size="sm" variant="outline">
           New session
         </Button>
       )}
       {primary === null ? null : (
         <Button
-          className="ml-auto"
+          className={nativeActionClassName(primary.gesture)}
           aria-label={primary.accessibleName}
           disabled={
             gesture.pending ||
@@ -791,9 +718,6 @@ const IosDockControls = ({
               session.preparation.pending.length > 0)
           }
           onClick={() => send(gestureCommand(primary.gesture, session))}
-          variant={
-            primary.gesture === "stop-recording" ? "destructive" : "default"
-          }
         >
           <PrimaryIcon gesture={primary.gesture} />
           {primary.label}
@@ -828,8 +752,8 @@ const IosDock = ({
   comment,
   gesture,
   inputRefusal,
+  onDone,
   onNewSession,
-  onSelectSession,
   send,
   session,
   setComment,
@@ -845,35 +769,16 @@ const IosDock = ({
   };
   /** Why the last Forwarded Input sent nothing, if it was refused. */
   readonly inputRefusal: string | null;
+  readonly onDone: () => void;
   readonly onNewSession: () => void;
-  readonly onSelectSession: (session: string) => void;
   readonly send: (command: IosWorkspaceCommand) => boolean;
   readonly session: IosWorkspaceSnapshot;
 }) => {
   const commenting = comment.open;
-  const listed = useAtomValue(iosSessionsAtom);
-  const sessions = AsyncResult.isSuccess(listed) ? listed.value : [];
-  // A just-started session may not be listed yet; an ended one is no choice.
-  const choices =
-    sessions.some((entry) => entry.id === session.id) ||
-    !isLiveIosSession(session)
-      ? sessions
-      : [session, ...sessions];
   const presentation = iosDockPresentation(session);
   const recording = session.captureState?._tag === "recording";
   return (
     <>
-      <SessionTopBar
-        className="absolute inset-x-0 top-0"
-        flows={<FlowsButton session={iosFlowsSessionView(session)} />}
-        picker={
-          <IosSessionSelect
-            onSelect={onSelectSession}
-            session={session}
-            sessions={choices}
-          />
-        }
-      />
       <DockShell
         notice={
           <>
@@ -922,7 +827,11 @@ const IosDock = ({
           </>
         }
         status={
-          <DockStatus badges={<IosStateBadge presentation={presentation} />}>
+          <DockStatus
+            badges={
+              <IosStateBadge presentation={presentation} session={session} />
+            }
+          >
             {session.error !== null && session.phase !== "paused"
               ? session.error
               : presentation.nextStep}
@@ -937,6 +846,7 @@ const IosDock = ({
               current.open ? closedComment : { ...current, open: true }
             )
           }
+          onDone={onDone}
           onNewSession={onNewSession}
           presentation={presentation}
           send={send}
@@ -1005,6 +915,64 @@ const IosDock = ({
         />
       ) : null}
     </>
+  );
+};
+
+/**
+ * The session's top bar: the wordmark and the session picker, then Flows.
+ * It comes first in the stage, before the simulator, as on Android and in the
+ * prototype. The shown session names itself even once it has ended; only a
+ * live one is a choice in the list.
+ */
+const IosTopBar = ({
+  onNewSession,
+  onSelectSession,
+  send,
+  pending,
+  session,
+}: {
+  readonly onNewSession: () => void;
+  readonly onSelectSession: (session: string) => void;
+  readonly pending: boolean;
+  readonly send: (command: IosWorkspaceCommand) => boolean;
+  readonly session: IosWorkspaceSnapshot;
+}) => {
+  const listed = useAtomValue(iosSessionsAtom);
+  const sessions = AsyncResult.isSuccess(listed) ? listed.value : [];
+  // A just-started session may not be listed yet; an ended one is no choice.
+  const choices =
+    sessions.some((entry) => entry.id === session.id) ||
+    !isLiveIosSession(session)
+      ? sessions
+      : [session, ...sessions];
+  return (
+    <SessionTopBar
+      className="absolute inset-x-0 top-0"
+      flows={<FlowsButton session={iosFlowsSessionView(session)} />}
+      picker={
+        <NativeSessionSelect
+          close={
+            isLiveIosSession(session)
+              ? {
+                  onClose: () =>
+                    send({
+                      _tag: "close",
+                      operationId: operationId(),
+                      sessionId: session.id,
+                    }),
+                  pending,
+                }
+              : undefined
+          }
+          current={session}
+          label={iosSessionLabel}
+          onNew={onNewSession}
+          onSelect={onSelectSession}
+          platform="ios"
+          sessions={choices}
+        />
+      }
+    />
   );
 };
 
@@ -1171,6 +1139,7 @@ export const IosWorkspace = ({
   const [comment, setComment] = useAtom(commentAtom);
   const enabled = useAtomValue(iosEnabledAtom);
   const gesture = useWorkspaceGesture(commandAtom);
+  const home = useWorkspaceHome();
   // A sent comment closes its composer only once it saves; a refusal leaves
   // the composer and its draft for another try.
   const { submitting } = comment;
@@ -1201,12 +1170,16 @@ export const IosWorkspace = ({
   useEffect(() => {
     routeRef.current = requestedSessionId;
   }, [requestedSessionId]);
-  const send = (command: IosWorkspaceCommand) => {
+  /** `onApplied` runs once the host accepts the command. */
+  const send = (command: IosWorkspaceCommand, onApplied?: () => void) => {
     const route = routeRef.current;
     return gesture.dispatch(
       runIosWorkspaceCommand(command).pipe(
         Effect.tap((next) =>
           Effect.sync(() => {
+            // The change still counts for the session that sent it, which the
+            // stage keeps until the route returns there.
+            onApplied?.();
             // The route moved on while this ran: it no longer shows the result.
             if (routeRef.current !== route && routeRef.current !== next.id) {
               return;
@@ -1383,6 +1356,13 @@ export const IosWorkspace = ({
           "pb-[calc(var(--dock-height,6.5rem)+1.5rem)]"
         )}
       >
+        <IosTopBar
+          onNewSession={startNew}
+          onSelectSession={onSessionChange}
+          pending={gesture.pending}
+          send={send}
+          session={session}
+        />
         <IosMirror
           leading={
             field === null ? null : (
@@ -1409,7 +1389,9 @@ export const IosWorkspace = ({
               send(command);
             }
           }}
-          onEmulate={(change) => send(emulateCommand(change, session))}
+          onEmulate={(change, onApplied) =>
+            send(emulateCommand(change, session), onApplied)
+          }
           onInput={onInput}
           session={session}
           unavailable={glassText(session)}
@@ -1418,8 +1400,8 @@ export const IosWorkspace = ({
           comment={comment}
           gesture={gesture}
           inputRefusal={inputRefusal}
+          onDone={home === null ? startNew : home.goHome}
           onNewSession={startNew}
-          onSelectSession={onSessionChange}
           send={send}
           session={session}
           setComment={setComment}

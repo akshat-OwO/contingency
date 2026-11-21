@@ -575,24 +575,48 @@ const nativeRunResult = () =>
     waiting: false,
   }) as const;
 
-test("shows a native Run's full Run Summary inline", () => {
+test("shows a native Run's full Run Summary inline", async () => {
   rpc.browse = browse([decodeRoot({ ...local, runs: [nativeEntry()] })]);
   rpc.nativeRun = nativeRunResult();
   renderPage();
   const summary = screen.getByRole("region", { name: "Run Summary" });
   expect(summary.querySelector('[data-slot="verdict-card"]')).toHaveTextContent(
-    "Working"
+    "Dry Run passed"
   );
+  expect(
+    within(summary).getByRole("heading", {
+      name: "Dry Run of 1mg mobile login",
+    })
+  ).toBeVisible();
   expect(
     within(summary).getByText("The OTP screen accepted the code.")
   ).toBeVisible();
   expect(
+    within(summary).getByRole("region", { name: "Run video" })
+  ).toBeVisible();
+  expect(
+    within(summary).getByRole("tablist", { name: "Run Summary sections" })
+  ).toBeVisible();
+  const frame = summary.querySelector<HTMLElement>('[data-slot="run-summary"]');
+  if (frame === null) {
+    throw new Error("No Run Summary frame");
+  }
+  expect(
+    within(frame).getByRole("button", {
+      name: `Copy Run ID agentrun-${nativeSessionId}`,
+    })
+  ).toBeVisible();
+  // The Flows page adds no second title or Run ID around the summary.
+  expect(
+    within(summary).getAllByRole("button", { name: /^Copy Run ID /u })
+  ).toHaveLength(1);
+  await userEvent.click(within(summary).getByRole("tab", { name: "Task" }));
+  expect(
     within(summary).getByText("com.aranoah.healthkart.plus · build 42")
   ).toBeVisible();
   // How it ended reads apart from the Agent Assessment.
-  expect(within(summary).getByText("Ended")).toBeVisible();
+  expect(within(summary).getByText("Execution")).toBeVisible();
   expect(within(summary).getByText("Completed")).toBeVisible();
-  expect(within(summary).getByRole("heading", { name: "Video" })).toBeVisible();
   expect(
     within(summary).getByRole("link", { name: "Device session" })
   ).toHaveAttribute("href", `/?android=${nativeSessionId}`);
@@ -855,4 +879,79 @@ test("a `/?run=` link to a missing Run lands on the page and says so", async () 
     run: "agentrun-missing",
   });
   expect(screen.queryByRole("region", { name: "Run Summary" })).toBeNull();
+});
+
+test("leads each Run with its outcome and ends on its length as a clock", () => {
+  rpc.browse = browse([local]);
+  rpc.flow = { _tag: "Initial", waiting: true };
+  renderPage();
+  const row = within(screen.getByRole("region", { name: "Runs" })).getByRole(
+    "button",
+    { name: /Sign in with a fresh SMS code/u }
+  );
+  // 16:13:28 to 16:16:40 is three minutes and twelve seconds.
+  expect(row).toHaveTextContent(
+    /^Working\s*Sign in with a fresh SMS code\s*Interactive Run · .+3:12$/u
+  );
+});
+
+test("names a Flow's platform in its header, apart from the Global root", async () => {
+  rpc.browse = browse([local, global]);
+  rpc.flow = { _tag: "Initial", waiting: true };
+  renderPage({
+    initial: { kind: "flow", name: "1mg mobile login", scope: "local" },
+  });
+  expect(
+    screen.getByRole("region", { name: "1mg mobile login" })
+  ).toHaveTextContent(/^VerifiedWeb/u);
+  await userEvent.click(screen.getByRole("button", { name: "Global" }));
+  await userEvent.click(
+    screen.getByRole("treeitem", { name: /Staging SSO login/u })
+  );
+  expect(
+    screen.getByRole("region", { name: "Staging SSO login" })
+  ).toHaveTextContent(/^VerifiedWebGlobal/u);
+});
+
+test("lists a recording by where it stands, never by its id", async () => {
+  rpc.browse = browse([
+    decodeRoot({
+      ...retained,
+      recordings: [
+        recording,
+        {
+          ...recording,
+          cleanup: "purged",
+          phase: "verified",
+          recordingId: "recording-cleaned",
+        },
+        { ...recording, phase: "recording", recordingId: "recording-live" },
+      ],
+    }),
+  ]);
+  renderPage({ initial: { kind: "root", scope: "local" } });
+  const list = screen.getByRole("list", { name: "Runs and recordings" });
+  // The chip names the entry's kind, so the title never repeats it.
+  expect(
+    within(list).getByRole("button", { name: /Capturing/u })
+  ).toHaveTextContent(/^Recording\s*Capturing\s*Teaching · /u);
+  expect(
+    within(list).getByRole("button", { name: /Learned, Dry Run next/u })
+  ).toHaveTextContent(/^Recording\s*Learned, Dry Run next\s*Teaching · /u);
+  expect(
+    within(list).getByRole("button", { name: /Cleaned up/u })
+  ).toBeVisible();
+  expect(within(list).queryByText(/recording-retained/u)).toBeNull();
+  await userEvent.click(
+    within(list).getByRole("button", { name: /Learned, Dry Run next/u })
+  );
+  const summary = screen.getByRole("article", { name: "Teaching Recording" });
+  expect(
+    within(summary).getByRole("heading", { name: "1mg mobile login" })
+  ).toBeVisible();
+  expect(
+    within(summary).getByRole("button", {
+      name: "Copy Recording ID recording-retained",
+    })
+  ).toBeVisible();
 });

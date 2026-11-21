@@ -200,7 +200,7 @@ export const GuidedTakeoverVariable = ({
   session,
   stateAtom,
 }: {
-  /** The tier's collapse control, when this is its first request. */
+  /** The Requests island's collapse control. */
   readonly collapse?: React.ReactNode;
   readonly session: AgentSessionSnapshot;
   /** Owned by the request tier, so collapsing it keeps the form. */

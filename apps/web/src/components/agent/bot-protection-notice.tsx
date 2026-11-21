@@ -37,7 +37,7 @@ export const BotProtectionNotice = ({
     className="island bg-island-solid mx-auto flex w-full max-w-[480px] items-start gap-2.5 rounded-2xl py-2.5 pr-2 pl-2.5 text-left"
     role="alert"
   >
-    <span className="grid size-6 shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--island-brand)_16%,transparent)] text-(--status-needs-you)">
+    <span className="bg-brand-ink/14 text-brand-ink grid size-6 shrink-0 place-items-center rounded-full">
       <ShieldAlertIcon aria-hidden="true" className="size-3.5" />
     </span>
     <div className="grid min-w-0 flex-1 gap-0.5">
@@ -54,9 +54,9 @@ export const BotProtectionNotice = ({
       aria-label="Dismiss bot protection notice"
       className="-mt-0.5 shrink-0"
       onClick={onDismiss}
-      size="icon-xs"
+      size="icon-sm"
       type="button"
-      variant="ghost"
+      variant="island"
     >
       <XIcon aria-hidden="true" />
     </Button>

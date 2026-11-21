@@ -16,7 +16,10 @@ import {
   VariableField,
   requestIconClassName,
 } from "@/components/agent/dock-request-parts";
-import { splitWaiting } from "@/components/agent/dock-requests-state";
+import {
+  splitWaiting,
+  stillNeeded,
+} from "@/components/agent/dock-requests-state";
 import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
@@ -80,7 +83,7 @@ export const SetupVariables = ({
   collapse,
   session,
 }: {
-  /** The tier's collapse control, when this is its first request. */
+  /** The Requests island's collapse control. */
   readonly collapse?: React.ReactNode;
   readonly session: AgentSessionSnapshot;
 }) => {
@@ -105,7 +108,7 @@ export const SetupVariables = ({
         action={collapse}
         badge={
           <span className="tabular-nums">
-            {waiting.length} of {variables.length} needed
+            {stillNeeded(waiting.length, variables.length)}
           </span>
         }
         icon={

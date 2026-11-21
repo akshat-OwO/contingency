@@ -3,6 +3,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 
 @custom-variant dark (&:is(.dark *));
 @custom-variant reduce-transparency (@media (prefers-reduced-transparency: reduce));
@@ -153,7 +154,7 @@
   }
 
   body {
-    @apply bg-background text-foreground h-svh overflow-hidden overscroll-none;
+    @apply bg-background text-foreground h-svh overflow-hidden overscroll-none antialiased;
   }
   html {
     @apply h-full overflow-hidden overscroll-none font-sans;
@@ -197,9 +198,13 @@
 
   --font-sans: "Geist Variable", sans-serif;
 
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+
   --color-ring: var(--ring);
 
   --color-brand: var(--brand);
+
+  --color-brand-ink: var(--brand-ink);
 
   --color-status-ready: var(--status-ready);
 
@@ -324,8 +329,15 @@
   /* Focus is the one hue in the chrome: at least 3:1 on every surface. */
   --ring: oklch(0.55 0.19 258);
 
-  /* The watcher mark is ink here: amber is too faint on white. */
-  --brand: var(--foreground);
+  /*
+   * The watcher's amber: besides focus, the only hue in the chrome. On white
+   * it is too faint for text or a focus outline (about 1.6:1), so those use
+   * `--brand-ink`; amber itself fills, tints and edges selected states.
+   */
+  --brand: #ffc400;
+
+  /* Text and outlines in the brand hue: at least 4.5:1 on white. */
+  --brand-ink: oklch(0.42 0.1 80);
 
   --radius: 0.625rem;
 
@@ -398,8 +410,9 @@
 
   --ring: oklch(0.7 0.15 258);
 
-  /* The watcher's amber: besides focus, the only hue in the chrome. */
   --brand: oklch(0.86 0.175 90);
+
+  --brand-ink: var(--brand);
 
   --canvas: oklch(0.155 0.004 85);
   --canvas-dot: oklch(0.32 0.006 85);

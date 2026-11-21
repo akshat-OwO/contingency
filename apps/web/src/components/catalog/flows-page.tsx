@@ -11,19 +11,20 @@ import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
   BookOpenIcon,
+  ChevronDownIcon,
   ChevronRightIcon,
   CircleAlertIcon,
   CircleDashedIcon,
+  CircleDotIcon,
   ClapperboardIcon,
   FileTextIcon,
   FolderIcon,
   GlobeIcon,
-  PlayIcon,
   SearchIcon,
   ShieldCheckIcon,
 } from "lucide-react";
-import { useEffect, useState } from "react";
-import type { ReactNode } from "react";
+import { useEffect, useId, useState } from "react";
+import type { ReactNode, UIEvent } from "react";
 
 import { NativeRunSummary } from "@/components/agent/android-run-summary";
 import {
@@ -36,6 +37,7 @@ import {
 } from "@/components/agent/dry-run-summary-state";
 import type { SummaryVerdictTone } from "@/components/agent/dry-run-summary-state";
 import { EvidenceReference } from "@/components/agent/evidence-reference";
+import { PlatformIcon } from "@/components/agent/platform-icons";
 import { VerdictCard } from "@/components/agent/run-summary-verdict";
 import { RunSummaryView } from "@/components/agent/run-view";
 import { FlowMarkdown } from "@/components/catalog/flow-markdown";
@@ -48,12 +50,14 @@ import {
   when,
 } from "@/components/catalog/flows-format";
 import type {
+  FlowPlatform,
   FlowsFolder,
   SessionFlows,
 } from "@/components/catalog/flows-page-state";
 import {
   availableFolder,
   defaultFolder,
+  flowPlatform,
   flowsOriginAtom,
   folderOfRun,
   looseRuns,
@@ -66,7 +70,7 @@ import {
   sessionFlows,
   showsGlobalAtFirst,
 } from "@/components/catalog/flows-page-state";
-import { OutcomeDot } from "@/components/catalog/flows-parts";
+import { OutcomeChip } from "@/components/catalog/flows-parts";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -87,6 +91,19 @@ const PANE =
   "island flex min-h-0 flex-col overflow-hidden motion-safe:animate-[flows-pane-in_0.42s_0.2s_var(--ease-workspace-out)_both]";
 
 const ROOT_PATH = { global: "~/.contingency", local: "contingency/" } as const;
+
+const PLATFORM_NAME: Record<FlowPlatform, string> = {
+  android: "Android",
+  ios: "iOS",
+  web: "Web",
+};
+
+/** A count beside a heading, in a bordered pill. */
+const CountPill = ({ children }: { readonly children: ReactNode }) => (
+  <span className="bg-island-hover text-muted-foreground ring-island-border inline-grid h-5 min-w-5 place-items-center rounded-[7px] px-1.5 font-mono text-xs leading-none font-semibold tabular-nums ring-1 ring-inset">
+    {children}
+  </span>
+);
 
 /* ------------------------------------------------------------------ catalog */
 
@@ -161,12 +178,34 @@ const FlowMark = ({ verified }: { readonly verified: boolean }) =>
     />
   );
 
+/** A Flow's mark in the tree: its platform, or a document when unknown. */
+const FlowGlyph = ({
+  platform,
+}: {
+  readonly platform: FlowPlatform | undefined;
+}) =>
+  platform === undefined ? (
+    <FileTextIcon
+      aria-hidden="true"
+      className="text-muted-foreground ml-[22px] size-[15px] shrink-0"
+    />
+  ) : (
+    <span
+      className="text-muted-foreground ml-[22px] inline-grid shrink-0"
+      title={PLATFORM_NAME[platform]}
+    >
+      <PlatformIcon className="size-[15px]" platform={platform} />
+    </span>
+  );
+
 const TreeRows = ({
   labels,
   nodes,
+  root,
 }: {
   readonly labels: ReadonlyMap<string, string>;
   readonly nodes: readonly TreeNode[];
+  readonly root: CatalogRootView;
 }) =>
   nodes.map((node) => (
     <TreeItem key={node.value} value={node.value}>
@@ -187,11 +226,10 @@ const TreeRows = ({
           </>
         ) : (
           <>
-            <FileTextIcon
-              aria-hidden="true"
-              className="text-muted-foreground ml-[22px] size-[15px] shrink-0"
-            />
-            <span className="min-w-0 flex-1 truncate">{node.flow.name}</span>{" "}
+            <FlowGlyph platform={flowPlatform(root, node.flow)} />
+            <span className="min-w-0 flex-1 truncate">
+              {node.flow.name}
+            </span>{" "}
             {labels.has(node.flow.name) ? (
               <span className="bg-status-running/14 text-status-running rounded-md px-1.5 py-0.5 text-xs font-semibold whitespace-nowrap">
                 {labels.get(node.flow.name)}
@@ -203,14 +241,14 @@ const TreeRows = ({
       </TreeItemLabel>
       {node.kind === "group" ? (
         <TreeGroup>
-          <TreeRows labels={labels} nodes={node.children} />
+          <TreeRows labels={labels} nodes={node.children} root={root} />
         </TreeGroup>
       ) : null}
     </TreeItem>
   ));
 
 const rowButton =
-  "hover:bg-island-hover flex min-h-8 w-full items-center gap-2 rounded-[10px] px-2 text-left text-[13.5px] aria-pressed:bg-brand/14 aria-pressed:ring-1 aria-pressed:ring-brand/30 aria-pressed:ring-inset focus-visible:outline-2 focus-visible:outline-brand focus-visible:-outline-offset-2";
+  "hover:bg-island-hover flex min-h-8 w-full items-center gap-2 rounded-[10px] px-2 text-left text-[13.5px] aria-pressed:bg-brand/14 aria-pressed:ring-1 aria-pressed:ring-brand/30 aria-pressed:ring-inset focus-visible:outline-2 focus-visible:outline-brand-ink focus-visible:-outline-offset-2";
 
 const RootSection = ({
   flows,
@@ -303,7 +341,7 @@ const RootSection = ({
               : null
           }
         >
-          <TreeRows labels={flows.labels} nodes={nodes} />
+          <TreeRows labels={flows.labels} nodes={nodes} root={root} />
         </Tree>
       )}
       {history === 0 || filtering ? null : (
@@ -315,7 +353,7 @@ const RootSection = ({
           }}
           type="button"
         >
-          <PlayIcon
+          <CircleDotIcon
             aria-hidden="true"
             className="text-muted-foreground size-[15px] shrink-0"
           />
@@ -360,13 +398,13 @@ const Catalog = ({
     >
       <div className="flex items-center gap-2 px-2 pb-2.5">
         <h1 className="text-[15px] font-semibold tracking-[-0.02em]">Flows</h1>
-        <span className="text-muted-foreground font-mono text-xs tabular-nums">
-          {count}
-        </span>
+        <CountPill>{count}</CountPill>
         {global === undefined ? null : (
           <Button
             aria-pressed={showGlobal}
-            className="text-muted-foreground hover:text-foreground aria-pressed:bg-brand/14 aria-pressed:text-foreground ml-auto h-[26px] gap-1.5 rounded-lg px-2 text-xs"
+            // The outline look fills dark mode with `dark:bg-input/30`, so the
+            // pressed fill repeats under `dark:` to keep solid ink there too.
+            className="text-muted-foreground hover:text-foreground aria-pressed:bg-foreground aria-pressed:text-background aria-pressed:hover:bg-foreground/90 aria-pressed:hover:text-background dark:aria-pressed:bg-foreground dark:aria-pressed:hover:bg-foreground/90 ml-auto h-[26px] gap-1.5 rounded-lg px-2 text-xs aria-pressed:border-transparent dark:aria-pressed:border-transparent"
             onClick={() => {
               setShowGlobal(!showGlobal);
             }}
@@ -380,7 +418,7 @@ const Catalog = ({
           </Button>
         )}
       </div>
-      <label className="bg-island-hover ring-island-border focus-within:ring-brand mx-0.5 mb-2 flex h-[34px] items-center gap-2 rounded-xl px-2.5 ring-1 ring-inset focus-within:ring-[1.5px]">
+      <label className="bg-island-hover ring-island-border focus-within:ring-brand-ink mx-0.5 mb-2 flex h-[34px] items-center gap-2 rounded-xl px-2.5 ring-1 ring-inset focus-within:ring-[1.5px]">
         <SearchIcon
           aria-hidden="true"
           className="text-muted-foreground size-[15px] shrink-0"
@@ -423,15 +461,18 @@ const Catalog = ({
 
 const Chip = ({
   children,
+  className,
   tone = "neutral",
 }: {
   readonly children: ReactNode;
+  readonly className?: string;
   readonly tone?: "neutral" | "ready";
 }) => (
   <span
     className={cn(
       "status-chip [&_svg]:size-3.5",
-      tone === "neutral" && "[--status-tone:var(--muted-foreground)]"
+      tone === "neutral" && "[--status-tone:var(--muted-foreground)]",
+      className
     )}
     data-status={tone === "ready" ? "ready" : undefined}
   >
@@ -517,11 +558,13 @@ const FlowFiles = ({
 const FlowPane = ({
   flow,
   name,
+  platform,
   scope,
 }: {
   /** Absent while the Flow is still being taught. */
   readonly flow: CatalogFlowEntry | undefined;
   readonly name: string;
+  readonly platform: FlowPlatform | undefined;
   readonly scope: CatalogRootScope;
 }) => {
   const title = [...(flow?.groupPath ?? []), name].join(" / ");
@@ -544,12 +587,14 @@ const FlowPane = ({
       <header className="border-island-border grid gap-2 border-b px-5 pt-[18px] pb-3.5">
         <div className="flex flex-wrap gap-1.5">
           {standing}
-          {scope === "global" ? (
+          {platform === undefined ? null : (
             <Chip>
-              <GlobeIcon aria-hidden="true" />
-              Global
+              <PlatformIcon platform={platform} />
+              {PLATFORM_NAME[platform]}
             </Chip>
-          ) : null}
+          )}
+          {/* No icon: a globe would read as the Web platform. */}
+          {scope === "global" ? <Chip>Global</Chip> : null}
           {flow?.demo === undefined ? null : <Chip>Demo site</Chip>}
         </div>
         <h2 className="font-mono text-[17px] font-semibold tracking-[-0.02em] wrap-anywhere">
@@ -885,16 +930,12 @@ const StoredNativeRunSummary = ({
   const { summary } = result.value;
   return (
     <section aria-label="Run Summary" className="grid gap-4 text-sm">
-      <h3 className="text-[15px] font-semibold tracking-[-0.015em] text-balance wrap-anywhere">
-        {summary.title}
-      </h3>
-      <NativeRunSummary cleanup={cleanup} summary={summary} />
-      <footer className="border-island-border flex flex-wrap items-center gap-2 border-t pt-3">
-        <EvidenceReference id={run.runId} kind="Run ID" />
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
-          <DeviceSessionLink native={native} />
-        </div>
-      </footer>
+      {/* The summary carries its own title and Run ID footer. */}
+      <NativeRunSummary
+        cleanup={cleanup}
+        links={<DeviceSessionLink native={native} />}
+        summary={summary}
+      />
       {scope === "global" ? (
         <p className="text-muted-foreground text-xs text-pretty">
           This Run is stored in ~/.contingency. Its video and screens open only
@@ -957,6 +998,13 @@ const RunSummary = ({
   return <div className="grid grid-cols-[minmax(0,1fr)] gap-3">{body}</div>;
 };
 
+/** Recording phases whose Dry Run review has a summary to show. */
+const REVIEWED_PHASES = new Set(["dry-run-failed", "dry-run-passed"]);
+
+/**
+ * A Teaching Recording, named by the Flow it teaches. Its id is copied, not
+ * read: it stays in the copy button's name and description.
+ */
 const RecordingSummary = ({
   recording,
 }: {
@@ -973,14 +1021,29 @@ const RecordingSummary = ({
         {recording.keyframeCount} keyframes
       </span>
     </div>
-    <h3 className="font-mono text-sm font-semibold break-all">
-      {recording.recordingId}
+    <h3 className="font-mono text-sm font-semibold wrap-anywhere">
+      {recording.flowName}
     </h3>
     <p className="bg-island-hover rounded-xl px-3 py-2.5 text-pretty">
       {recording.cleanup === "purged"
         ? "Cleanup removed the video, Trace and events after the Flow was verified. Only the manifest is left."
         : "Sensitive learning evidence. Cleanup deletes it once you verify the Flow, after a passing Dry Run."}
     </p>
+    <footer className="border-island-border flex flex-wrap items-center gap-2 border-t pt-3">
+      <EvidenceReference id={recording.recordingId} kind="Recording ID" />
+      {recording.cleanup !== "purged" &&
+      REVIEWED_PHASES.has(recording.phase) ? (
+        <a
+          className={cn(
+            buttonVariants({ size: "xs", variant: "outline" }),
+            "ml-auto"
+          )}
+          href={`/?recording=${recording.recordingId}`}
+        >
+          Dry Run review
+        </a>
+      ) : null}
+    </footer>
   </article>
 );
 
@@ -1003,6 +1066,155 @@ const MissingRun = ({ runId }: { readonly runId: AgentRunId }) => (
     </AlertDescription>
   </Alert>
 );
+
+/** At most this many rows show at once until the list is expanded. */
+const VISIBLE_RUN_ROWS = 4;
+
+/**
+ * One row's height: a title line, a detail line and the row's padding. The
+ * list is sized in whole rows, so the last one is never sliced through its
+ * text; rem keeps that true at a larger text size.
+ */
+const RUN_ROW = "h-[3.125rem]";
+/** `VISIBLE_RUN_ROWS` rows, the gaps between them, and the list's padding. */
+const RUN_LIST_MAX = "max-h-[calc(4*3.125rem+3*0.125rem+1rem)]";
+
+/** Whether a scrolled list holds more below what it shows. */
+const hasMoreBelow = (element: HTMLElement): boolean =>
+  element.scrollTop + element.clientHeight < element.scrollHeight - 1;
+
+const RunRow = ({
+  entry,
+  onShow,
+  shown,
+}: {
+  readonly entry: Entry;
+  readonly onShow: (entry: Entry) => void;
+  readonly shown: boolean;
+}) => (
+  <li className="col-span-3 grid grid-cols-subgrid">
+    <button
+      aria-pressed={shown}
+      className={cn(
+        "hover:bg-island-hover aria-pressed:bg-island-hover aria-pressed:ring-island-border focus-visible:outline-brand-ink col-span-3 grid grid-cols-subgrid items-center rounded-xl pr-2.5 pl-2 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 aria-pressed:ring-1 aria-pressed:ring-inset",
+        RUN_ROW
+      )}
+      onClick={() => {
+        onShow(entry);
+      }}
+      type="button"
+    >
+      {entry.kind === "run" ? (
+        <>
+          <OutcomeChip className="justify-self-start" run={entry.run} />
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-medium">
+              {entry.run.title}
+            </span>
+            <span className="text-muted-foreground block truncate text-xs">
+              {runKindLabel(entry.run)} · {when(entry.run.startedAt)}
+            </span>
+          </span>
+          <span className="text-muted-foreground justify-self-end font-mono text-xs tabular-nums">
+            {runDuration(entry.run)}
+          </span>
+        </>
+      ) : (
+        <>
+          <Chip className="justify-self-start">
+            <CircleDotIcon aria-hidden="true" />
+            Recording
+          </Chip>
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-medium">
+              {recordingPhaseLabel(entry.recording)}
+            </span>
+            <span className="text-muted-foreground block truncate text-xs">
+              Teaching · {when(entry.recording.createdAt)}
+            </span>
+          </span>
+          <span />
+        </>
+      )}
+    </button>
+  </li>
+);
+
+/**
+ * The folder's Runs and Teaching Recordings, newest first. Each Run leads
+ * with its outcome as a tinted chip, as wide as its words, and ends on its
+ * length; a recording leads with a Recording chip and says where it stands.
+ * The rows share one set of columns, so every title starts at one edge.
+ *
+ * Past four rows the list scrolls, its last row fades while more wait below,
+ * and a "Show N more" button under it opens the whole list.
+ */
+const RunList = ({
+  entries,
+  onShow,
+  shownId,
+}: {
+  readonly entries: readonly Entry[];
+  readonly onShow: (entry: Entry) => void;
+  readonly shownId: string | undefined;
+}) => {
+  const listId = useId();
+  const hidden = entries.length - VISIBLE_RUN_ROWS;
+  const [moreBelowAtom] = useState(() => Atom.make(true));
+  const [moreBelow, setMoreBelow] = useAtom(moreBelowAtom);
+  const [expandedAtom] = useState(() => Atom.make(false));
+  const [expanded, setExpanded] = useAtom(expandedAtom);
+  const capped = hidden > 0 && !expanded;
+  return (
+    <div className="border-island-border shrink-0 border-b">
+      <ul
+        aria-label="Runs and recordings"
+        className={cn(
+          "grid [scrollbar-width:thin] grid-cols-[auto_minmax(0,1fr)_auto] gap-x-2.5 gap-y-0.5 overflow-y-auto p-2",
+          capped && RUN_LIST_MAX,
+          capped &&
+            moreBelow &&
+            "[mask-image:linear-gradient(to_bottom,black_calc(100%-2rem),transparent)]"
+        )}
+        id={listId}
+        onScroll={(event: UIEvent<HTMLUListElement>) => {
+          setMoreBelow(hasMoreBelow(event.currentTarget));
+        }}
+      >
+        {entries.map((entry) => (
+          <RunRow
+            entry={entry}
+            key={entryId(entry)}
+            onShow={onShow}
+            shown={shownId === entryId(entry)}
+          />
+        ))}
+      </ul>
+      {hidden > 0 ? (
+        <Button
+          aria-controls={listId}
+          aria-expanded={expanded}
+          className="mb-2 ml-4"
+          onClick={() => {
+            setExpanded(!expanded);
+          }}
+          size="xs"
+          type="button"
+          variant="island"
+        >
+          <ChevronDownIcon
+            aria-hidden="true"
+            className={cn(
+              "transition-transform motion-reduce:transition-none",
+              expanded && "rotate-180"
+            )}
+          />
+          {expanded ? "Show fewer" : `Show ${hidden} more`}
+        </Button>
+      ) : null}
+    </div>
+  );
+};
 
 const RunsPane = ({
   emptyNote,
@@ -1029,79 +1241,21 @@ const RunsPane = ({
     >
       <header className="border-island-border flex items-center gap-2 border-b px-5 py-3.5">
         <h2 className="text-[15px] font-semibold tracking-[-0.02em]">Runs</h2>
-        <span className="text-muted-foreground font-mono text-xs tabular-nums">
-          {runs}
-        </span>
+        <CountPill>{runs}</CountPill>
       </header>
       {missingRun === undefined ? null : <MissingRun runId={missingRun} />}
       {entries.length === 0 ? (
         <div className="text-muted-foreground grid flex-1 place-content-center justify-items-center gap-2.5 p-6 text-center text-balance">
-          <PlayIcon aria-hidden="true" className="size-5" />
+          <CircleDotIcon aria-hidden="true" className="size-5" />
           <p className="max-w-[280px]">{emptyNote}</p>
         </div>
       ) : (
         <>
-          <ul
-            aria-label="Runs and recordings"
-            className="border-island-border grid max-h-[34%] shrink-0 gap-0.5 overflow-y-auto border-b p-2"
-          >
-            {entries.map((entry) => (
-              <li key={entryId(entry)}>
-                <button
-                  aria-pressed={
-                    shown !== undefined && entryId(shown) === entryId(entry)
-                  }
-                  className="hover:bg-island-hover aria-pressed:bg-island-hover aria-pressed:ring-island-border focus-visible:outline-brand grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 rounded-xl py-[7px] pr-2.5 pl-2 text-left focus-visible:outline-2 aria-pressed:ring-1 aria-pressed:ring-inset"
-                  onClick={() => {
-                    onShow(entry);
-                  }}
-                  type="button"
-                >
-                  {entry.kind === "run" ? (
-                    <>
-                      <span className="flex min-w-0 items-start gap-2.5">
-                        <OutcomeDot className="mt-1.5" run={entry.run} />
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm">
-                            {entry.run.title}
-                          </span>
-                          <span className="text-muted-foreground block truncate text-xs">
-                            <span className="text-foreground/80 font-medium">
-                              {runVerdict(entry.run)}
-                            </span>{" "}
-                            · {runKindLabel(entry.run)} ·{" "}
-                            {when(entry.run.startedAt)}
-                          </span>
-                        </span>
-                      </span>
-                      <span className="text-muted-foreground font-mono text-xs">
-                        {runDuration(entry.run)}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="flex min-w-0 items-start gap-2.5">
-                        <ClapperboardIcon
-                          aria-hidden="true"
-                          className="text-muted-foreground mt-0.5 size-3.5 shrink-0"
-                        />
-                        <span className="min-w-0">
-                          <span className="block truncate font-mono text-xs">
-                            {entry.recording.recordingId}
-                          </span>
-                          <span className="text-muted-foreground block truncate text-xs">
-                            {recordingPhaseLabel(entry.recording)} · Teaching ·{" "}
-                            {when(entry.recording.createdAt)}
-                          </span>
-                        </span>
-                      </span>
-                      <span />
-                    </>
-                  )}
-                </button>
-              </li>
-            ))}
-          </ul>
+          <RunList
+            entries={entries}
+            onShow={onShow}
+            shownId={shown === undefined ? undefined : entryId(shown)}
+          />
           <div className="min-h-0 flex-1 overflow-y-auto px-5 pt-4 pb-5">
             {shown?.kind === "run" ? (
               <RunSummary
@@ -1207,7 +1361,12 @@ const FolderPanes = ({
       key={JSON.stringify(folder)}
     >
       {folder.kind === "flow" ? (
-        <FlowPane flow={flow} name={folder.name} scope={folder.scope} />
+        <FlowPane
+          flow={flow}
+          name={folder.name}
+          platform={flow === undefined ? undefined : flowPlatform(root, flow)}
+          scope={folder.scope}
+        />
       ) : (
         <RootPane
           onFolder={onFolder}

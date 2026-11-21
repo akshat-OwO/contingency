@@ -3,13 +3,24 @@ import type {
   CatalogRecordingEntry,
   CatalogRunEntry,
 } from "@contingency/protocol";
-import { format, formatDistanceStrict } from "date-fns";
+import { format } from "date-fns";
 
 export const when = (iso: string): string =>
   format(new Date(iso), "MMM d, HH:mm");
 
-export const runDuration = (run: CatalogRunEntry): string =>
-  formatDistanceStrict(new Date(run.endedAt), new Date(run.startedAt));
+/** How long a Run took, as a clock: `0:02`, `1:36`, `1:02:05`. */
+export const runDuration = (run: CatalogRunEntry): string => {
+  const elapsed = Date.parse(run.endedAt) - Date.parse(run.startedAt);
+  const total = Number.isFinite(elapsed)
+    ? Math.max(0, Math.round(elapsed / 1000))
+    : 0;
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = String(total % 60).padStart(2, "0");
+  return hours === 0
+    ? `${minutes}:${seconds}`
+    : `${hours}:${String(minutes).padStart(2, "0")}:${seconds}`;
+};
 
 const RUN_KIND: Record<CatalogRunEntry["kind"], string> = {
   "dry-run": "Dry Run",
@@ -55,25 +66,39 @@ const words = (code: string) => {
  * What a Run reports for itself, in words: its Agent Assessment, or how it
  * ended when the agent never assessed it.
  */
-export const runVerdict = (run: CatalogRunEntry): string =>
+export const runVerdict = (
+  run: Pick<CatalogRunEntry, "assessment" | "outcome">
+): string =>
   run.assessment === null
     ? (OUTCOME.get(run.outcome) ?? words(run.outcome))
     : ASSESSMENT[run.assessment];
 
-/** The dock's own badge names for each Teaching capture state. */
+/**
+ * Where a Teaching Recording stands, in the words the Flows page uses for it
+ * (#755), by its capture state.
+ */
 const PHASE = new Map([
-  ["dry-run-failed", "Dry run failed"],
-  ["dry-run-passed", "Dry run passed"],
-  ["dry-running", "Dry run"],
+  ["dry-run-failed", "Dry Run failed"],
+  ["dry-run-passed", "Dry Run passed"],
+  ["dry-running", "Dry Run running"],
   ["failed", "Recording failed"],
   ["finalizing", "Saving"],
+  ["flow-drafted", "Learned, Dry Run next"],
   ["learning", "Learning"],
-  ["ready", "Recording saved"],
-  ["recording", "Recording"],
-  ["setup", "Not recording"],
-  ["flow-drafted", "Flow drafted"],
+  ["ready", "Recorded, learning next"],
+  // Not "Recording": the row's chip already says what kind of entry it is.
+  ["recording", "Capturing"],
+  ["setup", "Not started"],
   ["verified", "Verified"],
 ]);
 
-export const recordingPhaseLabel = (recording: CatalogRecordingEntry): string =>
-  PHASE.get(recording.phase) ?? recording.phase;
+/**
+ * A recording's phase in words. Once Cleanup removed its evidence, that is
+ * what there is to say about it; a state nobody named yet reads as words.
+ */
+export const recordingPhaseLabel = (
+  recording: CatalogRecordingEntry
+): string =>
+  recording.cleanup === "purged"
+    ? "Cleaned up"
+    : (PHASE.get(recording.phase) ?? words(recording.phase));

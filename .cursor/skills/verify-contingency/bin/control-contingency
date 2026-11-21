@@ -47,6 +47,8 @@ Commands:
   browser canvas-type --text <text> [--enter]
   browser android-pick --session-id <id> --role <role> --name <name> | --fx <fraction> --fy <fraction>
   browser android-idle
+  browser native-close
+  browser target-app --app <package-or-bundle-id>
   browser device-type --text <text>
   browser measures [--clear]
   browser android-no-overlays
@@ -59,7 +61,7 @@ Commands:
   browser fill --role <role> --name <name> | --label <label> --value <value> [--partial]
   browser select --role <role> --name <name> --value <option-value> [--partial]
   browser press --key <key> [--role <role> --name <name> [--partial]]
-  browser wait --role <role> --name <name> [--state visible|hidden] [--has-text <substring>] [--timeout-ms <n>] [--partial]
+  browser wait --role <role> --name <name> [--state visible|hidden|enabled] [--has-text <substring>] [--timeout-ms <n>] [--partial]
   browser wait --text <substring> [--timeout-ms <n>] [--partial]
   mcp start
   mcp channels
@@ -80,6 +82,12 @@ Commands:
   browser procedure-check --flow-file <file> --path <directory> [--text-scale <1|2>]
   browser set-input-files --label <label> --path <file> | --role <role> --name <name> --path <file>  (a button target answers the file chooser it opens)
   browser download --role <role> --name <name> --path <file> [--partial]
+  browser color-scheme --scheme <light|dark>
+  browser settle
+  browser hide --selector <css>
+  seed [--only <state,...>] [--android] [--ios]
+  seed capture [--only <state,...>] [--prototype <url>] [--path <directory>]
+  seed reset
   cli -- <contingency args...>
   ecommerce start
   fixture start
@@ -88,6 +96,8 @@ Commands:
 Environment:
   CONTINGENCY_VERIFY_DIR   Isolated run directory (created by launch)
   CONTINGENCY_VERIFY_PORT  Bind port; launch picks a free one otherwise
+  CONTINGENCY_SEED_ANDROID_SERIAL  Emulator for seed --android; the only running one otherwise
+  CONTINGENCY_SEED_IOS_UDID        Simulator for seed --ios; the only booted one otherwise
 `);
 };
 
@@ -291,6 +301,17 @@ const loadEcommercePages = () => {
   return pages;
 };
 
+/** Waits for the page's finite animations and view transitions to end. */
+const settleAnimations = (page) =>
+  page.evaluate(() =>
+    Promise.all(
+      document
+        .getAnimations()
+        .filter((animation) => animation.effect?.getTiming().iterations !== Infinity)
+        .map((animation) => animation.finished.catch(() => undefined))
+    )
+  );
+
 const runPageAction = async (page, appUrl, action, flags) => {
   switch (action) {
     case "android-allow-request":
@@ -357,6 +378,17 @@ const runPageAction = async (page, appUrl, action, flags) => {
       const { waitAndroidIdle } = await import("./android-ui.mjs");
       await waitAndroidIdle(page);
       return "Android dock ready";
+    }
+    case "native-close": {
+      const { closeNativeSession } = await import("./android-ui.mjs");
+      return JSON.stringify(await closeNativeSession(page));
+    }
+    case "target-app": {
+      if (typeof flags.app !== "string") {
+        throw new Error("browser target-app needs --app.");
+      }
+      const { chooseTargetApp } = await import("./android-ui.mjs");
+      return JSON.stringify(await chooseTargetApp(page, flags.app));
     }
     case "device-type": {
       if (typeof flags.text !== "string") {
@@ -796,6 +828,7 @@ const runPageAction = async (page, appUrl, action, flags) => {
     }
     case "wait": {
       const state = flags.state === "hidden" ? "hidden" : "visible";
+      const enabled = flags.state === "enabled";
       const timeout =
         typeof flags["timeout-ms"] === "string"
           ? Number(flags["timeout-ms"])
@@ -811,13 +844,25 @@ const runPageAction = async (page, appUrl, action, flags) => {
         if (typeof flags.role !== "string") {
           throw new Error("browser wait --has-text needs --role.");
         }
-        target = page
-          .getByRole(flags.role)
-          .filter({ hasText: flags["has-text"] });
+        // A name narrows the role first, so the text filter cannot match an
+        // enclosing region that merely contains the named one.
+        target = (
+          typeof flags.name === "string" && flags.name !== ""
+            ? locator(page, flags)
+            : page.getByRole(flags.role)
+        ).filter({ hasText: flags["has-text"] });
       } else {
         target = locator(page, flags);
       }
-      await target.waitFor({ state, timeout });
+      // A control that waits on data, such as the Target App combobox. The
+      // filter is part of the locator, so a re-rendered control is resolved
+      // again rather than pinned, under the one timeout.
+      await (enabled
+        ? target.and(
+            page.locator(':not([disabled]):not([aria-disabled="true"])')
+          )
+        : target
+      ).waitFor({ state, timeout });
       return "";
     }
     case "flows-layout-check": {
@@ -1054,6 +1099,95 @@ const runPageAction = async (page, appUrl, action, flags) => {
             cause instanceof Error ? cause : new Error(String(cause)),
         })
       );
+    }
+    case "color-scheme": {
+      // Follows the System theme without reloading a page whose state is held
+      // by the client: the saved choice is cleared, each app is told it is
+      // gone, and the page's `prefers-color-scheme` is emulated. The capture
+      // then checks the theme the page actually renders, so a screenshot is
+      // never named for a theme the page did not apply.
+      const scheme = flags.scheme;
+      if (scheme !== "light" && scheme !== "dark") {
+        throw new Error("browser color-scheme needs --scheme light|dark.");
+      }
+      await page.emulateMedia({ colorScheme: scheme });
+      await page.evaluate((key) => {
+        try {
+          localStorage.removeItem(key);
+        } catch {
+          // A page without storage still follows the emulated scheme.
+        }
+        // Both the Workspace (next-themes) and the prototype's theme menu
+        // return to System on a storage event for their key, so the palette
+        // and the checked menu item agree.
+        window.dispatchEvent(new StorageEvent("storage", { key, newValue: null }));
+      }, "contingency-theme");
+      await page
+        .waitForFunction(
+          (expected) => {
+            const surfaces = [
+              document.body,
+              ...document.querySelectorAll("body > *, #root > *, #root > * > *"),
+            ];
+            // Computed colours come back as rgb() or, for Tailwind v4 tokens,
+            // oklch()/oklab(); both give a lightness to compare.
+            const lightness = (color) => {
+              const ok = color.match(
+                /okl(?:ch|ab)\(([\d.]+)(%?)[^/)]*(?:\/\s*([\d.]+)(%?))?/u
+              );
+              if (ok !== null) {
+                const alpha =
+                  ok[3] === undefined
+                    ? 1
+                    : Number(ok[3]) / (ok[4] === "%" ? 100 : 1);
+                return alpha === 0
+                  ? null
+                  : Number(ok[1]) / (ok[2] === "%" ? 100 : 1);
+              }
+              const rgb = color.match(
+                /rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?/u
+              );
+              if (rgb === null || Number(rgb[4] ?? 1) === 0) {
+                return null;
+              }
+              const [r, g, b] = [rgb[1], rgb[2], rgb[3]].map(Number);
+              return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+            };
+            for (const surface of surfaces) {
+              const value = lightness(getComputedStyle(surface).backgroundColor);
+              if (value !== null) {
+                return value < 0.5 === (expected === "dark");
+              }
+            }
+            return false;
+          },
+          scheme,
+          { timeout: 10_000 }
+        )
+        .catch(() => {
+          throw new Error(
+            `browser color-scheme: the page did not render the ${scheme} theme.`
+          );
+        });
+      await settleAnimations(page);
+      return scheme;
+    }
+    case "hide": {
+      // Hides scaffolding that is not part of the page under review, such as
+      // a prototype's control strip, before a screenshot.
+      if (typeof flags.selector !== "string") {
+        throw new Error("browser hide needs --selector.");
+      }
+      await page.addStyleTag({
+        content: `${flags.selector} { visibility: hidden !important; }`,
+      });
+      return "";
+    }
+    case "settle": {
+      // Waits for the page's finite animations and view transitions to end, so
+      // a screenshot shows the resting state rather than a frame mid-motion.
+      await settleAnimations(page);
+      return "";
     }
     case "snapshot": {
       if (flags.aria !== true && flags.aria !== "true") {
@@ -1549,6 +1683,8 @@ const cmdCleanup = async () => {
     recursive: true,
   });
   rmSync(instance.stateDir, { force: true, recursive: true });
+  // The seed manifest names sessions and Runs that lived in that state.
+  rmSync(path.join(directory, "seed"), { force: true, recursive: true });
   rmSync(file, { force: true });
   process.stdout.write(
     `cleaned ${directory} (evidence under ${defaultArtifacts} is untouched)\n`
@@ -1968,6 +2104,17 @@ const cmdFixtureServe = async () => {
       response.end("Fixture service unavailable");
       return;
     }
+    // Answers the way Cloudflare's block page does, so the Workspace shows
+    // its bot protection notice (`features/workspace.md#bot-protection-notice`).
+    if (pathname === "/bot-protection") {
+      response.writeHead(403, {
+        "content-type": "text/html",
+        expires: "Thu, 01 Jan 1970 00:00:01 GMT",
+        server: "cloudflare",
+      });
+      response.end("<!doctype html><title>Attention Required</title><h1>Sorry, you have been blocked</h1>");
+      return;
+    }
     if (pathname.startsWith("/browser-check-scalar/")) {
       const mismatch = searchParams.has("mismatch");
       const values = mismatch
@@ -2335,6 +2482,17 @@ const main = async () => {
       fail("browser needs an action.");
     }
     await cmdBrowser(action, parseArgs(argv.slice(2)).flags);
+    return;
+  }
+  if (command === "seed") {
+    // Seeding and capture live in seed.mjs; it reads this instance's state.
+    const child = spawn(
+      process.execPath,
+      [path.join(here, "seed.mjs"), ...argv.slice(1)],
+      { env: { ...process.env, CONTINGENCY_VERIFY_DIR: verifyDir() }, stdio: "inherit" }
+    );
+    const code = await new Promise((resolve) => child.once("exit", resolve));
+    process.exitCode = code ?? 1;
     return;
   }
   if (command === "cli") {

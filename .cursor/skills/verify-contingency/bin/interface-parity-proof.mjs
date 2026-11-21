@@ -312,7 +312,8 @@ const android = async () => {
     [["SETUP_PASSWORD", "refused"]]
   );
   await save("android.json", { after, variables: read.variables });
-  await click("Close session");
+  // Close session is in the Agent Session picker, not the island.
+  await command("browser", "native-close");
   await command("browser", "wait", "--text", "Closed", "--timeout-ms", "90000");
   return {
     action: "public fill read back",

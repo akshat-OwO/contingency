@@ -4,17 +4,24 @@ import type {
   TeachingRecordingId,
 } from "@contingency/protocol";
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
-import { CircleAlertIcon, CircleCheckIcon, CircleXIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 
-import { DryRunSummaryView } from "@/components/agent/dry-run-summary";
-import { isTaskDryRunSummary } from "@/components/agent/dry-run-summary-state";
+import {
+  DryRunSummaryView,
+  FlowDecision,
+  FlowDecisionButtons,
+  VerifyFlowQuestion,
+} from "@/components/agent/dry-run-summary";
+import type { FlowDecisionTone } from "@/components/agent/dry-run-summary";
+import {
+  dryRunCannotVerify,
+  isTaskDryRunSummary,
+} from "@/components/agent/dry-run-summary-state";
 import { RunSummaryView } from "@/components/agent/run-view";
 import { Button } from "@/components/ui/button";
 import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
-import { cn } from "@/lib/utils";
 
 /**
  * Where a Flow stands after its Dry Run, as one sentence (ADR 0073). Only a
@@ -50,42 +57,12 @@ const decisionSentence = (
     );
   }
   if (outcome === "failed") {
-    return "This Flow can't be verified until a Dry Run passes. Ask the agent to fix it and run another.";
+    return dryRunCannotVerify;
   }
   if (outcome === "passed") {
-    return (
-      <>
-        <strong className="font-semibold">Verify {flow}?</strong> Verifying
-        keeps the Flow and deletes its Teaching evidence.
-      </>
-    );
+    return <VerifyFlowQuestion flow={flow} />;
   }
   return "Awaiting your Verify or Reject decision.";
-};
-
-const decisionTone = {
-  ask: "",
-  failed: "[--decision-tone:var(--destructive)]",
-  neutral: "[--decision-tone:var(--muted-foreground)]",
-  passed: "[--decision-tone:var(--status-ready)]",
-};
-
-const DecisionIcon = ({
-  tone,
-}: {
-  readonly tone: keyof typeof decisionTone;
-}) => {
-  const className = "mt-0.5 size-4 shrink-0 text-(--decision-tone)";
-  if (tone === "passed") {
-    return <CircleCheckIcon aria-hidden="true" className={className} />;
-  }
-  if (tone === "neutral") {
-    return <CircleXIcon aria-hidden="true" className={className} />;
-  }
-  if (tone === "failed") {
-    return <CircleAlertIcon aria-hidden="true" className={className} />;
-  }
-  return null;
 };
 
 /** Persisted review only. Verification remains an explicit user decision. */
@@ -204,7 +181,7 @@ export const RecordingViewer = ({
   const asks = view.decision === "pending" && outcome === "passed";
   const cleanupKept =
     view.decision === "verified" && view.cleanup._tag === "purge-pending";
-  let tone: keyof typeof decisionTone = "ask";
+  let tone: FlowDecisionTone = "ask";
   if (cleanupKept) {
     tone = "failed";
   } else if (view.decision === "verified") {
@@ -217,70 +194,40 @@ export const RecordingViewer = ({
   return (
     <section aria-label="Dry Run Summary" className="flex flex-1 flex-col">
       <div className="flex-1">{summary}</div>
-      {/*
-        The decision stays in reach under the summary however far it
-        scrolls: the bar sticks to the bottom of the dock.
-      */}
-      <section
-        aria-label="Flow decision"
-        className={cn(
-          "border-island-border bg-island-solid/85 sticky -bottom-4 z-10 -mx-4 mt-4 -mb-4 grid gap-2.5 border-t px-4 pt-3 pb-4 backdrop-blur-md",
-          decisionTone[tone]
-        )}
-        data-tone={tone}
+      <FlowDecision
+        actions={
+          <>
+            {asks ? (
+              <FlowDecisionButtons
+                onReject={() => {
+                  void decide("reject");
+                }}
+                onVerify={() => {
+                  void decide("verify");
+                }}
+                pending={pending}
+              />
+            ) : null}
+            {cleanupKept ? (
+              <Button
+                className="w-full rounded-[10px] text-[13px]"
+                disabled={pending}
+                onClick={() => {
+                  void decide("retry-cleanup");
+                }}
+                type="button"
+                variant="outline"
+              >
+                Retry cleanup
+              </Button>
+            ) : null}
+          </>
+        }
+        error={decisionError}
+        tone={tone}
       >
-        <div className="flex items-start gap-2">
-          <DecisionIcon tone={tone} />
-          <p className="text-[13px] text-pretty" role="status">
-            {decisionSentence(view.decision, outcome, flow, view.cleanup)}
-          </p>
-        </div>
-        {asks ? (
-          <div className="flex justify-end gap-2">
-            <Button
-              disabled={pending}
-              onClick={() => {
-                void decide("reject");
-              }}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Reject flow
-            </Button>
-            <Button
-              disabled={pending}
-              onClick={() => {
-                void decide("verify");
-              }}
-              size="sm"
-              type="button"
-            >
-              Verify flow
-            </Button>
-          </div>
-        ) : null}
-        {cleanupKept ? (
-          <div className="flex justify-end">
-            <Button
-              disabled={pending}
-              onClick={() => {
-                void decide("retry-cleanup");
-              }}
-              size="sm"
-              type="button"
-              variant="outline"
-            >
-              Retry cleanup
-            </Button>
-          </div>
-        ) : null}
-        {decisionError === undefined ? null : (
-          <p className="text-destructive text-[13px]" role="alert">
-            {decisionError}
-          </p>
-        )}
-      </section>
+        {decisionSentence(view.decision, outcome, flow, view.cleanup)}
+      </FlowDecision>
     </section>
   );
 };

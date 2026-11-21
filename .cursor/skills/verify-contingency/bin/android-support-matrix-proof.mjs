@@ -551,7 +551,8 @@ try {
   const stopped = await read(teaching.id);
   assert.equal(stopped.captureState._tag, "ready");
   await snapshot("teaching-stopped");
-  await click("Close session");
+  // Close session is in the Agent Session picker, not the island.
+  await control("browser", "native-close");
   await waitText("Closed");
   const { recordingId } = stopped;
   const claim = operation();
@@ -683,7 +684,8 @@ try {
     await snapshot(`${kind}-passed`);
     if (kind === "dry-run") {
       await click("Verify flow");
-      await waitText("Flow verified");
+      // Verified, the ended Dry Run's island reads Ended and its sentence.
+      await wait("The Run ended. Its summary is beside it.");
       const verified = await read(started.id);
       assert.equal(verified.cleanup._tag, "purged");
     }
@@ -893,7 +895,7 @@ try {
         continue;
       }
       await view(sessionId);
-      await click("Close session");
+      await control("browser", "native-close");
     } catch {
       // Completed sessions already released their runtime.
     }

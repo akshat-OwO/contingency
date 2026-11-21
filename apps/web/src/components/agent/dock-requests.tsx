@@ -7,7 +7,7 @@ import {
   MinusIcon,
   ShieldAlertIcon,
 } from "lucide-react";
-import { useState } from "react";
+import { Activity, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,8 @@ import { requestIconClassName } from "./dock-request-parts";
 import {
   dockRequests,
   emptyTakeoverForm,
+  requestQueue,
+  setAsideAfter,
   staysCollapsed,
   takeoverKey,
 } from "./dock-requests-state";
@@ -27,10 +29,14 @@ import { GuidedTakeoverVariable } from "./guided-takeover-variable";
 import { RuntimeVariables } from "./runtime-variables";
 import { SetupVariables } from "./setup-variables";
 
+/** A title as a sentence: a question keeps its mark, anything else ends. */
+const sentence = (title: string) =>
+  /[.?!]$/u.test(title) ? title : `${title}.`;
+
 /**
- * The one line a collapsed tier keeps: what is asked, and how to reopen it.
- * The whole line is the control, so it is easy to hit at the bottom edge of
- * a narrow stage.
+ * The one line a collapsed island keeps: the request it shows, and how to
+ * reopen it. The whole line is the control, so it is easy to hit at the
+ * bottom edge of a narrow stage.
  */
 const CollapsedRequests = ({
   onExpand,
@@ -46,7 +52,7 @@ const CollapsedRequests = ({
   return (
     <button
       aria-expanded={false}
-      aria-label={`Show request: ${first.title}. ${first.summary}`}
+      aria-label={`Show request: ${sentence(first.title)} ${first.summary}`}
       className="hover:bg-muted/70 focus-visible:ring-ring flex h-10 w-full min-w-0 items-center gap-2 px-3.5 text-left outline-none focus-visible:ring-3 focus-visible:ring-inset"
       onClick={onExpand}
       type="button"
@@ -74,15 +80,58 @@ const CollapsedRequests = ({
 };
 
 /**
+ * Whether the island's content runs past its bottom edge, so the island can
+ * show that it scrolls. It measures again when the island scrolls, when a
+ * request grows or shrinks, and when the shown request changes.
+ */
+const useRunsPastBottom = () => {
+  const [pastAtom] = useState(() => Atom.make(false));
+  const [past, setPast] = useAtom(pastAtom);
+  const [node, setNode] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (node === null) {
+      return;
+    }
+    const measure = () =>
+      setPast(node.scrollTop + node.clientHeight < node.scrollHeight - 1);
+    measure();
+    const resizes = new ResizeObserver(measure);
+    resizes.observe(node);
+    // Showing another request, or a field's message, changes the height
+    // without resizing the island once it is at its cap.
+    const mutations = new MutationObserver(measure);
+    mutations.observe(node, {
+      attributes: true,
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+    node.addEventListener("scroll", measure, { passive: true });
+    return () => {
+      resizes.disconnect();
+      mutations.disconnect();
+      node.removeEventListener("scroll", measure);
+    };
+  }, [node, setPast]);
+  return [past, setNode] as const;
+};
+
+/**
  * What the agent is waiting on the user for, in the **Requests** island at
- * the bottom left of the stage (#753): a paused Execution Boundary and
- * requests for private inputs. The island floats over the page or device, so
- * a request coming or going never resizes the stage.
+ * the bottom left of the stage (#753): a paused Execution Boundary, requests
+ * for private inputs, and a Guided Run's questions. The island floats over
+ * the page or device, so a request coming or going never resizes the stage.
  *
- * The tier collapses to one line so a long request never has to cover the
+ * It shows one request at a time. When more wait, "+N more after this" sets
+ * the shown one aside and shows the next, so every request stays reachable
+ * and the queue comes back round. Requests set aside stay mounted but hidden,
+ * so a half-typed value survives stepping past it.
+ *
+ * The island collapses to one line so a long request never has to cover the
  * page the person is reading to answer it. Collapsing hides the requests on
- * screen at that moment; a new one opens the tier again. Past about a third
- * of the screen the tier scrolls, so the controls never leave it.
+ * screen at that moment; a new one opens the island again. A request taller
+ * than the room above the dock scrolls, and fades at the bottom edge while
+ * more of it is below.
  */
 export const DockRequests = ({
   session,
@@ -93,7 +142,10 @@ export const DockRequests = ({
     Atom.make<ReadonlySet<string>>(new Set<string>())
   );
   const [collapsedKeys, setCollapsedKeys] = useAtom(collapsedAtom);
-  // The tier stays mounted while collapsed, so it keeps the Takeover
+  const [setAsideAtom] = useState(() => Atom.make<readonly string[]>([]));
+  const [setAside, setSetAside] = useAtom(setAsideAtom);
+  const [runsPastBottom, scrollRef] = useRunsPastBottom();
+  // The island stays mounted while collapsed, so it keeps the Takeover
   // Variable's draft and Entered list across a fold. Each Takeover gets its
   // own form: returning control lets the old one go.
   const [takeoverForms] = useState(() =>
@@ -105,7 +157,9 @@ export const DockRequests = ({
   // Mounted here, the atom outlives the card: an unsubscribed atom resets.
   useAtomMount(takeoverAtom);
   const requests = dockRequests(session);
-  if (requests.length === 0) {
+  const queue = requestQueue(requests, setAside);
+  const [shown, next] = queue;
+  if (shown === undefined) {
     return null;
   }
   if (staysCollapsed(requests, collapsedKeys)) {
@@ -113,7 +167,7 @@ export const DockRequests = ({
       <div className="border-b">
         <CollapsedRequests
           onExpand={() => setCollapsedKeys(new Set<string>())}
-          requests={requests}
+          requests={queue}
         />
       </div>
     );
@@ -122,53 +176,75 @@ export const DockRequests = ({
     <Button
       aria-expanded
       aria-label="Collapse requests"
+      // A bare minus, as the prototype's small icon button: no tile, even
+      // though it reports the island as expanded.
+      className="aria-expanded:text-muted-foreground aria-expanded:hover:bg-island-hover aria-expanded:hover:text-foreground size-[26px] rounded-lg aria-expanded:bg-transparent"
       onClick={() => setCollapsedKeys(new Set(requests.map(({ key }) => key)))}
       size="icon-xs"
       title="Collapse requests"
       type="button"
-      variant="ghost"
+      variant="island"
     >
-      <MinusIcon />
+      <MinusIcon className="size-4" />
     </Button>
   );
-  const [first] = requests;
-  const collapseFor = (kind: DockRequest["kind"]) =>
-    first?.kind === kind ? collapse : null;
+  const visible = (kind: DockRequest["kind"]) =>
+    shown.kind === kind ? "visible" : "hidden";
   const secrets =
     session.activity === "run" ? (session.dryRun?.variables ?? []) : [];
+  const more = queue.length - 1;
   return (
     <div
       className={cn(
-        "max-h-[min(45svh,22rem)] space-y-3 overflow-y-auto border-b p-3.5"
+        "grid max-h-[min(60svh,36rem)] scroll-pb-8 gap-3 overflow-y-auto overscroll-contain border-b p-3.5",
+        runsPastBottom &&
+          "[mask-image:linear-gradient(to_bottom,#000_calc(100%_-_2rem),transparent)]"
       )}
+      ref={scrollRef}
     >
-      <GuidedRunQuestions
-        collapse={collapseFor("guided-run-questions")}
-        session={session}
-      />
-      <ExecutionBoundary
-        key={session.boundary?.id}
-        collapse={collapseFor("boundary")}
-        session={session}
-      />
-      <SetupVariables
-        collapse={collapseFor("setup-variables")}
-        session={session}
-      />
-      <RuntimeVariables
-        collapse={collapseFor("runtime-variables")}
-        session={session}
-      />
-      <DryRunVariables
-        collapse={collapseFor("dry-run-secrets")}
-        sessionId={session.id}
-        variables={secrets}
-      />
-      <GuidedTakeoverVariable
-        collapse={collapseFor("takeover-variable")}
-        session={session}
-        stateAtom={takeoverAtom}
-      />
+      <Activity mode={visible("guided-run-questions")}>
+        <GuidedRunQuestions collapse={collapse} session={session} />
+      </Activity>
+      <Activity mode={visible("boundary")}>
+        <ExecutionBoundary
+          key={session.boundary?.id}
+          collapse={collapse}
+          queued={queue.length}
+          session={session}
+        />
+      </Activity>
+      <Activity mode={visible("setup-variables")}>
+        <SetupVariables collapse={collapse} session={session} />
+      </Activity>
+      <Activity mode={visible("runtime-variables")}>
+        <RuntimeVariables collapse={collapse} session={session} />
+      </Activity>
+      <Activity mode={visible("dry-run-secrets")}>
+        <DryRunVariables
+          collapse={collapse}
+          sessionId={session.id}
+          variables={secrets}
+        />
+      </Activity>
+      <Activity mode={visible("takeover-variable")}>
+        <GuidedTakeoverVariable
+          collapse={collapse}
+          session={session}
+          stateAtom={takeoverAtom}
+        />
+      </Activity>
+      {next === undefined ? null : (
+        <Button
+          aria-label={`+${more} more after this. Show ${next.title}`}
+          className="text-muted-foreground hover:text-foreground ml-11 h-auto justify-self-start p-0 font-mono text-xs font-normal"
+          onClick={() => setSetAside(setAsideAfter(requests, setAside, shown))}
+          title={`Show ${next.title}`}
+          type="button"
+          variant="link"
+        >
+          +{more} more after this
+        </Button>
+      )}
     </div>
   );
 };

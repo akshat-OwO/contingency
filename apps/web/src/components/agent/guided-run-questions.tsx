@@ -427,7 +427,7 @@ export const GuidedRunQuestions = ({
   collapse = null,
   session,
 }: {
-  /** The tier's collapse control, when these questions lead it. */
+  /** The Requests island's collapse control. */
   readonly collapse?: React.ReactNode;
   readonly session: AgentSessionSnapshot;
 }) => {

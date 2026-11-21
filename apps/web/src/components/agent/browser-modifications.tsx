@@ -11,6 +11,14 @@ import {
 import { clockTime } from "./run-detail-state";
 import { dockFactClassName } from "./workspace-dock";
 
+/**
+ * A Browser Modification's sentence. Records written before an empty mock
+ * body was described in words end on a dangling comma; it is dropped so the
+ * row still reads as a finished sentence.
+ */
+const modificationSentence = (description: string): string =>
+  description.replace(/,\s*$/u, "");
+
 export const BrowserModifications = ({
   modifications,
 }: {
@@ -28,7 +36,9 @@ export const BrowserModifications = ({
             lead={<DetailTime at={modification.at} />}
             muted={modification.removedAt !== undefined}
           >
-            <p className="text-pretty">{modification.description}</p>
+            <p className="text-pretty">
+              {modificationSentence(modification.description)}
+            </p>
             <DetailRowText>
               {modification.source === "saved"
                 ? "Saved with the Flow"

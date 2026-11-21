@@ -12,7 +12,9 @@ import {
   isBrowserRpcError,
   STORAGE_LOCKED_MESSAGE as storageLockedMessage,
 } from "@contingency/protocol";
+import { useAtom } from "@effect/atom-react";
 import { Cause, Effect, Fiber, Schedule } from "effect";
+import { Atom } from "effect/reactivity";
 import { PaperclipIcon, PlusIcon, SearchIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
@@ -33,7 +35,6 @@ import {
   isStorageDraftDirty,
   selectedWebStorageValue,
   saveCookieMutation,
-  storageEntryCount,
   truncateStorageValue,
   validateCookieName,
   validateStorageKey,
@@ -52,7 +53,10 @@ import type {
   StorageErase,
   StorageWrite,
 } from "@/components/browser/browser-tooling";
+import { devtoolsFieldClassName } from "@/components/browser/devtools-field";
 import { HighlightedBody } from "@/components/browser/highlighted-body";
+import { SegmentedControl } from "@/components/browser/segmented-control";
+import type { SegmentedOption } from "@/components/browser/segmented-control";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -80,12 +84,18 @@ import { cn } from "@/lib/utils";
 
 const innerTabs: readonly {
   readonly kind: StorageKind;
+  /** The store's own name, as Clear names what it empties. */
   readonly label: string;
+  /** The short choice in the Storage area control. */
+  readonly short: string;
 }[] = [
-  { kind: "cookies", label: "Cookies" },
-  { kind: "local", label: "localStorage" },
-  { kind: "session", label: "sessionStorage" },
+  { kind: "cookies", label: "Cookies", short: "Cookies" },
+  { kind: "local", label: "localStorage", short: "Local" },
+  { kind: "session", label: "sessionStorage", short: "Session" },
 ];
+
+const storageAreaOptions: readonly SegmentedOption<StorageKind>[] =
+  innerTabs.map((tab) => ({ label: tab.short, value: tab.kind }));
 
 const clearConfirmCopy = (kind: StorageKind): string => {
   if (kind === "cookies") {
@@ -142,6 +152,137 @@ const cookieIdentitiesEqualRow = (
   selection?.kind === "cookies" &&
   cookieIdentitiesEqual(cookie, selection.identity);
 
+/**
+ * Cookie columns, narrow enough that the DevTools panel shows Name, Domain
+ * and Value at once. The flags keep their headers whole; whatever does not
+ * fit scrolls sideways under a fade.
+ */
+const COOKIE_COLUMNS =
+  "grid-cols-[minmax(4.5rem,1fr)_minmax(4.5rem,1fr)_3rem_minmax(4.5rem,1.25fr)_3.75rem_3.25rem_4rem_3.25rem]";
+
+/** The whole table's width, so a narrow panel scrolls instead of clipping. */
+const COOKIE_TABLE_MIN = "min-w-[34rem]";
+
+/**
+ * Whether a scroller holds more to its right than it shows. It measures again
+ * when the scroller scrolls or either it or its content resizes.
+ */
+const useMoreToRight = () => {
+  const [moreAtom] = useState(() => Atom.make(false));
+  const [more, setMore] = useAtom(moreAtom);
+  const [node, setNode] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (node === null) {
+      return;
+    }
+    const measure = () =>
+      setMore(node.scrollLeft + node.clientWidth < node.scrollWidth - 1);
+    measure();
+    const resizes = new ResizeObserver(measure);
+    resizes.observe(node);
+    if (node.firstElementChild !== null) {
+      resizes.observe(node.firstElementChild);
+    }
+    node.addEventListener("scroll", measure, { passive: true });
+    return () => {
+      resizes.disconnect();
+      node.removeEventListener("scroll", measure);
+    };
+  }, [node, setMore]);
+  return [more, setNode] as const;
+};
+
+const CookieRow = ({
+  cookie,
+  mutationsLocked,
+  onAttach,
+  onDelete,
+  onSelect,
+  origin,
+  selected,
+}: {
+  readonly cookie: BrowserCookie;
+  readonly mutationsLocked: boolean;
+  readonly onAttach: BrowserTooling["attachBrowserContext"];
+  readonly onDelete: (cookie: BrowserCookie) => void;
+  readonly onSelect: (cookie: BrowserCookie) => void;
+  readonly origin: string;
+  readonly selected: boolean;
+}) => (
+  <div
+    className={cn(
+      "hover:bg-muted/50 grid h-8 items-center gap-x-2 px-2 font-mono text-xs",
+      COOKIE_COLUMNS,
+      selected && "bg-muted"
+    )}
+    draggable={onAttach !== undefined}
+    onDragStart={(event) =>
+      dragAttachment(
+        event,
+        storageAttachment(origin, cookie.name, "cookie", cookie.path)
+      )
+    }
+  >
+    <button
+      className="col-span-7 grid grid-cols-subgrid items-center text-left"
+      onClick={() => {
+        onSelect(cookie);
+      }}
+      type="button"
+    >
+      <span className="truncate" title={cookie.name}>
+        {cookie.name}
+      </span>
+      <span className="truncate" title={cookie.domain}>
+        {cookie.domain}
+      </span>
+      <span className="truncate" title={cookie.path}>
+        {cookie.path}
+      </span>
+      <span className="truncate" title={cookie.value}>
+        {truncateStorageValue(cookie.value)}
+      </span>
+      <span>{flagLabel(cookie.httpOnly)}</span>
+      <span>{flagLabel(cookie.secure)}</span>
+      <span>{sameSiteLabel(cookie.sameSite)}</span>
+    </button>
+    <div className="flex items-center justify-end">
+      {onAttach === undefined ? null : (
+        <Button
+          aria-label={`Attach cookie ${cookie.name}`}
+          size="icon-xs"
+          variant="ghost"
+          onClick={() =>
+            onAttach(
+              storageAttachment(origin, cookie.name, "cookie", cookie.path)
+            )
+          }
+        >
+          <PaperclipIcon />
+        </Button>
+      )}
+      <Button
+        aria-label={`Delete cookie ${cookie.name}`}
+        className="size-6"
+        disabled={mutationsLocked}
+        onClick={() => {
+          onDelete(cookie);
+        }}
+        size="icon-xs"
+        title={mutationsLocked ? storageLockedMessage : undefined}
+        variant="ghost"
+      >
+        <Trash2Icon />
+      </Button>
+    </div>
+  </div>
+);
+
+/**
+ * The origin's cookies, one row each. Header and rows scroll together, so in
+ * a narrow panel every column stays reachable: a thin scrollbar and a fade on
+ * the right edge show that more columns wait past it.
+ */
 const CookieTable = ({
   onAttach,
   origin,
@@ -160,98 +301,59 @@ const CookieTable = ({
   readonly onDelete: (cookie: BrowserCookie) => void;
   readonly onSelect: (cookie: BrowserCookie) => void;
   readonly selected: StorageSelection | undefined;
-}) => (
-  <>
-    <div className="text-muted-foreground grid shrink-0 grid-cols-[minmax(5rem,1fr)_minmax(5rem,1fr)_3.5rem_minmax(5rem,1fr)_3.25rem_3.25rem_3.5rem_3.5rem] border-b px-2 py-1 text-xs font-medium">
-      <span>Name</span>
-      <span>Domain</span>
-      <span>Path</span>
-      <span>Value</span>
-      <span>HttpOnly</span>
-      <span>Secure</span>
-      <span>SameSite</span>
-      <span className="sr-only">Delete</span>
-    </div>
-    <div className="min-h-0 flex-1 overflow-auto">
-      {cookies.length === 0 ? (
-        <div className="text-muted-foreground grid h-24 place-items-center px-4 text-center text-xs">
-          {empty
-            ? "Cookies for this origin will appear here."
-            : "No cookies match this search."}
-        </div>
-      ) : (
-        cookies.map((cookie) => (
-          <div
-            className={cn(
-              "hover:bg-muted/50 grid h-8 grid-cols-[minmax(5rem,1fr)_minmax(5rem,1fr)_3.5rem_minmax(5rem,1fr)_3.25rem_3.25rem_3.5rem_3.5rem] items-center px-2 font-mono text-xs",
-              cookieIdentitiesEqualRow(cookie, selected) && "bg-muted"
-            )}
-            draggable={onAttach !== undefined}
-            onDragStart={(event) =>
-              dragAttachment(
-                event,
-                storageAttachment(origin, cookie.name, "cookie", cookie.path)
-              )
-            }
-            key={`${cookie.name}\0${cookie.domain}\0${cookie.path}`}
-          >
-            <button
-              className="col-span-7 grid grid-cols-subgrid items-center text-left"
-              onClick={() => {
-                onSelect(cookie);
-              }}
-              type="button"
-            >
-              <span className="truncate">{cookie.name}</span>
-              <span className="truncate">{cookie.domain}</span>
-              <span className="truncate">{cookie.path}</span>
-              <span className="truncate" title={cookie.value}>
-                {truncateStorageValue(cookie.value)}
-              </span>
-              <span>{flagLabel(cookie.httpOnly)}</span>
-              <span>{flagLabel(cookie.secure)}</span>
-              <span>{sameSiteLabel(cookie.sameSite)}</span>
-            </button>
-            <div className="flex items-center justify-end">
-              {onAttach === undefined ? null : (
-                <Button
-                  aria-label={`Attach cookie ${cookie.name}`}
-                  size="icon-xs"
-                  variant="ghost"
-                  onClick={() =>
-                    onAttach(
-                      storageAttachment(
-                        origin,
-                        cookie.name,
-                        "cookie",
-                        cookie.path
-                      )
-                    )
-                  }
-                >
-                  <PaperclipIcon />
-                </Button>
-              )}
-              <Button
-                aria-label={`Delete cookie ${cookie.name}`}
-                className="size-6"
-                disabled={mutationsLocked}
-                onClick={() => {
-                  onDelete(cookie);
-                }}
-                size="icon-xs"
-                title={mutationsLocked ? storageLockedMessage : undefined}
-                variant="ghost"
-              >
-                <Trash2Icon />
-              </Button>
-            </div>
-          </div>
-        ))
+}) => {
+  const [moreToRight, scrollerRef] = useMoreToRight();
+  return (
+    <div
+      className={cn(
+        "@container min-h-0 flex-1 [scrollbar-width:thin] overflow-auto",
+        moreToRight &&
+          "[mask-image:linear-gradient(to_right,#000_calc(100%_-_2.5rem),transparent)]"
       )}
+      ref={scrollerRef}
+    >
+      <div className={cn("min-h-full", COOKIE_TABLE_MIN)}>
+        <div
+          className={cn(
+            "text-muted-foreground bg-island-solid sticky top-0 z-[1] grid gap-x-2 border-b px-2 py-1 text-xs font-medium",
+            COOKIE_COLUMNS
+          )}
+        >
+          <span>Name</span>
+          <span>Domain</span>
+          <span>Path</span>
+          <span>Value</span>
+          <span>HttpOnly</span>
+          <span>Secure</span>
+          <span>SameSite</span>
+          <span className="sr-only">Delete</span>
+        </div>
+        {cookies.length === 0 ? (
+          // The note spans the visible width, not the table's, so it stays
+          // centred in a narrow panel.
+          <div className="text-muted-foreground sticky left-0 grid h-24 w-[100cqw] place-items-center px-4 text-center text-xs">
+            {empty
+              ? "Cookies for this origin will appear here."
+              : "No cookies match this search."}
+          </div>
+        ) : (
+          cookies.map((cookie) => (
+            <CookieRow
+              cookie={cookie}
+              key={`${cookie.name}\0${cookie.domain}\0${cookie.path}`}
+              mutationsLocked={mutationsLocked}
+              onAttach={onAttach}
+              onDelete={onDelete}
+              onSelect={onSelect}
+              origin={origin}
+              selected={cookieIdentitiesEqualRow(cookie, selected)}
+            />
+          ))
+        )}
+      </div>
     </div>
-  </>
-);
+  );
+};
 
 const isFocusInside = (
   currentTarget: EventTarget,
@@ -294,7 +396,7 @@ const WebStorageInlineAdd = ({
       <Field invalid={draft.fieldError !== undefined}>
         <Input
           aria-label="New storage key"
-          className="h-7 font-mono text-xs"
+          className="h-7 font-mono text-xs md:text-xs"
           onChange={(event) =>
             onDraftChange({
               ...draft,
@@ -321,7 +423,7 @@ const WebStorageInlineAdd = ({
       </Field>
       <Input
         aria-label="New storage value"
-        className="h-7 font-mono text-xs"
+        className="h-7 font-mono text-xs md:text-xs"
         onChange={(event) =>
           onDraftChange({ ...draft, value: event.target.value })
         }
@@ -376,7 +478,7 @@ const WebStorageTable = ({
   const adding = draft !== undefined && !draft.lockedKey;
   return (
     <>
-      <div className="text-muted-foreground grid shrink-0 grid-cols-[minmax(8rem,1fr)_minmax(8rem,1fr)_3.5rem] border-b px-2 py-1 text-xs font-medium">
+      <div className="text-muted-foreground grid shrink-0 grid-cols-[minmax(8rem,1fr)_minmax(8rem,1fr)_3.5rem] gap-x-2 border-b px-2 py-1 text-xs font-medium">
         <span>Key</span>
         <span>Value</span>
         <span className="sr-only">Delete</span>
@@ -401,7 +503,7 @@ const WebStorageTable = ({
           entries.map(([key, value]) => (
             <div
               className={cn(
-                "hover:bg-muted/50 grid h-8 grid-cols-[minmax(8rem,1fr)_minmax(8rem,1fr)_3.5rem] items-center px-2 font-mono text-xs",
+                "hover:bg-muted/50 grid h-8 grid-cols-[minmax(8rem,1fr)_minmax(8rem,1fr)_3.5rem] items-center gap-x-2 px-2 font-mono text-xs",
                 selectedKey === key && "bg-muted"
               )}
               key={key}
@@ -910,38 +1012,25 @@ const StoragePanelChrome = ({
   return (
     <>
       <div className="flex shrink-0 items-center gap-1 border-b px-1.5 py-1">
-        <div
-          className="flex min-w-0 flex-1 gap-1 overflow-x-auto"
-          role="tablist"
-        >
-          {innerTabs.map((tab) => (
-            <Button
-              aria-selected={uiState.storageKind === tab.kind}
-              className="h-6 rounded-full px-2 text-xs"
-              key={tab.kind}
-              onClick={() => {
-                setUiState((current) => ({
-                  ...current,
-                  storageDraft: undefined,
-                  storageFocused: false,
-                  storageKind: tab.kind,
-                  storageMutateError: undefined,
-                  storageSelection:
-                    current.storageSelection?.kind === tab.kind
-                      ? current.storageSelection
-                      : undefined,
-                }));
-              }}
-              role="tab"
-              size="sm"
-              variant={uiState.storageKind === tab.kind ? "secondary" : "ghost"}
-            >
-              {tab.label}
-              <span className="text-muted-foreground tabular-nums">
-                {storageEntryCount(uiState.storageSnapshots, tab.kind)}
-              </span>
-            </Button>
-          ))}
+        <div className="flex min-w-0 flex-1 overflow-x-auto">
+          <SegmentedControl
+            label="Storage area"
+            onChange={(kind) => {
+              setUiState((current) => ({
+                ...current,
+                storageDraft: undefined,
+                storageFocused: false,
+                storageKind: kind,
+                storageMutateError: undefined,
+                storageSelection:
+                  current.storageSelection?.kind === kind
+                    ? current.storageSelection
+                    : undefined,
+              }));
+            }}
+            options={storageAreaOptions}
+            value={uiState.storageKind}
+          />
         </div>
         <Button
           aria-label={`Add ${uiState.storageKind === "cookies" ? "cookie" : "entry"}`}
@@ -991,7 +1080,7 @@ const StoragePanelChrome = ({
           <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
           <Input
             aria-label="Search storage"
-            className="h-7 pl-7 text-xs"
+            className={cn(devtoolsFieldClassName, "pl-7")}
             onBlur={() =>
               setUiState((current) => ({
                 ...current,

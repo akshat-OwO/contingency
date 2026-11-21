@@ -59,7 +59,7 @@ export const Part = ({
   readonly disabled?: boolean;
   readonly title: string;
 }) => (
-  <fieldset className="grid min-w-0 gap-1.5" disabled={disabled}>
+  <fieldset className="grid min-w-0 grid-cols-1 gap-1.5" disabled={disabled}>
     <legend className="mb-1.5 text-[13px] font-medium">{title}</legend>
     {description === undefined ? null : (
       <p className="text-muted-foreground -mt-1 text-xs">{description}</p>

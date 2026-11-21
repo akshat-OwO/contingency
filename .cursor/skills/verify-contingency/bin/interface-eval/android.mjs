@@ -168,7 +168,8 @@ runtime: ${JSON.stringify(requirements)}
       const current = await read();
       if (!["closed", "completed", "refused"].includes(current.phase)) {
         await ui.open(viewUrl);
-        await ui.click("Close session");
+        // Close session is in the Agent Session picker, not the island.
+        await ui.command("native-close", {});
         await ui.command("wait", { text: "Closed" });
       }
       const closed = await read();

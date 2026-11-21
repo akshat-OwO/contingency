@@ -1,6 +1,6 @@
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { useRouter } from "@tanstack/react-router";
-import { BookOpenIcon } from "lucide-react";
+import { WorkflowIcon } from "lucide-react";
 
 import type { FlowsSessionView } from "@/components/catalog/flows-page-state";
 import {
@@ -79,7 +79,7 @@ export const FlowsButton = ({
           : `${count} saved ${count === 1 ? "Flow" : "Flows"}`
       }
     >
-      <BookOpenIcon aria-hidden="true" />
+      <WorkflowIcon aria-hidden="true" />
       <span>Flows</span>
       {count === undefined ? null : (
         <span className="bg-muted text-foreground grid h-4 min-w-4 place-items-center rounded-full px-1 text-[11px] leading-none font-medium tabular-nums">

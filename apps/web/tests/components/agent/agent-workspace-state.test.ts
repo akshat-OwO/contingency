@@ -7,6 +7,9 @@ import {
   agentControlPresentation,
   agentSessionActivityLabel,
   agentSessionLabel,
+  agentStatusLabel,
+  guidedControlSentence,
+  waitsOnUser,
 } from "@/components/agent/agent-workspace-state";
 
 type TeachingSnapshot = Extract<
@@ -197,4 +200,57 @@ test("offers acceptance of an agent-requested Takeover before control transfers"
     holder: "You have control",
     reason: "The agent asked for help: Sign in privately to continue.",
   });
+});
+
+test("an unanswered Guided Run question means the agent needs you", () => {
+  const recording = {
+    ...teaching("2026-10-23T00:00:00.000Z", {
+      _tag: "recording",
+      startedAt: "2026-10-23T00:00:00.000Z",
+    }),
+    controller: "agent" as const,
+    origin: "guided-run" as const,
+  };
+  const question = {
+    actor: "agent" as const,
+    at: "2026-10-23T00:00:05.000Z",
+    attachments: [],
+    dialogue: { _tag: "question" as const },
+    id: "instruction-question",
+    target: null,
+    text: "Which plan should the account use?",
+  };
+  const asked = {
+    ...recording,
+    teaching: {
+      actionCount: 4,
+      instructionCount: 1,
+      instructions: [question],
+    },
+  };
+  expect(waitsOnUser(recording)).toBe(false);
+  expect(waitsOnUser(asked)).toBe(true);
+  expect(agentStatusLabel(asked, true)).toBe("Needs you");
+  expect(guidedControlSentence(asked)).toBe(
+    "The agent is waiting on you. Answer the request to let it continue; nothing runs until you do."
+  );
+  const answered = {
+    ...asked,
+    teaching: {
+      actionCount: 4,
+      instructionCount: 2,
+      instructions: [
+        question,
+        {
+          ...question,
+          actor: "user" as const,
+          at: "2026-10-23T00:00:09.000Z",
+          dialogue: { _tag: "answer" as const, questionId: question.id },
+          id: "instruction-answer",
+          text: "The Free plan.",
+        },
+      ],
+    },
+  };
+  expect(waitsOnUser(answered)).toBe(false);
 });

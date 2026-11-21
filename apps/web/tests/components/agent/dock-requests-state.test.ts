@@ -4,10 +4,13 @@ import { expect, test } from "vitest";
 
 import {
   dockRequests,
+  requestQueue,
+  setAsideAfter,
   shortDecisionId,
   splitWaiting,
   staysCollapsed,
 } from "@/components/agent/dock-requests-state";
+import type { DockRequest } from "@/components/agent/dock-requests-state";
 
 const at = "2026-09-02T00:00:00.000Z";
 
@@ -53,7 +56,7 @@ const boundary = (reason: string, id = "boundary-1") => ({
   requested: "Open payments.example.test",
 });
 
-test("names what a Boundary confirms rather than repeating the badge", () => {
+test("asks what a Boundary would let the agent do", () => {
   expect(
     dockRequests(snapshot({ boundary: boundary("confirmation") }))
   ).toEqual([
@@ -61,12 +64,13 @@ test("names what a Boundary confirms rather than repeating the badge", () => {
       key: "boundary:boundary-1",
       kind: "boundary",
       summary: "Open payments.example.test",
-      title: "Confirm this action",
+      title: "Allow the agent to take this action?",
+      waiting: true,
     },
   ]);
   expect(
     dockRequests(snapshot({ boundary: boundary("domain") })).at(0)?.title
-  ).toBe("Allow a new domain");
+  ).toBe("Allow the agent to visit a new host?");
 });
 
 test("keeps a Boundary in the dock while the user holds the browser", () => {
@@ -94,6 +98,7 @@ test("counts setup Variables still waiting during agent-held setup only", () => 
       kind: "setup-variables",
       summary: "1 of 2 needed",
       title: "Setup Variables",
+      waiting: true,
     },
   ]);
   expect(dockRequests(snapshot({ ...teaching, controller: "user" }))).toEqual(
@@ -121,6 +126,7 @@ test("counts Dry Run secrets still to supply", () => {
     kind: "dry-run-secrets",
     summary: "1 of 2 needed",
     title: "Dry Run Variables",
+    waiting: true,
   });
 });
 
@@ -190,6 +196,7 @@ test("a new Guided Run question opens a folded tier and answered pairs remain re
       kind: "guided-run-questions",
       summary: "1 of 1 needed",
       title: "Guided Run questions",
+      waiting: true,
     },
   ]);
   const folded = new Set(requests.map(({ key }) => key));
@@ -211,7 +218,10 @@ test("a new Guided Run question opens a folded tier and answered pairs remain re
       ],
     },
   };
-  expect(dockRequests(snapshot(answered))[0]?.summary).toBe("All answered");
+  expect(dockRequests(snapshot(answered))[0]).toMatchObject({
+    summary: "All answered",
+    waiting: false,
+  });
   const next = {
     ...guided,
     teaching: {
@@ -221,4 +231,60 @@ test("a new Guided Run question opens a folded tier and answered pairs remain re
     },
   };
   expect(staysCollapsed(dockRequests(snapshot(next)), folded)).toBe(false);
+});
+
+const request = (key: string, waiting = true): DockRequest => ({
+  key,
+  kind: "boundary",
+  summary: key,
+  title: key,
+  waiting,
+});
+
+test("shows open requests before settled ones, each in the order asked", () => {
+  const requests = [request("answered", false), request("a"), request("b")];
+  expect(requestQueue(requests, []).map(({ key }) => key)).toEqual([
+    "a",
+    "b",
+    "answered",
+  ]);
+});
+
+test("stepping past a request reaches every one and comes back round", () => {
+  const requests = [request("a"), request("b"), request("c", false)];
+  let setAside: readonly string[] = [];
+  const shown: string[] = [];
+  for (let step = 0; step < 4; step += 1) {
+    const [first] = requestQueue(requests, setAside);
+    if (first === undefined) {
+      throw new Error("The queue is empty");
+    }
+    shown.push(first.key);
+    setAside = setAsideAfter(requests, setAside, first);
+  }
+  expect(shown).toEqual(["a", "b", "c", "a"]);
+  // A request no longer asked leaves the set-aside list.
+  expect(setAsideAfter([request("b")], ["a", "c"], request("b"))).toEqual([
+    "b",
+  ]);
+});
+
+test("counts runtime Variables still needed against those answered", () => {
+  const decision = (name: string) => ({
+    boundaryId: null,
+    createdAt: at,
+    kind: "supply_variable",
+    pendingDecisionId: `pending-${name}`,
+    scopeSummary: `Supply Variable login/${name}.`,
+    sessionId: "agent-one",
+    variable: { flowName: "login", name },
+  });
+  const [runtime] = dockRequests(
+    snapshot({ pendingDecisions: [decision("PASSWORD"), decision("OTP")] })
+  );
+  expect(runtime).toMatchObject({
+    kind: "runtime-variables",
+    summary: "2 of 2 needed",
+    waiting: true,
+  });
 });

@@ -2,17 +2,25 @@ import { useAtom } from "@effect/atom-react";
 import { Effect, Fiber } from "effect";
 import { Atom } from "effect/reactivity";
 import { LoaderCircleIcon, PackageIcon, UploadIcon, XIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxLabel,
+  ComboboxList,
+} from "@/components/ui/combobox";
 import {
   FileInput,
   FileInputDropzone,
   FileInputTrigger,
   relativePath,
 } from "@/components/ui/file-input";
-import { Skeleton } from "@/components/ui/skeleton";
 import type { AppBundleFile, TargetAppBuildUploadError } from "@/lib/rpc";
 import { cn } from "@/lib/utils";
 
@@ -64,7 +72,11 @@ export const useBuildUpload = <Input, Uploaded>(
   return { reset, start, state };
 };
 
-/** What the upload is doing, said under its picker and read with it. */
+/**
+ * What the upload is doing, read with its picker. The idle note is for
+ * assistive technology only; once uploaded, the build's own line says that
+ * installing it asks for consent.
+ */
 const BuildUploadStatus = ({
   id,
   state,
@@ -76,7 +88,8 @@ const BuildUploadStatus = ({
     aria-live="polite"
     className={cn(
       "text-xs text-pretty",
-      state._tag === "failed" ? "text-destructive" : "text-muted-foreground"
+      state._tag === "failed" ? "text-destructive" : "text-muted-foreground",
+      state._tag === "idle" && "sr-only"
     )}
     id={id}
   >
@@ -88,8 +101,23 @@ const BuildUploadStatus = ({
   </p>
 );
 
-const FolderPickerRow = ({ children }: { readonly children: ReactNode }) => (
-  <div className="border-island-border flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 rounded-xl border border-dashed px-3 py-3 text-[13px]">
+/** The compact dashed zone of the #744 card: one line, a 1.5px dash. */
+const zoneClassName =
+  "text-muted-foreground gap-x-1.5 border-[1.5px] px-3.5 py-2.5 text-[13px]";
+
+const FolderPickerRow = ({
+  children,
+  className,
+}: {
+  readonly children: ReactNode;
+  readonly className: string;
+}) => (
+  <div
+    className={cn(
+      "border-island-border flex flex-wrap items-center justify-center gap-y-1 rounded-xl border border-dashed",
+      className
+    )}
+  >
     {children}
   </div>
 );
@@ -100,16 +128,16 @@ export interface ChosenFile extends AppBundleFile {
 }
 
 /**
- * A drop zone for one build file, such as an Android `.apk`, with the button
- * that opens the file picker inside it. With `directory` it picks a whole
- * folder, such as an iOS simulator `.app`, through the picker only. Each choice uploads at once; the zone keeps
- * no file of its own, so choosing the same build again uploads it again.
+ * A compact drop zone for one build file, such as an Android `.apk`, with a
+ * link-style button that opens the file picker inside it. With `directory` it
+ * picks a whole folder, such as an iOS simulator `.app`, through the picker
+ * only. Each choice uploads at once; the zone keeps no file of its own, so
+ * choosing the same build again uploads it again.
  */
 export const BuildDropzone = ({
   accept,
   describedBy,
   directory = false,
-  kind,
   label,
   onFiles,
   state,
@@ -118,8 +146,7 @@ export const BuildDropzone = ({
   readonly describedBy: string;
   /** Picks and accepts a folder, every file inside it, rather than one file. */
   readonly directory?: boolean;
-  /** The build's kind, as the zone names it: `.apk` or `.app`. */
-  readonly kind: string;
+  /** The picker button's text and name, such as `Upload an .apk`. */
   readonly label: string;
   /**
    * The chosen build: one file, or a folder's files with paths that start at
@@ -133,7 +160,7 @@ export const BuildDropzone = ({
   // part of a bundle, so a folder comes through the picker alone (#752).
   const Zone = directory ? FolderPickerRow : FileInputDropzone;
   return (
-    <div className="grid gap-1.5">
+    <div className="grid min-w-0 grid-cols-1 gap-1.5">
       <FileInput
         {...(accept === undefined ? {} : { accept })}
         directory={directory}
@@ -156,29 +183,24 @@ export const BuildDropzone = ({
         }}
         value={[]}
       >
-        <Zone>
+        <Zone className={zoneClassName}>
           {uploading ? (
             <LoaderCircleIcon
               aria-hidden="true"
-              className="text-muted-foreground size-4 animate-spin"
+              className="size-4 animate-spin motion-reduce:animate-none"
             />
           ) : (
-            <UploadIcon
-              aria-hidden="true"
-              className="text-muted-foreground size-4"
-            />
+            <UploadIcon aria-hidden="true" className="size-4" />
           )}
-          <span className="text-muted-foreground">
-            {directory ? "Choose the " : "Drop an "}
-            <span className="font-mono">{kind}</span>
-            {directory ? " folder:" : " here, or"}
-          </span>
           <FileInputTrigger
             aria-describedby={describedBy}
-            className={buttonVariants({ size: "xs", variant: "outline" })}
+            className="text-foreground focus-visible:ring-ring rounded-sm font-medium underline underline-offset-[3px] outline-none hover:decoration-2 focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {label}
           </FileInputTrigger>
+          <span>
+            {directory ? "by choosing its folder" : "or drop it here"}
+          </span>
         </Zone>
       </FileInput>
       <BuildUploadStatus id={describedBy} state={state} />
@@ -219,75 +241,119 @@ export const UploadedBuild = ({
   </div>
 );
 
-export type InstalledAppsNotice =
+/** An installed app as the Target App picker lists it. */
+export interface InstalledAppOption {
+  /** What the app is chosen by: a package name or a bundle ID. */
+  readonly id: string;
+  readonly label: string;
+  /** The identity line under its name, such as its ID and build. */
+  readonly detail: string;
+}
+
+/** The device's apps: none to read yet, being read, unreadable or read. */
+export type InstalledAppsRead =
+  | { readonly _tag: "idle" }
   | { readonly _tag: "loading" }
-  | {
-      readonly _tag: "message";
-      readonly text: string;
-      readonly tone: "muted" | "destructive";
-    };
+  | { readonly _tag: "failed"; readonly message: string }
+  | { readonly _tag: "loaded"; readonly apps: readonly InstalledAppOption[] };
 
 /**
- * The apps on a device, in a frame whose height never changes. Loading,
- * failure and empty notices render inside it, so the steps below stay in
- * place when the read finishes.
+ * What the picker's field says while it cannot list apps. A placeholder is a
+ * hint rather than a sentence, so the idle reason drops its full stop.
  */
-/** Name and badge widths that vary like a real app list. */
-const skeletonRows = [
-  { badge: "w-14", name: "w-2/5" },
-  { badge: "w-12", name: "w-1/2" },
-  { badge: "w-14", name: "w-1/3" },
-  { badge: "w-12", name: "w-3/5" },
-  { badge: "w-14", name: "w-2/5" },
-] as const;
+const pickerPlaceholder = (apps: InstalledAppsRead, idle: string) => {
+  switch (apps._tag) {
+    case "idle": {
+      return idle.replace(/\.$/u, "");
+    }
+    case "loading": {
+      return "Reading installed apps…";
+    }
+    default: {
+      return "Search installed apps";
+    }
+  }
+};
 
-export const InstalledAppsFrame = ({
-  children,
-  notice,
+/**
+ * The installed Target App as the #744 card shows it: one `Target App`
+ * combobox that searches the device's apps by name or ID and lists them in a
+ * popup, so a long list never stretches or widens the card. It waits,
+ * disabled, until there are apps to list; why it waits is its placeholder on
+ * screen and its description for assistive technology.
+ */
+export const InstalledAppPicker = ({
+  apps,
+  emptyMessage,
+  idleMessage,
+  onSelect,
+  selected,
 }: {
-  readonly children?: ReactNode;
-  readonly notice: InstalledAppsNotice | null;
-}) => (
-  <div className="h-44 overflow-y-auto rounded-lg border">
-    {notice?._tag === "loading" ? (
-      <>
-        <p className="sr-only" role="status">
-          Reading installed apps…
-        </p>
-        <div aria-hidden="true" className="py-0.5">
-          {skeletonRows.map((row, index) => (
-            <div
-              className="flex items-center justify-between gap-2 px-2.5 py-2"
-              // The rows are fixed placeholders; their order never changes.
-              // oxlint-disable-next-line react/no-array-index-key
-              key={index}
-            >
-              <Skeleton
-                className={cn("h-4 motion-reduce:animate-none", row.name)}
-              />
-              <Skeleton
-                className={cn(
-                  "h-5 rounded-full motion-reduce:animate-none",
-                  row.badge
-                )}
-              />
-            </div>
-          ))}
-        </div>
-      </>
-    ) : null}
-    {notice?._tag === "message" ? (
-      <p
-        className={cn(
-          "flex h-full items-center justify-center px-4 text-center text-xs",
-          notice.tone === "destructive"
-            ? "text-destructive"
-            : "text-muted-foreground"
-        )}
+  readonly apps: InstalledAppsRead;
+  /** Said in the list when no app matches the search. */
+  readonly emptyMessage: string;
+  /** Why there is nothing to list yet, such as no device being chosen. */
+  readonly idleMessage: string;
+  readonly onSelect: (id: string) => void;
+  /** The chosen app's ID, or null when none or an upload is the Target App. */
+  readonly selected: string | null;
+}) => {
+  const ids = useId();
+  const listed = apps._tag === "loaded" ? apps.apps : [];
+  const statusId = `${ids}-status`;
+  return (
+    <div className="grid min-w-0 grid-cols-1 gap-1.5">
+      <Combobox
+        disabled={apps._tag !== "loaded"}
+        onValueChange={(value: string | null) => {
+          if (value !== null) {
+            onSelect(value);
+          }
+        }}
+        value={
+          selected !== null && listed.some((app) => app.id === selected)
+            ? selected
+            : null
+        }
       >
-        {notice.text}
+        <ComboboxLabel>Target App</ComboboxLabel>
+        <ComboboxInput
+          aria-describedby={apps._tag === "loaded" ? undefined : statusId}
+          placeholder={pickerPlaceholder(apps, idleMessage)}
+        />
+        <ComboboxContent>
+          <ComboboxEmpty>{emptyMessage}</ComboboxEmpty>
+          <ComboboxList>
+            {listed.map((app) => (
+              <ComboboxItem
+                key={app.id}
+                keywords={[app.id]}
+                label={app.label}
+                value={app.id}
+              >
+                <span className="grid min-w-0 flex-1">
+                  <span className="truncate">{app.label}</span>{" "}
+                  <span className="text-muted-foreground truncate font-mono text-xs">
+                    {app.detail}
+                  </span>
+                </span>
+              </ComboboxItem>
+            ))}
+          </ComboboxList>
+        </ComboboxContent>
+      </Combobox>
+      <p
+        aria-live="polite"
+        className={cn(
+          "text-xs text-pretty",
+          apps._tag === "failed" ? "text-destructive" : "sr-only"
+        )}
+        id={statusId}
+      >
+        {apps._tag === "idle" ? idleMessage : null}
+        {apps._tag === "loading" ? "Reading installed apps…" : null}
+        {apps._tag === "failed" ? apps.message : null}
       </p>
-    ) : null}
-    {notice === null ? <ul aria-label="Installed apps">{children}</ul> : null}
-  </div>
-);
+    </div>
+  );
+};

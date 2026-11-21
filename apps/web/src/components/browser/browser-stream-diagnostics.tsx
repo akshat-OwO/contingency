@@ -8,22 +8,39 @@ import {
   browserStreamMetricsSnapshotAtom,
   updateStreamMetrics,
 } from "@/components/browser/browser-stream-metrics";
+import type { BrowserStreamStatus } from "@/components/browser/browser-stream-metrics";
 import { browserStreamTransportAtom } from "@/components/browser/browser-stream-settings";
 import { SegmentedControl } from "@/components/browser/segmented-control";
 import type { SegmentedOption } from "@/components/browser/segmented-control";
+import { cn } from "@/lib/utils";
 
 const transportOptions: readonly SegmentedOption<"binary" | "json">[] = [
   { label: "Local performance", value: "json" },
   { label: "Lower bandwidth", value: "binary" },
 ];
 
+/** A latency not yet measured reads as a dash, never as a missing stream. */
 const milliseconds = (value: number | undefined) =>
-  value === undefined ? "Waiting for frames" : `${value.toFixed(1)} ms`;
+  value === undefined ? "—" : `${value.toFixed(1)} ms`;
+
+const pair = (left: number | undefined, right: number | undefined) =>
+  left === undefined || right === undefined
+    ? "—"
+    : `${left.toFixed(1)} / ${right.toFixed(1)} ms`;
+
+const statusLabel = (status: BrowserStreamStatus, framesPerSecond: number) => {
+  if (status === "live") {
+    return `Live · ${framesPerSecond} fps`;
+  }
+  return status === "lost" ? "Stream lost" : "Connecting…";
+};
 
 export const BrowserStreamDiagnostics = ({
   sessionId,
+  status,
 }: {
   readonly sessionId: AgentSessionId;
+  readonly status: BrowserStreamStatus;
 }) => {
   const metrics = useAtomValue(browserStreamMetricsSnapshotAtom(sessionId));
   const [transport, setTransport] = useAtom(
@@ -46,8 +63,20 @@ export const BrowserStreamDiagnostics = ({
     };
   }, [setMetrics]);
   return (
-    <div className="space-y-3 text-xs">
-      <div className="flex items-center justify-between gap-2">
+    <div className="grid gap-3 text-xs">
+      <div className="bg-island-hover flex min-h-10 items-center gap-2 rounded-xl py-1 pr-1 pl-3 text-sm font-medium">
+        <span
+          aria-hidden="true"
+          className={cn(
+            "size-2 shrink-0 rounded-full",
+            status === "live" && "bg-status-ready",
+            status === "connecting" && "bg-brand",
+            status === "lost" && "bg-status-recording"
+          )}
+        />
+        {statusLabel(status, metrics.framesPerSecond)}
+      </div>
+      <div className="flex min-h-[34px] items-center justify-between gap-3">
         <span>Streaming preference</span>
         <SegmentedControl
           label="Streaming preference"
@@ -57,41 +86,38 @@ export const BrowserStreamDiagnostics = ({
         />
       </div>
       <dl
-        className="[&_dt]:text-muted-foreground grid grid-cols-[1fr_auto] gap-x-3 gap-y-1.5 [&_dd]:text-right [&_dd]:tabular-nums"
+        className="[&_dt]:text-muted-foreground grid grid-cols-[1fr_auto] gap-x-3 gap-y-1.5 [&_dd]:text-right [&_dd]:font-mono [&_dd]:tabular-nums"
         aria-label="Stream diagnostics"
       >
-        <dt>Capture receipt to canvas, p95 (local clock)</dt>
+        <dt>Capture to canvas, p95</dt>
         <dd>{milliseconds(metrics.ageP95Ms)}</dd>
-        <dt>Capture receipt to receive, p95 (local clock)</dt>
+        <dt>Capture to receive, p95</dt>
         <dd>{milliseconds(metrics.receiveP95Ms)}</dd>
         <dt>Decode / draw, p95</dt>
-        <dd>
-          {milliseconds(metrics.decodeP95Ms)} /{" "}
-          {milliseconds(metrics.drawP95Ms)}
-        </dd>
+        <dd>{pair(metrics.decodeP95Ms, metrics.drawP95Ms)}</dd>
         <dt>Received / rendered / replayed</dt>
         <dd>
-          {metrics.received} / {metrics.rendered} / {metrics.replayed}
+          {metrics.received.toLocaleString()} /{" "}
+          {metrics.rendered.toLocaleString()} / {metrics.replayed}
         </dd>
-        <dt>Image bytes received</dt>
+        <dt>Image bytes</dt>
         <dd>{metrics.bytes.toLocaleString()}</dd>
         <dt>Pending / decoding</dt>
         <dd>
-          {metrics.pending} / {metrics.decoding} (pending limit 1)
+          {metrics.pending} / {metrics.decoding}
         </dd>
-        <dt>Skipped upstream / superseded pending</dt>
+        <dt>Skipped / superseded</dt>
         <dd>
           {metrics.upstreamSkipped} / {metrics.superseded}
         </dd>
-        <dt>Stale decode / failed decode</dt>
+        <dt>Stale / failed decodes</dt>
         <dd>
           {metrics.stale} / {metrics.failed}
         </dd>
       </dl>
       <p className="text-muted-foreground">
-        Last 120 rendered frames. Replay is excluded from latency. Remote clock
-        differences affect capture age. The canvas updates before the next
-        screen paint.
+        Last 120 rendered frames. Replay is excluded from latency; a remote
+        clock skews capture times.
       </p>
     </div>
   );

@@ -597,9 +597,9 @@ test("leads a passing task Dry Run with its video, verdict, and pass checks", ()
   ).toBeVisible();
   for (const label of [
     "Run finished",
-    "Agent assessment",
+    "Agent Assessment",
     "Full outcome attempted",
-    "No takeover",
+    "No Takeover",
   ]) {
     expect(within(checkRow(label)).getByLabelText("Passed")).toBeVisible();
   }
@@ -611,7 +611,7 @@ test("leads a passing task Dry Run with its video, verdict, and pass checks", ()
   ).toHaveTextContent("snapshot: snapshot-task");
 });
 
-test("claims only green checks when a reopened Dry Run has no Runner result", () => {
+test("reads a reopened Dry Run with green checks as passed, as the dock does", () => {
   render(
     <RunSummaryView
       summary={{
@@ -620,8 +620,8 @@ test("claims only green checks when a reopened Dry Run has no Runner result", ()
       }}
     />
   );
-  expect(screen.getByText("All checks passed")).toBeVisible();
-  expect(screen.queryByText("Dry Run passed")).toBeNull();
+  expect(screen.getByText("Dry Run passed")).toBeVisible();
+  expect(screen.queryByText("All checks passed")).toBeNull();
 });
 
 test("names the failed check for an incomplete Dry Run with Takeover", () => {
@@ -642,7 +642,7 @@ test("names the failed check for an incomplete Dry Run with Takeover", () => {
   expect(
     within(checkRow("Full outcome attempted")).getByLabelText("Failed")
   ).toBeVisible();
-  expect(checkRow("No takeover")).toHaveTextContent("User took control");
+  expect(checkRow("No Takeover")).toHaveTextContent("User took control");
   expect(
     within(checkRow("Run finished")).getByLabelText("Passed")
   ).toBeVisible();
@@ -922,7 +922,7 @@ test("offers user verification only for a completed working Dry Run with a compl
       invalidSummary.purpose.takeoverOccurred ||
       invalidSummary.assessment?.outcomeComplete === false;
     expect(presentation.badge).toBe(
-      qualifierOnly ? "Did not pass" : "Dry run failed"
+      qualifierOnly ? "Did not pass" : "Dry Run failed"
     );
     expect(presentation.tone).toBe(qualifierOnly ? "attention" : "failed");
   }
@@ -945,7 +945,7 @@ test("lays an Interactive Run out like a Dry Run, with the assessment as its ver
     )
   ).toBeVisible();
   const checks = screen.getByRole("list", { name: "Run checks" });
-  for (const label of ["Run finished", "Agent assessment"]) {
+  for (const label of ["Run finished", "Agent Assessment"]) {
     const row = within(checks).getByText(label).closest("li");
     if (!(row instanceof HTMLElement)) {
       throw new Error(`No Run check row for ${label}`);
@@ -953,7 +953,7 @@ test("lays an Interactive Run out like a Dry Run, with the assessment as its ver
     expect(within(row).getByLabelText("Passed")).toBeVisible();
   }
   // A Takeover or a partial outcome is ordinary in an Interactive Run.
-  expect(within(checks).queryByText("No takeover")).toBeNull();
+  expect(within(checks).queryByText("No Takeover")).toBeNull();
   expect(within(checks).queryByText("Full outcome attempted")).toBeNull();
   expect(
     screen.getByText("The cart remains open with an anvil.")
@@ -997,4 +997,87 @@ test("steps a short clip by tenths and cues the first play", async () => {
   expect(seek).toHaveAttribute("aria-valuenow", "4");
   fireEvent.play(video);
   expect(screen.queryByText("Play to watch the Run")).toBeNull();
+});
+
+test("asks for the Flow decision at the foot of a passed Dry Run's summary", async () => {
+  const user = userEvent.setup();
+  const onVerify = vi.fn<() => void>();
+  const onReject = vi.fn<() => void>();
+  render(
+    <DryRunSummaryView
+      decision={{ onReject, onVerify, pending: false }}
+      result={passedResult}
+      summary={{
+        ...dryRunTask,
+        assessment: { ...dryRunTask.assessment, outcomeComplete: true },
+      }}
+    />
+  );
+  const decision = screen.getByRole("region", { name: "Flow decision" });
+  expect(within(decision).getByRole("status")).toHaveTextContent(
+    "Verify browse-catalogue? Verifying keeps the Flow and deletes its Teaching evidence."
+  );
+  await user.click(
+    within(decision).getByRole("button", { name: "Reject flow" })
+  );
+  expect(onReject).toHaveBeenCalledOnce();
+  await user.click(
+    within(decision).getByRole("button", { name: "Verify flow" })
+  );
+  expect(onVerify).toHaveBeenCalledOnce();
+});
+
+test("offers no Verify for a Dry Run that cannot pass, and asks nothing unasked", () => {
+  const { rerender } = render(
+    <DryRunSummaryView
+      decision={{ onReject: vi.fn(), onVerify: vi.fn(), pending: false }}
+      result={passedResult}
+      summary={dryRunTask}
+    />
+  );
+  const decision = screen.getByRole("region", { name: "Flow decision" });
+  expect(decision).toHaveTextContent(
+    "This Flow can't be verified until a Dry Run passes."
+  );
+  expect(within(decision).queryByRole("button")).toBeNull();
+  rerender(<DryRunSummaryView result={passedResult} summary={dryRunTask} />);
+  expect(screen.queryByRole("region", { name: "Flow decision" })).toBeNull();
+});
+
+test("shows a minted Run ID short and copies it whole", () => {
+  const runId = "agentrun-b6e400b2-1c3d-4e5f-8a9b-0c1d7a6f2b0c";
+  render(<DryRunSummaryView summary={{ ...dryRunTask, runId }} />);
+  const copy = screen.getByRole("button", { name: `Copy Run ID ${runId}` });
+  expect(copy).toHaveTextContent("Run ID: agentrun-b6e400b2");
+  expect(copy).toHaveAccessibleDescription(new RegExp(runId, "u"));
+});
+
+test("shows an undashed minted Run ID in the same short form", () => {
+  const runId = "agentrun-d75b2841c3d44e5f8a9b0c1df167fb12";
+  render(<DryRunSummaryView summary={{ ...dryRunTask, runId }} />);
+  const copy = screen.getByRole("button", { name: `Copy Run ID ${runId}` });
+  expect(copy).toHaveTextContent(/Run ID: agentrun-d75b2841$/u);
+  expect(copy).toHaveAccessibleDescription(new RegExp(runId, "u"));
+});
+
+test("names the starting viewport by its preset and locale", async () => {
+  const user = userEvent.setup();
+  render(
+    <DryRunSummaryView
+      summary={{
+        ...dryRunTask,
+        startingEmulation: {
+          locale: "en-US",
+          permissions: [],
+          userAgentProfile: "default",
+          viewport: { deviceScaleFactor: 1, height: 800, width: 1280 },
+        },
+      }}
+    />
+  );
+  await user.click(screen.getByRole("tab", { name: "Task" }));
+  const emulation = screen.getByRole("region", { name: "Emulation" });
+  expect(within(emulation).getByText("Viewport").nextSibling).toHaveTextContent(
+    "Desktop 1280×800 · en-US"
+  );
 });

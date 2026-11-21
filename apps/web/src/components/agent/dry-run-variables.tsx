@@ -13,7 +13,10 @@ import {
   VariableField,
   requestIconClassName,
 } from "@/components/agent/dock-request-parts";
-import { splitWaiting } from "@/components/agent/dock-requests-state";
+import {
+  splitWaiting,
+  stillNeeded,
+} from "@/components/agent/dock-requests-state";
 import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
@@ -67,7 +70,7 @@ export const DryRunVariables = ({
   sessionId,
   variables,
 }: {
-  /** The tier's collapse control, when this is its first request. */
+  /** The Requests island's collapse control. */
   readonly collapse?: React.ReactNode;
   readonly sessionId: AgentSessionId;
   readonly variables: readonly AgentSessionVariableState[];
@@ -85,7 +88,7 @@ export const DryRunVariables = ({
         action={collapse}
         badge={
           <span className="tabular-nums">
-            {waiting.length} of {variables.length} needed
+            {stillNeeded(waiting.length, variables.length)}
           </span>
         }
         icon={

@@ -1,7 +1,9 @@
 import { useState } from "react";
 
+import { devtoolsFieldClassName } from "@/components/browser/devtools-field";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 
 const LATITUDE_BOUND = 90;
 const LONGITUDE_BOUND = 180;
@@ -95,7 +97,7 @@ export const LocationFields = ({
           <span>Latitude</span>
           <Input
             aria-label="Latitude"
-            className="tabular-nums"
+            className={cn(devtoolsFieldClassName, "font-mono tabular-nums")}
             disabled={disabled}
             inputMode="decimal"
             onChange={(event) => setLatitude(event.target.value)}
@@ -107,7 +109,7 @@ export const LocationFields = ({
           <span>Longitude</span>
           <Input
             aria-label="Longitude"
-            className="tabular-nums"
+            className={cn(devtoolsFieldClassName, "font-mono tabular-nums")}
             disabled={disabled}
             inputMode="decimal"
             onChange={(event) => setLongitude(event.target.value)}

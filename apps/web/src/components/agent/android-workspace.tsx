@@ -15,12 +15,7 @@ import {
 } from "@effect/atom-react";
 import { Cause, Effect, Fiber, Option, Schema } from "effect";
 import { Atom, AsyncResult } from "effect/reactivity";
-import {
-  CircleIcon,
-  MessageSquareTextIcon,
-  SmartphoneIcon,
-  SquareIcon,
-} from "lucide-react";
+import { MessageSquareTextIcon, SmartphoneIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -43,12 +38,16 @@ import {
   AndroidRequests,
   AndroidSessionSelect,
   AndroidStateBadges,
+  NativeDoneButton,
+  NativeTaskDetails,
 } from "./android-dock";
 import {
   androidDockPresentation,
   hasPreparedAndroidSession,
   androidFlowsSessionView,
+  isEndedNativeRun,
   isLiveAndroidSession,
+  nativeActionClassName,
 } from "./android-dock-state";
 import type { AndroidDockGesture } from "./android-dock-state";
 import { AndroidRunSummary } from "./android-run-summary";
@@ -71,6 +70,7 @@ import {
   useWorkspaceGesture,
 } from "./workspace-gesture";
 import type { GestureRun } from "./workspace-gesture";
+import { useWorkspaceHome } from "./workspace-home-context";
 import { WorkspaceHomeBar } from "./workspace-home-nav";
 import { NEW_NATIVE_SESSION } from "./workspace-platform-state";
 
@@ -249,11 +249,7 @@ export const AndroidEmptyState = ({
         </div>
         {sessions.length === 0 ? null : (
           <div className="flex">
-            <AndroidSessionSelect
-              onSelect={onSelect}
-              selectedSessionId={undefined}
-              sessions={sessions}
-            />
+            <AndroidSessionSelect onSelect={onSelect} sessions={sessions} />
           </div>
         )}
         <div className="flex flex-wrap gap-2">
@@ -270,7 +266,11 @@ export const AndroidEmptyState = ({
 type SetState = (update: (current: WorkspaceState) => WorkspaceState) => void;
 /** How often an idle session is observed. Input never waits on it. */
 const IDLE_OBSERVATION = "3 seconds";
-type Mutate = (command: AndroidWorkspaceCommand) => boolean;
+/** `onApplied` runs once the host accepts the command. */
+type Mutate = (
+  command: AndroidWorkspaceCommand,
+  onApplied?: () => void
+) => boolean;
 
 /**
  * Reads a `?android=` session once, then refreshes the selected session's
@@ -353,10 +353,12 @@ const useAndroidSessionSync = (
               current.session?.id === id
                 ? {
                     ...current,
+                    // A pause or an ended session explains itself: the
+                    // observe that failed against it was not unanswered.
                     failure:
-                      snapshot.phase === "paused"
-                        ? null
-                        : Cause.pretty(failureCause),
+                      snapshot.phase === "running"
+                        ? Cause.pretty(failureCause)
+                        : null,
                     session: snapshot,
                   }
                 : current
@@ -390,10 +392,32 @@ const useAndroidSessionSync = (
   }, [id, running, runAndroidWorkspaceCommand, setState]);
 };
 
-/** The status island's controls: the state's own tools and actions. */
+/** The facts a native Run's Task details lists about its device setup. */
+const androidTaskFacts = (session: AndroidWorkspaceSnapshot) => [
+  {
+    term: "Device",
+    value: `${androidDeviceLabel(session.selection.device)} · Android ${session.selection.environment.androidVersion}`,
+  },
+  {
+    term: "Target App",
+    value: `${session.selection.environment.appId} · build ${session.selection.environment.appBuild}`,
+  },
+  {
+    term: "Starting state",
+    value: session.selection.environment.startingState,
+  },
+];
+
+/**
+ * The status island's controls, as the prototype's (#753, #757): Comment
+ * while recording, a Flow decision's Reject flow, **Task details** on a Dry
+ * Run or Run, **Done** once a Run has ended, and the one action. Closing a
+ * live session is in the session picker, not here.
+ */
 const AndroidDockControls = ({
   instructing,
   mutate,
+  onDone,
   onInstruct,
   onNewSession,
   pending,
@@ -401,6 +425,7 @@ const AndroidDockControls = ({
 }: {
   readonly instructing: boolean;
   readonly mutate: Mutate;
+  readonly onDone: () => void;
   readonly onInstruct: () => void;
   readonly onNewSession: () => void;
   readonly pending: boolean;
@@ -408,7 +433,7 @@ const AndroidDockControls = ({
 }) => {
   const presentation = androidDockPresentation(session);
   const primary = presentation.action;
-  const stops = primary?.gesture === "stop-recording";
+  const ended = isEndedNativeRun(session);
   return (
     <>
       {presentation.showsComment ? (
@@ -441,42 +466,29 @@ const AndroidDockControls = ({
           Reject flow
         </Button>
       ) : null}
-      {isLiveAndroidSession(session) ? (
-        <Button
-          disabled={pending}
-          onClick={() =>
-            mutate({
-              _tag: "close",
-              operationId: operationId(),
-              sessionId: session.id,
-            })
-          }
-          aria-label="Close session"
-          size="sm"
-          title="Close session"
-          variant="outline"
-        >
-          {/* A word, not a power glyph: it closes the session, not the device. */}
-          <span className="@md:hidden">Close</span>
-          <span className="hidden @md:inline">Close session</span>
-        </Button>
-      ) : (
+      {session.kind === "teaching" ? null : (
+        <NativeTaskDetails
+          facts={androidTaskFacts(session)}
+          session={session}
+        />
+      )}
+      {ended ? (
+        <NativeDoneButton onDone={onDone} quiet={primary !== null} />
+      ) : null}
+      {/* An ended Teaching session starts over from the start card. */}
+      {isLiveAndroidSession(session) || ended ? null : (
         <Button onClick={onNewSession} size="sm" variant="outline">
           New session
         </Button>
       )}
       {primary === null ? null : (
         <Button
-          className="ml-auto"
+          className={nativeActionClassName(primary.gesture)}
           aria-label={primary.accessibleName}
           disabled={pending}
           onClick={() => mutate(gestureCommand(primary.gesture, session))}
-          variant={stops ? "destructive" : "default"}
         >
-          {primary.gesture === "start-recording" ? (
-            <CircleIcon className="fill-current" />
-          ) : null}
-          {stops ? <SquareIcon className="fill-current" /> : null}
+          {/* Start and Stop are labels alone, as in the prototype. */}
           {primary.label}
         </Button>
       )}
@@ -693,6 +705,12 @@ export const AndroidSessionView = ({
   const { androidSessionsAtom, androidWorkspaceForwardMutation } =
     useRpcDependencies();
   const sessions = useAtomValue(androidSessionsAtom);
+  const home = useWorkspaceHome();
+  // Leaving the session opens the Android start card on the home.
+  const onNewSession = () =>
+    setState((current) => ({ ...current, session: null }));
+  // Done leaves an ended Run for the Workspace home, as on the Web.
+  const onDone = home === null ? onNewSession : home.goHome;
   const canAct = session.controller === "user" && session.phase === "running";
   const forwardInput = useAtomSet(androidWorkspaceForwardMutation, {
     mode: "promise",
@@ -767,15 +785,28 @@ export const AndroidSessionView = ({
           flows={<FlowsButton session={androidFlowsSessionView(session)} />}
           picker={
             <AndroidSessionSelect
+              close={
+                isLiveAndroidSession(session)
+                  ? {
+                      onClose: () =>
+                        mutate({
+                          _tag: "close",
+                          operationId: operationId(),
+                          sessionId: session.id,
+                        }),
+                      pending,
+                    }
+                  : undefined
+              }
+              // The shown session names itself even once it has ended, but
+              // only a live one is a choice in the list.
+              current={session}
+              onNew={onNewSession}
               onSelect={(value) => {
                 if (Schema.is(AgentSessionId)(value)) {
                   mutate({ _tag: "read", sessionId: value });
                 }
               }}
-              // An ended session is not a choice; the picker shows its placeholder.
-              selectedSessionId={
-                isLiveAndroidSession(session) ? session.id : undefined
-              }
               sessions={withSelected(
                 AsyncResult.isSuccess(sessions) ? sessions.value : [],
                 session
@@ -789,7 +820,7 @@ export const AndroidSessionView = ({
           comments={recordingPins(session, state.highlightedComment)}
           canAct={canAct}
           cleanup={deviceCleanupKey(session.cleanup)}
-          device={androidDeviceLabel(session.selection.device)}
+          device={`${androidDeviceLabel(session.selection.device)} · Android ${session.selection.environment.androidVersion}`}
           leading={
             field === null ? null : (
               <AndroidFieldVariable
@@ -827,13 +858,16 @@ export const AndroidSessionView = ({
             (session.phase === "running" || session.phase === "paused")
           }
           emulation={session.emulation}
-          onEmulate={(change) =>
-            mutate({
-              _tag: "emulate",
-              change,
-              operationId: operationId(),
-              sessionId: session.id,
-            })
+          onEmulate={(change, onApplied) =>
+            mutate(
+              {
+                _tag: "emulate",
+                change,
+                operationId: operationId(),
+                sessionId: session.id,
+              },
+              onApplied
+            )
           }
           onDeviceKey={(key) => {
             for (const action of ["down", "up"] as const) {
@@ -884,6 +918,7 @@ export const AndroidSessionView = ({
           <AndroidDockControls
             instructing={state.instructing}
             mutate={mutate}
+            onDone={onDone}
             onInstruct={() =>
               setState((current) =>
                 current.instructing
@@ -891,10 +926,7 @@ export const AndroidSessionView = ({
                   : { ...current, instructing: true, refusalDismissed: true }
               )
             }
-            // Leaving the session opens the Android start card on the home.
-            onNewSession={() =>
-              setState((current) => ({ ...current, session: null }))
-            }
+            onNewSession={onNewSession}
             pending={pending}
             session={session}
           />
@@ -1011,7 +1043,10 @@ export const AndroidWorkspace = ({
       instructionPending: false,
     }));
   }, [gesture.error, gesture.pending, instructionPending, setState]);
-  const run = (command: AndroidWorkspaceCommand): GestureRun => {
+  const run = (
+    command: AndroidWorkspaceCommand,
+    onApplied?: () => void
+  ): GestureRun => {
     const route = routeRef.current;
     return runAndroidWorkspaceCommand(command).pipe(
       Effect.tap((session) =>
@@ -1020,6 +1055,9 @@ export const AndroidWorkspace = ({
           if (routeRef.current === route || routeRef.current === session.id) {
             setState((current) => applySnapshot(current, session));
           }
+          // The change still counts for the session that sent it, which the
+          // stage keeps until the route returns there.
+          onApplied?.();
           refresh();
         })
       ),
@@ -1027,8 +1065,8 @@ export const AndroidWorkspace = ({
       Effect.asVoid
     );
   };
-  const mutate = (command: AndroidWorkspaceCommand) =>
-    gesture.dispatch(run(command));
+  const mutate: Mutate = (command, onApplied) =>
+    gesture.dispatch(run(command, onApplied));
   const failure = gesture.error ?? state.failure;
   const notices =
     failure === null ? null : (

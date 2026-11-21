@@ -4,6 +4,7 @@ import { useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Clock, Effect, Fiber, Schedule } from "effect";
 import { CheckIcon, CircleAlertIcon, HandIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
+import type { KeyboardEvent } from "react";
 
 import { WatcherMark } from "@/components/brand";
 import { FlowsButton } from "@/components/catalog/flows-button";
@@ -41,11 +42,11 @@ import {
   StartSetup,
   TileIcon,
 } from "./start-card";
+import { elapsedClock } from "./teaching-recording-state";
 import { islandControlClassName } from "./workspace-home-nav";
 import {
   androidHomeSession,
   DEFAULT_WEB_VIEWPORT,
-  elapsedClock,
   homePlatformName,
   iosHomeSession,
   webHomeSession,
@@ -73,12 +74,17 @@ const PLATFORM_META: Record<HomePlatform, string> = {
 
 /* ------------------------------------------------------------- status chip */
 
+/**
+ * The Running mark: a ring filled to the step reached, or a quarter of it
+ * when the step is not known. It never spins.
+ */
 const ProgressRing = ({
   step,
 }: {
-  readonly step: readonly [number, number];
+  readonly step: readonly [number, number] | undefined;
 }) => {
   const circumference = 2 * Math.PI * 6;
+  const done = step === undefined ? 0.25 : step[0] / step[1];
   return (
     <svg
       aria-hidden="true"
@@ -91,7 +97,7 @@ const ProgressRing = ({
         cx="8"
         cy="8"
         r="6"
-        strokeDasharray={`${(circumference * step[0]) / step[1]} ${circumference}`}
+        strokeDasharray={`${circumference * done} ${circumference}`}
         strokeLinecap="round"
       />
     </svg>
@@ -139,9 +145,7 @@ export const StatusChip = ({
     case "running": {
       return (
         <span className="status-chip" data-status="running" id={id}>
-          {status.step === undefined ? null : (
-            <ProgressRing step={status.step} />
-          )}
+          <ProgressRing step={status.step} />
           Running
           {status.step === undefined ? null : (
             <span className="font-mono text-xs tabular-nums opacity-85">
@@ -171,6 +175,65 @@ export const StatusChip = ({
 };
 
 /* --------------------------------------------------------------- the chrome */
+
+/**
+ * Faint dashed frames on the dot grid, each with a mono label, placed from
+ * the canvas centre as the #744 prototype places them. They are background:
+ * hidden from assistive technology, and they take no input.
+ */
+const GHOST_FRAMES = [
+  {
+    className: "top-[-300px] left-[-640px] h-[140px] w-[220px]",
+    label: "checkout",
+  },
+  {
+    className: "top-[-270px] left-[500px] h-[150px] w-[260px]",
+    label: "login · Dry Run",
+  },
+  {
+    className: "top-[200px] left-[-720px] h-[230px] w-[200px]",
+    label: "onboarding",
+  },
+  {
+    className: "top-[240px] left-[620px] h-[150px] w-[240px]",
+    label: "search",
+  },
+  {
+    className: "top-[-540px] left-[-160px] h-[110px] w-[300px]",
+    label: "contingency/",
+  },
+  {
+    className: "top-[470px] left-[80px] h-[130px] w-[240px]",
+    label: "settings",
+  },
+] as const;
+
+const GhostFrames = () => (
+  <div
+    aria-hidden="true"
+    className="pointer-events-none absolute inset-0 overflow-hidden select-none [--ghost:oklch(0.6_0.01_85/0.22)] after:absolute after:inset-0 after:bg-[radial-gradient(120%_90%_at_50%_45%,transparent_55%,var(--canvas)_100%)] dark:[--ghost:oklch(0.8_0.01_85/0.12)]"
+  >
+    <div className="absolute top-1/2 left-1/2">
+      {GHOST_FRAMES.map((frame) => (
+        <div
+          className={cn(
+            "absolute rounded-[18px] border-[1.5px] border-dashed border-(--ghost) px-3.5 py-3 font-mono text-xs leading-none font-medium text-(--ghost)",
+            frame.className
+          )}
+          key={frame.label}
+        >
+          {frame.label}
+        </div>
+      ))}
+    </div>
+  </div>
+);
+
+const EVERY_PLATFORM: readonly HomePlatform[] = ["web", "android", "ios"];
+const PLATFORMS_WITHOUT_IOS: readonly HomePlatform[] = ["web", "android"];
+
+/** The digit key that opens each tile, in the order the tiles are offered. */
+const TILE_KEYS: readonly string[] = ["1", "2", "3"];
 
 const GlyphBox = ({ platform }: { readonly platform: HomePlatform }) => (
   <span className="bg-island-hover text-foreground grid size-8 place-items-center rounded-[10px] shadow-[inset_0_0_0_1px_var(--island-border)]">
@@ -382,6 +445,121 @@ const SessionCard = ({
   );
 };
 
+/**
+ * The platform tiles, each with the digit key that opens it. The keys work
+ * only while focus is on a tile, so a bare digit pressed anywhere else on the
+ * home does nothing (WCAG 2.1.4).
+ */
+const PlatformTiles = ({
+  onOpen,
+  platforms,
+  returning,
+}: {
+  readonly onOpen: (platform: HomePlatform, tile: HTMLElement | null) => void;
+  readonly platforms: readonly HomePlatform[];
+  /** The tile the last card folds back into. */
+  readonly returning: HomeCard | null;
+}) => {
+  const onKeyDown = (event: KeyboardEvent<HTMLUListElement>) => {
+    if (event.repeat || event.metaKey || event.ctrlKey || event.altKey) {
+      return;
+    }
+    const platform = platforms[TILE_KEYS.indexOf(event.key)];
+    if (platform === undefined) {
+      return;
+    }
+    event.preventDefault();
+    onOpen(
+      platform,
+      event.currentTarget.querySelector<HTMLElement>(
+        `[data-tile="${platform}"]`
+      )
+    );
+  };
+  return (
+    <ul
+      aria-label="Start a session"
+      className={cn(
+        "grid w-full gap-3.5",
+        platforms.length === 3 ? "grid-cols-3" : "grid-cols-2"
+      )}
+      onKeyDown={onKeyDown}
+    >
+      {platforms.map((platform, index) => (
+        <li key={platform}>
+          <Button
+            aria-keyshortcuts={TILE_KEYS[index]}
+            aria-label={`Start ${platform === "web" ? "a" : "an"} ${homePlatformName(platform)} session`}
+            className="relative grid h-full gap-[18px] rounded-[26px] p-[18px]"
+            data-tile={platform}
+            data-vt={returning === platform ? "start-card" : undefined}
+            onClick={(event) => onOpen(platform, event.currentTarget)}
+            size="tile"
+            variant="tile"
+          >
+            <TileIcon platform={platform} />
+            <span className="grid">
+              <span className="text-[17px] font-semibold tracking-[-0.02em]">
+                {homePlatformName(platform)}
+              </span>
+              <span className="text-muted-foreground text-[13px] font-normal">
+                {PLATFORM_META[platform]}
+              </span>
+            </span>
+            <kbd
+              aria-hidden="true"
+              className="border-island-border absolute top-4 right-4 rounded-md border px-1.5 py-1 font-mono text-[11px] leading-none font-medium text-[oklch(0.66_0.01_85)] dark:text-[oklch(0.55_0.008_85)]"
+            >
+              {TILE_KEYS[index]}
+            </kbd>
+          </Button>
+        </li>
+      ))}
+    </ul>
+  );
+};
+
+/**
+ * The sessions this process has in progress, under a heading that reads
+ * their count. It shows only while one runs.
+ */
+const InProgressShelf = ({
+  onOpen,
+  returnTo,
+  sessions,
+}: {
+  readonly onOpen: (session: HomeSession, card: HTMLElement) => void;
+  readonly returnTo: string | undefined;
+  readonly sessions: readonly HomeSession[];
+}) =>
+  sessions.length === 0 ? null : (
+    <section aria-label="In progress" className="grid w-full gap-3">
+      <h2
+        className="text-muted-foreground flex w-fit items-center gap-2 justify-self-center text-[13px] font-medium"
+        data-vt="switcher"
+      >
+        In progress <span className="sr-only">{sessions.length}</span>
+        <span
+          aria-hidden="true"
+          className="bg-island-hover grid h-5 min-w-5 place-items-center rounded-[7px] px-1.5 font-mono text-[11px] font-semibold shadow-[inset_0_0_0_1px_var(--island-border)]"
+        >
+          {sessions.length}
+        </span>
+      </h2>
+      <ul className="grid grid-cols-2 gap-2.5">
+        {sessions.map((session) => (
+          <li key={`${session.platform}-${session.id}`}>
+            <SessionCard
+              onOpen={onOpen}
+              returning={session.id === returnTo}
+              session={session}
+            />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+
 /* -------------------------------------------------------------------- home */
 
 /**
@@ -423,9 +601,7 @@ export const WorkspaceHome = ({
   readonly webSessions: readonly AgentSessionSnapshot[];
 }) => {
   const ios = useIosEntryEnabled();
-  const platforms: readonly HomePlatform[] = ios
-    ? ["web", "android", "ios"]
-    : ["web", "android"];
+  const platforms = ios ? EVERY_PLATFORM : PLATFORMS_WITHOUT_IOS;
   // The name is asked for here rather than generated, so the dock's session
   // label is something the person recognizes from the first frame. It
   // outlives the card, so closing, reopening and swapping platform keep it.
@@ -487,12 +663,14 @@ export const WorkspaceHome = ({
   };
   return (
     <div className="workspace-canvas relative h-full min-h-0 overflow-hidden">
+      <GhostFrames />
       <nav
         aria-label="Workspace"
         className="island absolute top-4 left-4 z-10 flex items-center p-1.5"
       >
         {/* oxlint-disable-next-line react-doctor/no-prevent-default -- This is already the home; the wordmark only folds the start card away. */}
         <a
+          aria-label="Contingency home"
           className="hover:bg-island-hover inline-flex items-center gap-2 rounded-[14px] px-2.5 py-1.5"
           href="/"
           onClick={(event) => {
@@ -586,66 +764,17 @@ export const WorkspaceHome = ({
             />
           ) : null}
           {card === null ? (
-            <ul
-              aria-label="Start a session"
-              className={cn(
-                "grid w-full gap-3.5",
-                platforms.length === 3 ? "grid-cols-3" : "grid-cols-2"
-              )}
-            >
-              {platforms.map((platform) => (
-                <li key={platform}>
-                  <Button
-                    aria-label={`Start ${platform === "web" ? "a" : "an"} ${homePlatformName(platform)} session`}
-                    className="grid h-full gap-[18px] rounded-[26px] p-[18px]"
-                    data-vt={returning === platform ? "start-card" : undefined}
-                    onClick={(event) =>
-                      openPlatform(platform, event.currentTarget)
-                    }
-                    size="tile"
-                    variant="tile"
-                  >
-                    <TileIcon platform={platform} />
-                    <span className="grid">
-                      <span className="text-[17px] font-semibold tracking-[-0.02em]">
-                        {homePlatformName(platform)}
-                      </span>
-                      <span className="text-muted-foreground text-[13px] font-normal">
-                        {PLATFORM_META[platform]}
-                      </span>
-                    </span>
-                  </Button>
-                </li>
-              ))}
-            </ul>
+            <PlatformTiles
+              onOpen={openPlatform}
+              platforms={platforms}
+              returning={returning}
+            />
           ) : null}
-          {sessions.length === 0 ? null : (
-            <section aria-label="In progress" className="grid w-full gap-3">
-              <h2
-                className="text-muted-foreground flex w-fit items-center gap-2 justify-self-center text-[13px] font-medium"
-                data-vt="switcher"
-              >
-                In progress
-                <span
-                  aria-hidden="true"
-                  className="bg-island-hover grid h-5 min-w-5 place-items-center rounded-[7px] px-1.5 font-mono text-[11px] font-semibold shadow-[inset_0_0_0_1px_var(--island-border)]"
-                >
-                  {sessions.length}
-                </span>
-              </h2>
-              <ul className="grid grid-cols-2 gap-2.5">
-                {sessions.map((session) => (
-                  <li key={`${session.platform}-${session.id}`}>
-                    <SessionCard
-                      onOpen={openSession}
-                      returning={session.id === returnTo}
-                      session={session}
-                    />
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
+          <InProgressShelf
+            onOpen={openSession}
+            returnTo={returnTo}
+            sessions={sessions}
+          />
         </div>
       </main>
     </div>

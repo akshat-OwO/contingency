@@ -63,13 +63,27 @@ export const unavailableReason = (device: AndroidDiscoveredDevice) => {
   return selectable(device) === null ? "Identity unreadable" : null;
 };
 
-/** A reported device as the shared device card shows it. */
+/**
+ * The OS version a device reports, as the Device field names it after the
+ * device: `Android 16`, else its API level, else nothing.
+ */
+const androidVersion = ({ api, release }: AndroidDiscoveredDevice) => {
+  if (release !== null) {
+    return `Android ${release}`;
+  }
+  return api === null ? "" : `API ${api}`;
+};
+
+/**
+ * A reported device as the shared device card shows it: `Pixel_9 · Android
+ * 16`. The serial tells two running devices apart; see `androidDeviceSerial`.
+ */
 export const androidDeviceChoice = (
   device: AndroidDiscoveredDevice
 ): DeviceChoice => {
   const reason = unavailableReason(device);
   const base = {
-    detail: `${device.serial} · API ${device.api}`,
+    detail: androidVersion(device),
     // An emulator is erased by its AVD; a phone is never erased.
     eraseId:
       device.kind === "emulator" && device.avd !== null
@@ -91,7 +105,8 @@ export const androidDeviceChoice = (
     return {
       ...base,
       bootId: device.avd,
-      detail: "Android emulator",
+      // A stopped emulator reports no version until it boots.
+      detail: "",
       status: { _tag: "stopped" },
     };
   }
@@ -101,6 +116,12 @@ export const androidDeviceChoice = (
       reason === null ? { _tag: "ready" } : { _tag: "unavailable", reason },
   };
 };
+
+/**
+ * What tells one running Android device from another in the Device field: its
+ * serial, which a device card selects by.
+ */
+export const androidDeviceSerial = (device: DeviceChoice) => device.id;
 
 const permissionLine =
   /^(?<decision>grant|revoke)\s+(?<permission>android\.permission\.[A-Z_]+)$/u;
@@ -150,6 +171,40 @@ export const chosenSerial = (
   }
   const ready = listed.filter((entry) => unavailableReason(entry) === null);
   return ready.length === 1 ? (ready[0]?.serial ?? null) : null;
+};
+
+/** The device the user picked, by serial and, for an emulator, its AVD. */
+export interface AndroidDevicePick {
+  readonly avd: string | null;
+  readonly serial: string;
+}
+
+/**
+ * The listed serial of the user's pick. A stopped emulator boots under a new
+ * serial, so its AVD finds it again. `"missing"` means the pick is no longer
+ * listed at all; the card then waits for a new choice rather than falling
+ * back to whichever device happens to be ready (#786).
+ */
+export const pickedSerial = (
+  listed: readonly AndroidDiscoveredDevice[],
+  pick: AndroidDevicePick | null
+): string | null | "missing" => {
+  if (pick === null) {
+    return null;
+  }
+  // An emulator is its AVD: a serial another AVD now holds is not the pick.
+  const same = (entry: AndroidDiscoveredDevice) =>
+    pick.avd === null || entry.avd === pick.avd;
+  if (listed.some((entry) => entry.serial === pick.serial && same(entry))) {
+    return pick.serial;
+  }
+  const booted =
+    pick.avd === null
+      ? undefined
+      : listed.find(
+          (entry) => entry.avd === pick.avd && unavailableReason(entry) === null
+        );
+  return booted?.serial ?? "missing";
 };
 
 /** The Android selection the start card's choices declare. */

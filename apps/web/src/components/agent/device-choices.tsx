@@ -1,16 +1,17 @@
 import { useAtom } from "@effect/atom-react";
 import { Effect, Fiber, Option, Schema } from "effect";
 import { Atom } from "effect/reactivity";
-import {
-  LoaderCircleIcon,
-  PlayIcon,
-  SmartphoneIcon,
-  TabletSmartphoneIcon,
-} from "lucide-react";
+import { LoaderCircleIcon, PlayIcon, RefreshCwIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 import { isStartable, withStarts } from "./device-choice-state";
@@ -92,32 +93,112 @@ export const useDeviceStarts = (
   return { startDevice, starts };
 };
 
-const KindIcon = ({ kind }: { readonly kind: DeviceChoice["kind"] }) => {
-  const Icon = kind === "Phone" ? TabletSmartphoneIcon : SmartphoneIcon;
-  return <Icon aria-hidden="true" className="size-4" />;
-};
-
-const CardHeading = ({ device }: { readonly device: DeviceChoice }) => (
-  <>
-    <span className="mb-1 flex items-center justify-between">
-      <KindIcon kind={device.kind} />
-      <Badge variant="outline">{device.kind}</Badge>
-    </span>
-    <span className="block truncate text-sm font-medium">{device.name}</span>
-  </>
+/** Reads the host's devices again; it sits at the end of the hint row. */
+export const RefreshDevicesButton = ({
+  onRefresh,
+}: {
+  readonly onRefresh: () => void;
+}) => (
+  <Button
+    aria-label="Refresh devices"
+    className="text-muted-foreground hover:text-foreground shrink-0"
+    onClick={onRefresh}
+    size="icon-xs"
+    title="Refresh devices"
+    type="button"
+    variant="ghost"
+  >
+    <RefreshCwIcon aria-hidden="true" />
+  </Button>
 );
 
-const cardClass =
-  "min-w-0 rounded-lg border p-2.5 text-left transition-[background-color,box-shadow]";
+/**
+ * A device as the trigger shows it and its option leads with it, as the #744
+ * card does: its name, then its OS version when known, `Pixel_9 · Android 16`.
+ */
+const deviceLabel = (device: DeviceChoice) =>
+  device.detail === "" ? device.name : `${device.name} · ${device.detail}`;
 
-/** A stopped emulator or simulator, with its start's progress or failure. */
-const StartableCard = ({
+/**
+ * What a device's option says after its label: what tells a running device
+ * apart, such as its serial, or why it is not running.
+ */
+const optionNote = (device: DeviceChoice, identity: string | undefined) => {
+  switch (device.status._tag) {
+    case "ready": {
+      return identity;
+    }
+    case "stopped": {
+      return "Stopped";
+    }
+    case "starting": {
+      return "Starting…";
+    }
+    case "failed": {
+      return "Did not start";
+    }
+    default: {
+      return device.status.reason;
+    }
+  }
+};
+
+/** A device's option: its label, then a quieter note that can truncate. */
+const DeviceOption = ({
+  device,
+  identity,
+}: {
+  readonly device: DeviceChoice;
+  readonly identity: string | undefined;
+}) => {
+  const note = optionNote(device, identity);
+  return (
+    <span className="flex w-full min-w-0 items-center justify-between gap-3">
+      <span className="min-w-0 truncate">{deviceLabel(device)}</span>
+      {note === undefined ? null : (
+        <>
+          {" "}
+          <span className="text-muted-foreground min-w-0 truncate text-xs tabular-nums">
+            {note}
+          </span>
+        </>
+      )}
+    </span>
+  );
+};
+
+/** The shown device's state under the field, said as it changes. */
+const deviceStatus = (device: DeviceChoice, identity: string | undefined) => {
+  switch (device.status._tag) {
+    case "ready": {
+      return identity === undefined ? "Running" : `Running · ${identity}`;
+    }
+    case "stopped": {
+      return "Stopped";
+    }
+    case "starting": {
+      // Start itself reads "Starting…" beside this.
+      return "Booting…";
+    }
+    default: {
+      return device.status.reason;
+    }
+  }
+};
+
+/**
+ * The hint row under the field for the device it shows: its state, then
+ * Start for one that can start and Erase where Device Erase allows it.
+ */
+const DeviceHint = ({
   device,
   erase,
+  identity,
   onStart,
 }: {
   readonly device: DeviceChoice;
   readonly erase: DeviceEraseControls | undefined;
+  readonly identity: string | undefined;
   readonly onStart: (bootId: string) => void;
 }) => {
   const { bootId, status } = device;
@@ -126,119 +207,88 @@ const StartableCard = ({
     <div
       aria-busy={starting}
       aria-label={device.name}
-      className={cardClass}
+      className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-3 gap-y-1"
       role="group"
     >
-      <CardHeading device={device} />
       <span
         aria-live="polite"
         className={cn(
-          "block text-xs",
-          status._tag === "failed"
+          "min-w-0 text-xs text-pretty",
+          status._tag === "failed" || status._tag === "unavailable"
             ? "text-destructive"
             : "text-muted-foreground"
         )}
       >
-        {status._tag === "failed" ? status.reason : null}
-        {status._tag === "starting" ? `Starting… ${device.detail}` : null}
-        {status._tag === "stopped" ? `Stopped · ${device.detail}` : null}
+        {deviceStatus(device, identity)}
       </span>
-      <Button
-        aria-label={`${status._tag === "failed" ? "Try starting" : "Start"} ${device.name}`}
-        className="mt-2"
-        disabled={starting || bootId === undefined}
-        onClick={() => {
-          if (bootId !== undefined) {
-            onStart(bootId);
-          }
-        }}
-        size="xs"
-        type="button"
-        variant="outline"
-      >
-        {starting ? (
-          <LoaderCircleIcon aria-hidden="true" className="animate-spin" />
-        ) : (
-          <PlayIcon aria-hidden="true" />
+      <span className="flex shrink-0 items-center gap-1">
+        {isStartable(device) ? (
+          <Button
+            aria-label={`${status._tag === "failed" ? "Try starting" : "Start"} ${device.name}`}
+            disabled={starting || bootId === undefined}
+            onClick={() => {
+              if (bootId !== undefined) {
+                onStart(bootId);
+              }
+            }}
+            size="xs"
+            type="button"
+            variant="outline"
+          >
+            {starting ? (
+              <LoaderCircleIcon
+                aria-hidden="true"
+                className="animate-spin motion-reduce:animate-none"
+              />
+            ) : (
+              <PlayIcon aria-hidden="true" />
+            )}
+            {status._tag === "failed" ? "Try again" : null}
+            {status._tag === "starting" ? "Starting…" : null}
+            {status._tag === "stopped" ? "Start" : null}
+          </Button>
+        ) : null}
+        {erase === undefined ? null : (
+          <DeviceEraseButton controls={erase} device={device} />
         )}
-        {status._tag === "failed" ? "Try again" : null}
-        {status._tag === "starting" ? "Starting…" : null}
-        {status._tag === "stopped" ? "Start" : null}
-      </Button>
-      {erase === undefined ? null : (
-        <DeviceEraseButton controls={erase} device={device} />
-      )}
-    </div>
-  );
-};
-
-const DeviceCard = ({
-  device,
-  erase,
-  onSelect,
-  onStart,
-  selected,
-}: {
-  readonly device: DeviceChoice;
-  readonly erase: DeviceEraseControls | undefined;
-  readonly onSelect: (id: string) => void;
-  readonly onStart: (bootId: string) => void;
-  readonly selected: boolean;
-}) => {
-  if (isStartable(device)) {
-    return <StartableCard device={device} erase={erase} onStart={onStart} />;
-  }
-  const reason =
-    device.status._tag === "unavailable" ? device.status.reason : null;
-  const card = (
-    <button
-      aria-pressed={selected}
-      className={cn(
-        cardClass,
-        "hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent",
-        selected && "border-primary ring-primary/20 ring-2"
-      )}
-      disabled={device.status._tag !== "ready"}
-      onClick={() => onSelect(device.id)}
-      type="button"
-    >
-      <CardHeading device={device} />
-      <span className="text-muted-foreground block text-xs">
-        {reason ?? device.detail}
       </span>
-    </button>
-  );
-  // Erase sits under the card, never inside its select button.
-  return erase === undefined || device.eraseId === undefined ? (
-    card
-  ) : (
-    <div className="grid min-w-0">
-      {card}
-      <DeviceEraseButton controls={erase} device={device} />
     </div>
   );
 };
 
 /**
- * Device choice for Android and iOS setup. Ready devices come first. The rest
- * fold under a count, so a list of stopped devices never pushes the Target
- * App off the first screen; the fold opens while nothing is ready, so the
- * devices that can be started are in view.
+ * Device choice for Android and iOS setup, as the #744 card shows it: one
+ * Select of every device the host reports, then a hint row for the device
+ * it shows, with Start, Erase and Refresh devices. A ready device is chosen
+ * by picking it. While none is running, the first one that can start shows,
+ * so Start is one press away; picking a stopped device chooses nothing the
+ * session could use until it runs.
  */
 export const DeviceChoices = ({
   devices,
   emptyMessage,
   erase,
+  identify,
+  label,
+  onRefresh,
   onSelect,
   onStart,
   selected,
   starts,
 }: {
   readonly devices: readonly DeviceChoice[];
-  /** Said when no device is ready, after any that can be started. */
+  /** Said when no device is ready and none can be started. */
   readonly emptyMessage: string;
   /** Device Erase (ADR 0081); absent where the card does not offer it. */
   readonly erase?: DeviceEraseControls;
+  /**
+   * What tells a running device apart from another of its name, such as an
+   * Android serial; absent where the name is enough.
+   */
+  readonly identify?: (device: DeviceChoice) => string;
+  /** The field's name, such as Device or Simulator. */
+  readonly label: string;
+  readonly onRefresh?: () => void;
   readonly onSelect: (id: string) => void;
   readonly onStart: (bootId: string) => void;
   readonly selected: string | null;
@@ -246,53 +296,65 @@ export const DeviceChoices = ({
 }) => {
   const shown = withStarts(devices, starts);
   const ready = shown.filter((device) => device.status._tag === "ready");
-  const rest = shown.filter((device) => device.status._tag !== "ready");
-  const startable = rest.filter(isStartable);
+  const picked = shown.find((device) => device.id === selected);
+  const current =
+    picked ?? (ready.length === 0 ? shown.find(isStartable) : undefined);
   return (
-    <div className="space-y-2">
+    <div className="grid min-w-0 grid-cols-1 gap-1.5">
       {erase === undefined ? null : (
         <DeviceEraseRequests controls={erase} devices={shown} />
       )}
-      {ready.length === 0 ? (
-        <p className="text-muted-foreground text-xs">
-          {startable.length === 0
-            ? emptyMessage
-            : "No device is running. Start one below."}
-        </p>
-      ) : (
-        <div className="grid gap-2 sm:grid-cols-2">
-          {ready.map((device) => (
-            <DeviceCard
-              device={device}
-              erase={erase}
-              key={device.id}
-              onSelect={onSelect}
-              onStart={onStart}
-              selected={selected === device.id}
-            />
-          ))}
-        </div>
-      )}
-      {rest.length === 0 ? null : (
-        <details className="group" open={ready.length === 0 || undefined}>
-          <summary className="text-muted-foreground hover:text-foreground w-fit cursor-pointer text-xs">
-            {rest.length} stopped or unavailable{" "}
-            {rest.length === 1 ? "device" : "devices"}
-          </summary>
-          <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            {rest.map((device) => (
-              <DeviceCard
-                device={device}
-                erase={erase}
+      {shown.length === 0 ? null : (
+        <Select
+          onValueChange={(value) => {
+            const device = shown.find((entry) => entry.id === value);
+            if (device !== undefined) {
+              onSelect(device.id);
+            }
+          }}
+          placeholder="Choose a device"
+          value={current?.id ?? null}
+        >
+          <SelectTrigger aria-label={label} variant="island">
+            <SelectValue className="min-w-0">
+              {current === undefined ? null : (
+                <span className="truncate">{deviceLabel(current)}</span>
+              )}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent variant="island">
+            {shown.map((device) => (
+              <SelectItem
+                disabled={device.status._tag === "unavailable"}
                 key={device.id}
-                onSelect={onSelect}
-                onStart={onStart}
-                selected={false}
-              />
+                label={deviceLabel(device)}
+                value={device.id}
+              >
+                <DeviceOption device={device} identity={identify?.(device)} />
+              </SelectItem>
             ))}
-          </div>
-        </details>
+          </SelectContent>
+        </Select>
       )}
+      <div className="flex min-h-7 items-center justify-between gap-3">
+        {current === undefined ? (
+          <p className="text-muted-foreground min-w-0 flex-1 text-xs">
+            {ready.length === 0
+              ? emptyMessage
+              : "Choose one of the running devices."}
+          </p>
+        ) : (
+          <DeviceHint
+            device={current}
+            erase={erase}
+            identity={identify?.(current)}
+            onStart={onStart}
+          />
+        )}
+        {onRefresh === undefined ? null : (
+          <RefreshDevicesButton onRefresh={onRefresh} />
+        )}
+      </div>
     </div>
   );
 };

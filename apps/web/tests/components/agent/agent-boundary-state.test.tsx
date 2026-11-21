@@ -230,6 +230,9 @@ test("keeps refusal available during Takeover and enables Allow on return", asyn
     expect(screen.getByRole("button", { name: "Allow" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Refuse" })).toBeEnabled();
     expect(
+      screen.getByRole("region", { name: "Execution Boundary" })
+    ).toHaveTextContent("Return control to allow. You can still refuse.");
+    expect(
       screen.getByRole("textbox", { name: "Browser address" })
     ).toBeEnabled();
   });
@@ -277,8 +280,11 @@ test("holds a paused Boundary in the dock and reopens a folded tier for a new on
     screen.getByRole("region", { name: "Session status" })
   ).not.toContainElement(boundary);
   expect(
-    within(boundary).getByRole("heading", { name: "Confirm this action" })
+    within(boundary).getByRole("heading", {
+      name: "Allow the agent to take this action?",
+    })
   ).toBeVisible();
+  expect(boundary).toHaveTextContent(/^Execution Boundary/u);
   // A description that repeats the request is not shown twice.
   expect(
     within(boundary).getAllByText("Submit the return for RH-1042")
@@ -287,11 +293,27 @@ test("holds a paused Boundary in the dock and reopens a folded tier for a new on
   expect(
     within(boundary).getByRole("button", { name: "Refuse" })
   ).toBeEnabled();
+  // Refuse comes before Allow, as the prototype's boundary card has them.
+  expect(
+    within(boundary)
+      .getAllByRole("button", { name: /^(?:Allow|Refuse)$/u })
+      .map((button) => button.textContent)
+  ).toEqual(["Refuse", "Allow"]);
   expect(boundary).not.toHaveTextContent("submit-boundary-1");
   await user.click(
     within(boundary).getByRole("button", { name: "Action details" })
   );
-  expect(boundary).toHaveTextContent("submit-boundary-1");
+  // The attempt reads as a short list, not its JSON.
+  const details = Object.fromEntries(
+    within(boundary)
+      .getAllByRole("term")
+      .map((term) => [term.textContent, term.nextElementSibling?.textContent])
+  );
+  expect(details).toEqual({
+    Attempt: "submit-boundary-1",
+    Element: "e55",
+    Type: "click",
+  });
 
   await user.click(
     within(dock).getByRole("button", { name: "Collapse requests" })
@@ -301,7 +323,7 @@ test("holds a paused Boundary in the dock and reopens a folded tier for a new on
   ).toBeNull();
   expect(
     within(dock).getByRole("button", {
-      name: "Show request: Confirm this action. Submit the return for RH-1042",
+      name: "Show request: Allow the agent to take this action? Submit the return for RH-1042",
     })
   ).toBeVisible();
 
@@ -380,7 +402,6 @@ test("refuses a pending attempt while the user holds Takeover", async () => {
 });
 
 test("Guided Run host approval explains its saved scope", async () => {
-  const user = userEvent.setup();
   renderWorkspace();
   await screen.findByRole("region", { name: "Session status" });
   await act(() =>
@@ -400,11 +421,126 @@ test("Guided Run host approval explains its saved scope", async () => {
   const boundary = await screen.findByRole("region", {
     name: "Execution Boundary",
   });
-  await user.click(
-    within(boundary).getByRole("button", { name: "Action details" })
-  );
+  expect(
+    within(boundary).getByRole("heading", {
+      name: "Allow the agent to visit a new host?",
+    })
+  ).toBeVisible();
   expect(boundary).toHaveTextContent(
     "adds it to this Guided Run and the saved Flow's Domain Scope"
   );
   expect(boundary).not.toHaveTextContent("saved Domain Scope stays unchanged");
+});
+
+test("shows one request at a time and steps on to every other one", async () => {
+  const user = userEvent.setup();
+  renderWorkspace();
+  await screen.findByRole("region", { name: "Session status" });
+  const question = {
+    actor: "agent",
+    at,
+    dialogue: { _tag: "question" },
+    id: "question-one",
+    target: null,
+    text: "Which item should I add?",
+  };
+  await act(() =>
+    rpc.emit?.(
+      sessionAt("2026-09-02T00:00:01.000Z", {
+        boundary: {
+          ...boundaryFor("host"),
+          action: { type: "navigate", url: "https://pay.example.test/a/b" },
+          description: "Navigate to https://pay.example.test/a/b",
+          reason: "domain",
+          requested: "https://pay.example.test/a/b",
+        },
+        origin: "guided-run",
+        pendingDecisions: [pendingFor("host")],
+        teaching: {
+          actionCount: 0,
+          instructionCount: 1,
+          instructions: [question],
+        },
+      })
+    )
+  );
+  const dock = await screen.findByRole("region", { name: "Requests" });
+  await within(dock).findByRole("region", { name: "Guided Run questions" });
+  // The Boundary waits behind the question, out of the accessibility tree.
+  expect(
+    within(dock).queryByRole("region", { name: "Execution Boundary" })
+  ).toBeNull();
+  // One collapse control, for the whole island.
+  expect(
+    within(dock).getAllByRole("button", { name: "Collapse requests" })
+  ).toHaveLength(1);
+  const draft = within(dock).getByRole("textbox", {
+    name: "Answer: Which item should I add?",
+  });
+  await user.type(draft, "An anvil");
+
+  const more = within(dock).getByRole("button", {
+    name: "+1 more after this. Show Allow the agent to visit a new host?",
+  });
+  expect(more).toHaveTextContent("+1 more after this");
+  await user.click(more);
+  const boundary = within(dock).getByRole("region", {
+    name: "Execution Boundary",
+  });
+  expect(boundary).toHaveTextContent("Execution Boundary · 1 of 2");
+  // The address is the target, shown once; a long one wraps at its slashes.
+  expect(boundary.querySelectorAll("wbr").length).toBeGreaterThan(0);
+  expect(boundary).toHaveTextContent("https://pay.example.test/a/b");
+  expect(boundary).not.toHaveTextContent("Navigate to");
+  expect(
+    within(dock).queryByRole("region", { name: "Guided Run questions" })
+  ).toBeNull();
+
+  // Stepping on comes back round, and the set-aside draft survives.
+  await user.click(
+    within(dock).getByRole("button", {
+      name: "+1 more after this. Show Guided Run questions",
+    })
+  );
+  expect(
+    within(dock).getByRole("textbox", {
+      name: "Answer: Which item should I add?",
+    })
+  ).toHaveValue("An anvil");
+});
+
+test("counts a Variable card's inputs as N of M needed", async () => {
+  renderWorkspace();
+  await screen.findByRole("region", { name: "Session status" });
+  await act(() =>
+    rpc.emit?.(
+      sessionAt("2026-09-02T00:00:01.000Z", {
+        activity: "run",
+        captureState: null,
+        dryRun: {
+          flowName: "checkout",
+          inputs: [],
+          recordingId: "recording-checkout",
+          startedAt: at,
+          variables: [],
+        },
+        pendingDecisions: [
+          {
+            boundaryId: null,
+            createdAt: at,
+            kind: "supply_variable",
+            pendingDecisionId: "pending-login-password",
+            scopeSummary: "Supply Variable login/PASSWORD.",
+            sessionId: "agent-one",
+            variable: { flowName: "login", name: "PASSWORD" },
+          },
+        ],
+        teaching: null,
+      })
+    )
+  );
+  const card = await screen.findByRole("region", {
+    name: "Prerequisite Variables",
+  });
+  expect(card).toHaveTextContent(/^1 of 1 needed/u);
 });

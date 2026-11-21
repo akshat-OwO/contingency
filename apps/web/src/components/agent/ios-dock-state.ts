@@ -5,6 +5,11 @@
  */
 import type { IosWorkspaceSnapshot } from "@contingency/protocol";
 
+import {
+  AGENT_RUNNING_SENTENCE,
+  ENDED_RUN_SENTENCE,
+  isEndedNativeRun,
+} from "@/components/agent/android-dock-state";
 import { teachingRecordingPresentation } from "@/components/agent/teaching-recording-state";
 import type { FlowsSessionView } from "@/components/catalog/flows-page-state";
 
@@ -222,13 +227,34 @@ const controlPresentation = (
       action: action("return-control", "Return control"),
     };
   }
+  // The prototype's Running chip and sentence, as on Android.
+  return {
+    ...quiet("Running", AGENT_RUNNING_SENTENCE, "busy"),
+    action: action("take-control", "Take control"),
+  };
+};
+
+/**
+ * An ended Dry Run or Run reads `Ended`, as on Android and the Web; only a
+ * decision the recording still waits on keeps its action and sentence.
+ */
+const endedRunPresentation = (
+  session: IosWorkspaceSnapshot
+): IosDockPresentation => {
+  const decision =
+    session.captureState !== null && DECIDED.has(session.captureState._tag)
+      ? teachingPresentation(session)
+      : undefined;
+  const decides =
+    decision !== undefined && (decision.action !== null || decision.rejectable);
   return {
     ...quiet(
-      "Agent driving",
-      "The agent is driving the simulator. Take control to act yourself.",
-      "live"
+      "Ended",
+      decides ? decision.nextStep : ENDED_RUN_SENTENCE,
+      "ended"
     ),
-    action: action("take-control", "Take control"),
+    action: decides ? decision.action : null,
+    rejectable: decides && decision.rejectable,
   };
 };
 
@@ -242,6 +268,9 @@ const controlPresentation = (
 export const iosDockPresentation = (
   session: IosWorkspaceSnapshot
 ): IosDockPresentation => {
+  if (isEndedNativeRun(session)) {
+    return endedRunPresentation(session);
+  }
   if (session.captureState !== null && DECIDED.has(session.captureState._tag)) {
     return teachingPresentation(session);
   }

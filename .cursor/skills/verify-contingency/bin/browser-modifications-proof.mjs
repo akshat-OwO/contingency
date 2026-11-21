@@ -120,14 +120,36 @@ await Effect.runPromise(
       return tools.agent_browser_devtools({sessionId,command:{action:"modifications_list"}});`
     );
     assert.equal(changed.modifications.length, 3);
-    yield* command("browser", "wait", "--text", "2 mocked routes · 200% text");
+    // A Run's status island carries no modification summary; Task details
+    // lists every change, with the active count beside its heading.
+    const waitModifications = (active) =>
+      command(
+        "browser",
+        "wait",
+        "--role",
+        "region",
+        "--name",
+        "Browser Modifications",
+        "--has-text",
+        `${active} active`
+      );
+    yield* command(
+      "browser",
+      "click",
+      "--role",
+      "button",
+      "--name",
+      "Task details"
+    );
+    yield* waitModifications(3);
     yield* capture("active");
     yield* program(
       "remove",
       `return tools.agent_browser_devtools({sessionId:${sid},command:{action:"modification_remove",id:"modification-modifications-second",operationId:"modifications-remove"}});`
     );
-    yield* command("browser", "wait", "--text", "1 mocked route · 200% text");
+    yield* waitModifications(2);
     yield* capture("removed");
+    yield* command("browser", "press", "--key", "Escape");
     const summary = yield* program(
       "complete",
       `return tools.agent_run_complete({sessionId:${sid},operationId:"modifications-complete"});`

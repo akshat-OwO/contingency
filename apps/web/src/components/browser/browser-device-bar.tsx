@@ -178,7 +178,7 @@ export const BrowserDeviceBar = ({
       </Select>
       {applied === undefined ? null : (
         <>
-          <span className="text-muted-foreground shrink-0 px-1.5 whitespace-nowrap tabular-nums @max-[640px]:hidden">
+          <span className="text-muted-foreground shrink-0 px-1 font-mono whitespace-nowrap tabular-nums @max-[640px]:hidden">
             {applied.width} × {applied.height}
           </span>
           <Button
@@ -216,7 +216,8 @@ export const BrowserDeviceBar = ({
       {lockedReason === undefined ? null : (
         <Tooltip>
           <TooltipTrigger
-            aria-label={lockedReason}
+            aria-description={lockedReason}
+            aria-label="Device controls locked"
             className="text-muted-foreground grid size-7 place-items-center"
           >
             <LockKeyholeIcon aria-hidden="true" className="size-3.5" />

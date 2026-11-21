@@ -237,7 +237,8 @@ try {
       await wait("button", "Start recording");
       receipt.coverage.reopenPaused = true;
     }
-    await click("Close session");
+    // Close session is in the Agent Session picker, not the island.
+    await control("browser", "native-close");
     await wait("button", "New session");
     // An ended session is no longer in progress: the home's shelf drops it,
     // and the session's link reopens its Summary.
@@ -282,9 +283,8 @@ try {
           "--url",
           `${instance.mcpUrl}?android=${session.id}`
         );
-        await wait("button", "Close session");
-        await click("Close session");
-        await wait("button", "New session");
+        await wait("combobox", "Agent Session");
+        await control("browser", "native-close");
       }
     }
     if (installed) {

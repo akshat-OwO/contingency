@@ -406,7 +406,21 @@ try {
   await wait("Verify flow");
   await snapshot("dry-run-passed");
   await click("Verify flow");
-  await control("browser", "wait", "--text", "Flow verified");
+  // Nothing waits on the ended Dry Run once it is verified, so the island
+  // reads Ended with the ended Run's sentence; MCP reads back the decision.
+  await control(
+    "browser",
+    "wait",
+    "--role",
+    "button",
+    "--name",
+    "Verify flow",
+    "--state",
+    "hidden",
+    "--timeout-ms",
+    "60000"
+  );
+  await wait("The Run ended. Its summary is beside it.");
   const verified = await read(dry.id);
   assert.equal(verified.cleanup._tag, "purged");
   assert.equal(verified.observation, null);
@@ -468,7 +482,10 @@ try {
     `${instance.mcpUrl}?android=${later.id}`
   );
   await wait("Run Summary", "complementary");
+  await wait("Run verdict", "region");
   // ADR 0078: the device keeps its own facts (#778), never browser sections.
+  // They sit in the summary's Task tab.
+  await control("browser", "click", "--role", "tab", "--name", "Task");
   await wait("Device", "region");
   await snapshot("later-run-summary");
   const summaryAria = await readFile(
@@ -510,8 +527,8 @@ try {
         "--url",
         `${instance.mcpUrl}?android=${session.id}`
       );
-      await click("Close session");
-      await wait("New session");
+      // Close session is in the Agent Session picker, not the island.
+      await control("browser", "native-close");
       const closedSession = await command({
         _tag: "read",
         sessionId: session.id,

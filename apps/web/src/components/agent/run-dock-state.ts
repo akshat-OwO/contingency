@@ -9,7 +9,8 @@ import { isLiveAgentSessionPhase } from "@contingency/protocol";
 import {
   agentControlPresentation,
   agentStatusLabel,
-  isInteractiveRunSession,
+  WAITING_ON_YOU_SENTENCE,
+  waitsOnUser,
 } from "@/components/agent/agent-workspace-state";
 import type { DockStateTone } from "@/components/agent/workspace-dock";
 
@@ -126,13 +127,11 @@ const changedInputsSentence = (
 };
 
 /**
- * Where an ended Interactive Run's evidence went. The Workspace keeps the Run
- * on screen with its Run Summary docked beside it until the user moves on.
+ * An ended Run's whole status line (#757). The Workspace keeps the Run on
+ * screen with its Run Summary docked beside it until the user moves on, so
+ * the line says only that nothing here drives the browser any more.
  */
-const endedRunSentences = (session: RunSessionSnapshot): readonly string[] =>
-  isInteractiveRunSession(session) && !isLiveAgentSessionPhase(session.phase)
-    ? ["The Run has ended. Its Run Summary is beside the browser."]
-    : [];
+const ENDED_SENTENCE = "This browser session ended. Its Run is read-only.";
 
 /**
  * How the Workspace dock presents one live Run session. A Dry Run names the
@@ -170,49 +169,49 @@ const asSentence = (text: string): string => {
 };
 
 /**
- * The status line. An open Execution Boundary card already says the action,
- * the task, and what Allow grants, so only the badge stays beside it.
+ * The status line. While a request waits, the request card already says the
+ * action, the task, and what answering grants, so the line says only that the
+ * agent is waiting on you (#753). An ended Run says it is read-only.
  */
 const statusSentence = (
   session: RunSessionSnapshot,
   sentences: readonly string[]
-) =>
-  session.boundary === undefined || session.boundary === null
+) => {
+  if (waitsOnUser(session)) {
+    return WAITING_ON_YOU_SENTENCE;
+  }
+  return isLiveAgentSessionPhase(session.phase)
     ? sentences.join(" ")
-    : "";
+    : ENDED_SENTENCE;
+};
 
 /**
- * The tone of a Run that has not failed. Waiting on the person, a Takeover
- * request or an open Execution Boundary, asks for attention. Starting or
- * reconnecting is work in progress, and a session someone is driving is live.
+ * The tone of a Run that has not failed. Waiting on the person, any open
+ * request or a Takeover request, asks for attention. Starting or reconnecting
+ * is work in progress. The agent driving is a quiet running state, the user
+ * driving is live, and an ended Run is ended: its verdict is the Summary's,
+ * not the chip's (#757).
  */
 const runTone = (
   session: RunSessionSnapshot,
   streamConnected: boolean
 ): DockStateTone => {
+  if (waitsOnUser(session)) {
+    return "attention";
+  }
   if (session.phase === "takeover") {
     return session.controller === "agent" ? "attention" : "live";
-  }
-  if (session.boundary !== undefined && session.boundary !== null) {
-    return "attention";
   }
   if (session.phase === "starting") {
     return "busy";
   }
-  if (session.phase === "completed") {
-    // Only a Run whose every Agent Step was assessed has a verdict to show;
-    // a task Run's verdict is its Summary's, so its dock stays neutral.
-    const { run } = session;
-    return run !== null &&
-      !("schemaVersion" in run) &&
-      run.outcome === "completed"
-      ? "success"
-      : "default";
-  }
   if (!isLiveAgentSessionPhase(session.phase)) {
-    return "default";
+    return "ended";
   }
-  return streamConnected ? "live" : "busy";
+  if (!streamConnected) {
+    return "busy";
+  }
+  return session.controller === "user" ? "live" : "busy";
 };
 
 export const runDockPresentation = (
@@ -267,10 +266,7 @@ export const runDockPresentation = (
   }
 
   const badge = agentStatusLabel(session, streamConnected);
-  sentences.push(
-    ...endedRunSentences(session),
-    ...controlSentences(badge, control)
-  );
+  sentences.push(...controlSentences(badge, control));
 
   return {
     badge,

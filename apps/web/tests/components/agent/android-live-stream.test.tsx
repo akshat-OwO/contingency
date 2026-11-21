@@ -7,6 +7,7 @@ import { TestClock } from "effect/testing";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 
 import { AndroidLiveStream } from "@/components/agent/android-live-stream";
+import { androidStreamStats } from "@/components/agent/native-stream-store";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 import { WorkspaceRefreshClockContext } from "@/lib/workspace-refresh";
 
@@ -31,6 +32,7 @@ interface FakeFrame {
   readonly close: () => void;
   readonly displayHeight: number;
   readonly displayWidth: number;
+  readonly timestamp: number;
 }
 
 let decoders: FakeDecoder[] = [];
@@ -55,12 +57,13 @@ class FakeDecoder {
     this.state = "configured";
   }
 
-  decode(chunk: { readonly type: string }) {
+  decode(chunk: { readonly timestamp: number; readonly type: string }) {
     this.decoded.push(chunk.type);
     this.init.output({
       close: () => null,
       displayHeight: 100,
       displayWidth: 50,
+      timestamp: chunk.timestamp,
     });
   }
 
@@ -89,8 +92,11 @@ beforeEach(async () => {
   vi.stubGlobal(
     "EncodedVideoChunk",
     // oxlint-disable-next-line eslint/prefer-arrow-callback -- The viewer constructs chunks with `new`, which an arrow function cannot serve.
-    vi.fn(function chunk(init: { readonly type: string }) {
-      return { type: init.type };
+    vi.fn(function chunk(init: {
+      readonly timestamp: number;
+      readonly type: string;
+    }) {
+      return { timestamp: init.timestamp, type: init.type };
     })
   );
   // jsdom has no 2D canvas; the viewer only clears and draws on it.
@@ -146,6 +152,8 @@ const send = (connection: number, text: string) =>
 const status = () => screen.getByRole("status").textContent;
 
 it("drops a decode backlog and resumes at the next keyframe without losing the stream", async () => {
+  // Counts are kept per session for the page's life, so read what this adds.
+  const before = androidStreamStats(AgentSessionId.make("agent-one"));
   show();
   await waitFor(() => expect(connections).toHaveLength(1));
   await send(0, line(keyframe));
@@ -159,6 +167,16 @@ it("drops a decode backlog and resumes at the next keyframe without losing the s
   await send(0, line(keyframe));
   await waitFor(() => expect(decoder.decoded).toEqual(["key", "key"]));
   expect(status()).toBe("Live device display");
+  // Stream diagnostics reads both keyframes as shown, each with its decode
+  // time, and the two deltas the viewer could not draw as dropped.
+  const after = androidStreamStats(AgentSessionId.make("agent-one"));
+  expect(after.decoded - before.decoded).toBe(2);
+  expect(after.dropped - before.dropped).toBe(2);
+  expect(after.frames.slice(-2)).toEqual([
+    expect.objectContaining({ decodeMs: expect.any(Number) }),
+    expect.objectContaining({ decodeMs: expect.any(Number) }),
+  ]);
+  expect([after.width, after.height]).toEqual([50, 100]);
   expect(fetchStream).toHaveBeenCalledTimes(1);
   expect(
     screen.queryByRole("button", { name: "Reconnect device stream" })

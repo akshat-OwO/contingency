@@ -99,7 +99,7 @@ const taskRunChecks = (
       value: runOutcomeLabel[summary.outcome],
     },
     {
-      label: "Agent assessment",
+      label: "Agent Assessment",
       passed: summary.assessment?.outcome === "working",
       value:
         summary.assessment === null
@@ -124,7 +124,7 @@ export const dryRunChecks = (
     value: summary.assessment?.outcomeComplete === true ? "Yes" : "No",
   },
   {
-    label: "No takeover",
+    label: "No Takeover",
     passed: !summary.purpose.takeoverOccurred,
     value: summary.purpose.takeoverOccurred
       ? "User took control"
@@ -132,11 +132,15 @@ export const dryRunChecks = (
   },
 ];
 
+/** The Flow decision's sentence while no Dry Run of the Flow has passed. */
+export const dryRunCannotVerify =
+  "This Flow can't be verified until a Dry Run passes. Ask the agent to fix it and run another.";
+
 export const dryRunChecksPass = (summary: TaskDryRunSummary): boolean =>
   dryRunChecks(summary).every((check) => check.passed);
 
 /** Checks a working journey can still miss: how it was attempted, not whether it worked. */
-const QUALIFYING_CHECKS = new Set(["Full outcome attempted", "No takeover"]);
+const QUALIFYING_CHECKS = new Set(["Full outcome attempted", "No Takeover"]);
 
 /**
  * The Dry Run missed only how it was attempted: the journey worked, but the
@@ -153,12 +157,16 @@ export const dryRunMissedOnlyQualifiers = (
   );
 };
 
-const failedCheckSentence = ({ label, value }: SummaryCheck): string => {
+/** Why a Dry Run cannot pass, said from the one check it missed. */
+export const failedCheckSentence = ({ label, value }: SummaryCheck): string => {
   switch (label) {
-    case "Agent assessment": {
+    case "Agent Assessment": {
       return value === "None submitted"
         ? "The agent submitted no assessment, so this Dry Run cannot pass."
         : `The agent assessed the journey as ${value.toLowerCase()}, so this Dry Run cannot pass.`;
+    }
+    case "Capture complete": {
+      return "Part of the screen went uncaptured and was never repaired, so this Dry Run cannot pass.";
     }
     case "Browser Checks": {
       return "Not every Browser Check passed, so this Dry Run cannot pass.";
@@ -166,7 +174,7 @@ const failedCheckSentence = ({ label, value }: SummaryCheck): string => {
     case "Full outcome attempted": {
       return "The agent did not attempt the full outcome, so this Dry Run cannot pass.";
     }
-    case "No takeover": {
+    case "No Takeover": {
       return "You took control during this Dry Run, so it cannot pass.";
     }
     case "Required scans": {
@@ -252,8 +260,8 @@ export const interactiveRunVerdict = (
  * What the summary may claim about the Dry Run as a whole. A Runner result of
  * `failed` fails it even when every check passes: the observable outcome is a
  * system fact, not a report. Without that result, as in a persisted record
- * reopened by `open_run`, green checks are all the record proves, so the
- * verdict says exactly that instead of claiming a pass.
+ * reopened by `open_run`, the checks are the Runner's own pass rule, so green
+ * checks read as the same pass the dock shows.
  */
 export type DryRunVerdict = "checks-passed" | "failed" | "passed";
 
@@ -267,8 +275,23 @@ export const dryRunVerdict = (
   return result === undefined ? "checks-passed" : "passed";
 };
 
+const whenFormat = new Intl.DateTimeFormat(undefined, {
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  month: "short",
+});
+
+/** When a Run ended, as the verdict card's last fact. */
+export const runSummaryWhen = (endedAt: string): string | undefined => {
+  const ended = Date.parse(endedAt);
+  return Number.isNaN(ended) ? undefined : whenFormat.format(ended);
+};
+
 /** `1m 04s`, or `42s` under a minute. */
-export const runDuration = (summary: TaskAgentRunSummary): string => {
+export const runDuration = (
+  summary: Pick<TaskAgentRunSummary, "endedAt" | "startedAt">
+): string => {
   const seconds = Math.max(
     0,
     Math.round(

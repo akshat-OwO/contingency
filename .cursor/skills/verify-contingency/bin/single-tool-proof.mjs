@@ -663,14 +663,8 @@ const androidProof = Effect.gen(function* singleToolAndroidProof() {
     [["SETUP_PASSWORD", "refused"]]
   );
   yield* save("android-whole-read-resource.json", session);
-  yield* command(
-    "browser",
-    "click",
-    "--role",
-    "button",
-    "--name",
-    "Close session"
-  );
+  // Close session is in the Agent Session picker, not the island.
+  yield* command("browser", "native-close");
   yield* command(
     "browser",
     "wait",

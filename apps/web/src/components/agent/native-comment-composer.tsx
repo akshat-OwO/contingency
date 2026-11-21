@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { CommentCard, CommentChip } from "./comment-card";
 import { roleWord } from "./screen-elements";
 import type { AttachedElement, CommentPin } from "./screen-elements";
-import { elapsedLabel } from "./teaching-recording-state";
+import { elapsedClock } from "./teaching-recording-state";
 
 /**
  * The native Teaching comment card, on Android and iOS: the same card as on
@@ -103,7 +103,7 @@ export const NativeCommentComposer = ({
         time:
           startedAt === undefined
             ? ""
-            : elapsedLabel(startedAt, Date.parse(instruction.at)),
+            : elapsedClock(startedAt, Date.parse(instruction.at)),
       }))}
       editingId={undefined}
       error={undefined}

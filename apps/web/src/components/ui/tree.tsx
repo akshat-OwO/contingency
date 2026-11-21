@@ -72,7 +72,7 @@ function TreeItemLabel({
         // Selection and focus belong to the item around the row; a nested
         // item's row must not light up with its ancestor's.
         "[[data-selected]>&]:bg-brand/14 [[data-selected]>&]:ring-brand/30 [[data-selected]>&]:ring-1 [[data-selected]>&]:ring-inset",
-        "[:focus-visible>&]:outline-brand [:focus-visible>&]:outline-2 [:focus-visible>&]:-outline-offset-2",
+        "[:focus-visible>&]:outline-brand-ink [:focus-visible>&]:outline-2 [:focus-visible>&]:-outline-offset-2",
         classOf(className)
       )}
       {...props}

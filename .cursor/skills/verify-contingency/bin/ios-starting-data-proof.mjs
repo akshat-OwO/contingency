@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { chooseTargetApp, closeNativeSession } from "./android-ui.mjs";
 import { iosRpc } from "./ios-workspace-rpc.mjs";
 
 /**
@@ -136,6 +137,53 @@ const openSetup = async () => {
     await setup.click();
   }
 };
+const simulatorField = page.getByRole("combobox", {
+  exact: true,
+  name: "Simulator",
+});
+/**
+ * Opens the Simulator field and picks the option whose name matches. Every
+ * wait takes what is left of one deadline, so a field that a refresh unmounts
+ * fails the phase instead of hanging before its `finally`.
+ */
+const pickSimulator = async (pattern, timeout = 60_000) => {
+  // A refreshed simulator list re-renders the field and closes its listbox,
+  // so open it again until the option shows.
+  const option = page.getByRole("option", { name: pattern });
+  const deadline = Date.now() + timeout;
+  const left = () => {
+    const remaining = deadline - Date.now();
+    assert.ok(remaining > 0, `No simulator option ${pattern}.`);
+    return remaining;
+  };
+  for (;;) {
+    await simulatorField.click({ timeout: left() });
+    const shown = await option
+      .waitFor({ timeout: Math.min(10_000, left()) })
+      .then(
+        () => true,
+        () => false
+      );
+    if (shown) {
+      await option.click({ timeout: Math.min(10_000, left()) });
+      return;
+    }
+    // Escape with the listbox already closed would close the start card. A
+    // field the refresh unmounted is closed too, so read it without waiting.
+    const expanded =
+      (await simulatorField.count()) > 0
+        ? await simulatorField
+            .getAttribute("aria-expanded", { timeout: 1000 })
+            .catch(() => null)
+        : null;
+    if (expanded === "true") {
+      await page.keyboard.press("Escape");
+    }
+    left();
+  }
+};
+/** The hint row under the Simulator field, for the simulator it shows. */
+const hint = (name) => page.getByRole("group", { exact: true, name });
 let flowName;
 const session = async () => {
   const listed = await iosRpc(instance.mcpUrl, "ios.workspace.list", {});
@@ -143,9 +191,12 @@ const session = async () => {
   assert.ok(found, `No session for ${flowName}.`);
   return found;
 };
-/** Closes this phase's session and waits until the host reports it closed. */
+/**
+ * Closes this phase's session from the Agent Session picker and waits until
+ * the host reports it closed.
+ */
 const close = async () => {
-  await click("Close session");
+  await closeNativeSession(page);
   const closing = flowName;
   for (let attempt = 0; attempt < 60; attempt += 1) {
     // A closed session leaves the live list.
@@ -168,20 +219,15 @@ const teach = async (startingData) => {
   await page
     .getByRole("textbox", { exact: true, name: "Flow name" })
     .fill(flowName);
-  const card = page.getByRole("button", {
-    name: new RegExp(`^Simulator ${name} `, "u"),
-  });
-  await card.waitFor({ timeout: 60_000 });
+  // A booted simulator's option reads its runtime after its name:
+  // `iPhone 17 · iOS 26.5`.
+  await pickSimulator(new RegExp(`^${name} · iOS `, "u"));
   // The operator booted this simulator, so this process may not erase it.
-  assert.equal(
-    await card.evaluate((node) => node.nextElementSibling?.textContent ?? ""),
-    "Stop this device to erase it."
-  );
+  await hint(name)
+    .getByText("Stop this device to erase it.", { exact: true })
+    .waitFor({ timeout: 60_000 });
   receipt.unownedRefusesErase = true;
-  await card.click();
-  await page
-    .getByRole("button", { name: new RegExp(`${bundleId} build`, "u") })
-    .click({ timeout: 90_000 });
+  await chooseTargetApp(page, bundleId);
   await openSetup();
   await page
     .getByRole("radio", {
@@ -305,11 +351,10 @@ try {
       .getByRole("button", { exact: true, name: "Erase device" })
       .click();
     // Contingency erased and booted it, so it owns it and still offers Erase.
-    await page
-      .getByRole("button", { name: new RegExp(`^Simulator ${name} `, "u") })
-      .and(page.locator(":not([disabled])"))
+    await pickSimulator(new RegExp(`^${name} · iOS `, "u"), 300_000);
+    await hint(name)
+      .getByRole("button", { exact: true, name: `Erase ${name}` })
       .waitFor({ timeout: 300_000 });
-    await button(`Erase ${name}`).waitFor({ timeout: 300_000 });
     assert.equal(await banner.count(), 0);
     const after = await deviceName();
     assert.equal(after.state, "Booted");

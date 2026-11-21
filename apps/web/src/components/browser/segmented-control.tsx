@@ -85,7 +85,7 @@ export const SegmentedControl = <Value extends string>({
               "text-muted-foreground hover:text-foreground focus-visible:ring-ring inline-flex items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap transition-[color,background-color,box-shadow,scale] duration-150 outline-none focus-visible:ring-2 active:scale-[0.97] disabled:pointer-events-none motion-reduce:transition-colors motion-reduce:active:scale-100",
               size === "sm"
                 ? "h-6 px-2 text-xs pointer-coarse:h-9 pointer-coarse:px-3"
-                : "h-5 px-1.5 text-xs pointer-coarse:h-9 pointer-coarse:min-w-9",
+                : "h-5 px-1 text-xs pointer-coarse:h-9 pointer-coarse:min-w-9",
               selected &&
                 "bg-background text-foreground shadow-xs dark:bg-white/10"
             )}

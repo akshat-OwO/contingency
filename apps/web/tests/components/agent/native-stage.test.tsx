@@ -3,6 +3,7 @@ import type {
   NativeTeachingInstruction,
 } from "@contingency/protocol";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -10,11 +11,16 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Effect, Exit, Scope } from "effect";
+import { TestClock } from "effect/testing";
 import { useState } from "react";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, assert, expect, test, vi } from "vitest";
 
 import { NativeStage } from "@/components/agent/android-device";
-import type { NativeStream } from "@/components/agent/android-device";
+import type {
+  EmulateDevice,
+  NativeStream,
+} from "@/components/agent/android-device";
 import { NativeCommentComposer } from "@/components/agent/native-comment-composer";
 import {
   closedComment,
@@ -22,6 +28,13 @@ import {
   recordingPins,
 } from "@/components/agent/native-comment-state";
 import type { NativeComment } from "@/components/agent/native-comment-state";
+import {
+  emptyNativeStreamStats,
+  nativeFrameShown,
+  nativeFramesDropped,
+} from "@/components/agent/native-stream-status";
+import type { NativeStreamStats } from "@/components/agent/native-stream-status";
+import { WorkspaceRefreshClockContext } from "@/lib/workspace-refresh";
 
 afterEach(cleanup);
 
@@ -44,19 +57,44 @@ const observation: AndroidWorkspaceObservation = {
   width: 400,
 };
 
+/** Counts for `shown` frames 1080 × 2424, each decoded in `decodeMs`. */
+const shownFrames = (
+  shown: number,
+  { decodeMs = 3, dropped = 0, shownAt = performance.now() } = {}
+): NativeStreamStats => {
+  let stats = nativeFramesDropped(emptyNativeStreamStats, dropped);
+  for (let frame = 0; frame < shown; frame += 1) {
+    stats = nativeFrameShown(
+      stats,
+      { decodeMs, height: 2424, width: 1080 },
+      shownAt
+    );
+  }
+  return stats;
+};
+
 const stream = (change: Partial<NativeStream> = {}): NativeStream => ({
-  device: "Pixel_9",
+  device: "Pixel_9 · Android 16",
   format: "H.264",
   state: "live",
-  stats: () => ({
-    codec: "avc1.42E01F",
-    decoded: 1204,
-    height: 2424,
-    resyncs: 2,
-    width: 1080,
-  }),
+  stats: () => shownFrames(1204, { dropped: 4 }),
   ...change,
 });
+
+/** The card's state row and its terms with their values. */
+const diagnostics = () => {
+  const card = screen.getByRole("region", { name: "Stream diagnostics" });
+  const terms = within(card)
+    .getAllByRole("term")
+    .map((term) => term.textContent);
+  const values = within(card)
+    .getAllByRole("definition")
+    .map((value) => value.textContent);
+  return {
+    rows: Object.fromEntries(terms.map((term, i) => [term, values[i]])),
+    state: within(card).getByRole("status").parentElement?.textContent,
+  };
+};
 
 const frameWidth = () =>
   screen
@@ -75,6 +113,7 @@ const renderStage = (props: Partial<Parameters<typeof NativeStage>[0]> = {}) =>
       onEmulate={vi.fn()}
       onKey={vi.fn()}
       platform="Android"
+      sessionId="s-a"
       stream={stream()}
       takeover={false}
       {...props}
@@ -118,25 +157,95 @@ test("Stream diagnostics reads the stream, and Escape closes it", async () => {
   renderStage();
   await user.click(screen.getByRole("button", { name: "Stream diagnostics" }));
   const card = screen.getByRole("region", { name: "Stream diagnostics" });
-  expect(within(card).getByRole("status")).toHaveTextContent("Live");
-  const terms = within(card)
-    .getAllByRole("term")
-    .map((term) => term.textContent);
-  const values = within(card)
-    .getAllByRole("definition")
-    .map((value) => value.textContent);
-  expect(Object.fromEntries(terms.map((term, i) => [term, values[i]]))).toEqual(
-    {
-      Device: "Pixel_9",
-      "Frames shown": "1,204",
-      "Keyframe rejoins": "2",
-      Stream: "avc1.42E01F · 1080 × 2424",
-    }
-  );
+  // Only the state is announced; the frame rate beside it changes too often.
+  expect(within(card).getByRole("status")).toHaveTextContent(/^Live$/u);
+  // The fixture's frames were all shown within the last second, and the
+  // frame rate counts the last 120.
+  expect(diagnostics()).toEqual({
+    rows: {
+      "Decode, p95": "3.0 ms",
+      "Decoded / dropped": "1,204 / 4",
+      Device: "Pixel_9 · Android 16",
+      "Input to frame, p95": "—",
+      Stream: "H.264 · 1080 × 2424",
+    },
+    state: "Live · 120 fps",
+  });
+  expect(within(card).getByText("Last 120 decoded frames.")).toBeVisible();
   await user.keyboard("{Escape}");
   expect(
     screen.queryByRole("region", { name: "Stream diagnostics" })
   ).toBeNull();
+});
+
+test("Stream diagnostics shows frames that arrive after it opens", async () => {
+  const user = userEvent.setup();
+  const clockScope = await Effect.runPromise(Scope.make());
+  const clock = await Effect.runPromise(
+    TestClock.make().pipe(Effect.provideService(Scope.Scope, clockScope))
+  );
+  // The card opens before the first frame, as it does on a fresh stage.
+  let counts = emptyNativeStreamStats;
+  const stage = (state: "connecting" | "live") => (
+    <WorkspaceRefreshClockContext value={clock}>
+      <NativeStage
+        canAct
+        emulation={undefined}
+        frame={{ height: 2424, width: 1080 }}
+        lockedReason={undefined}
+        observation={observation}
+        onActivate={vi.fn()}
+        onEmulate={vi.fn()}
+        onKey={vi.fn()}
+        platform="Android"
+        sessionId="s-a"
+        // A new stream object each render, as the device's parent gives it.
+        stream={stream({ state, stats: () => counts })}
+        takeover={false}
+      >
+        <canvas aria-label="Live device display" />
+      </NativeStage>
+    </WorkspaceRefreshClockContext>
+  );
+  const { rerender } = render(stage("connecting"));
+  await user.click(screen.getByRole("button", { name: "Stream diagnostics" }));
+  expect(diagnostics()).toEqual({
+    rows: {
+      "Decode, p95": "—",
+      "Decoded / dropped": "0 / 0",
+      Device: "Pixel_9 · Android 16",
+      "Input to frame, p95": "—",
+      Stream: "—",
+    },
+    state: "Connecting…",
+  });
+  // The stream goes live: the re-render reads the counts it has now.
+  counts = shownFrames(2);
+  rerender(stage("live"));
+  expect(diagnostics().rows["Decoded / dropped"]).toBe("2 / 0");
+  expect(diagnostics().rows.Stream).toBe("H.264 · 1080 × 2424");
+  // Without a re-render, the open card re-reads the counts on its beat.
+  counts = shownFrames(30, { dropped: 1 });
+  await act(() =>
+    Effect.runPromise(
+      clock.adjust("500 millis").pipe(Effect.timeout("30 seconds"))
+    )
+  );
+  expect(diagnostics().rows["Decoded / dropped"]).toBe("30 / 1");
+  await Effect.runPromise(Scope.close(clockScope, Exit.void));
+});
+
+test("a still screen reads Live without a frame rate it has not measured", async () => {
+  const user = userEvent.setup();
+  renderStage({
+    stream: stream({
+      // Shown long ago: nothing new in the last second.
+      stats: () => shownFrames(3, { shownAt: performance.now() - 5000 }),
+    }),
+  });
+  await user.click(screen.getByRole("button", { name: "Stream diagnostics" }));
+  expect(diagnostics().state).toBe("Live · 0 fps");
+  expect(diagnostics().rows["Decoded / dropped"]).toBe("3 / 0");
 });
 
 test("a lost stream offers Reconnect even while the agent drives", async () => {
@@ -173,6 +282,7 @@ test("losing control closes the cards only the person in control can use", async
       onEmulate={vi.fn()}
       onKey={vi.fn()}
       platform="Android"
+      sessionId="s-a"
       stream={stream()}
       takeover={false}
     >
@@ -180,6 +290,137 @@ test("losing control closes the cards only the person in control can use", async
     </NativeStage>
   );
   expect(screen.queryByRole("region", { name: "Device settings" })).toBeNull();
+});
+
+test("Device settings counts only what this session changed", async () => {
+  const user = userEvent.setup();
+  const onEmulate = vi.fn<EmulateDevice>();
+  // The emulator already reports a location and dark appearance.
+  const reported = {
+    appearance: "dark",
+    location: { latitude: 39.24, longitude: -123.15 },
+    orientation: "portrait",
+  } as const;
+  const { rerender } = renderStage({ emulation: reported, onEmulate });
+  const settings = screen.getByRole("button", { name: "Device settings" });
+  // The badge is the button's only text.
+  expect(settings.textContent).toBe("");
+  await user.click(settings);
+  const card = screen.getByRole("region", { name: "Device settings" });
+  expect(within(card).queryByText(/Applied:/u)).toBeNull();
+  const location = within(card).getByRole("group", { name: "Location" });
+  expect(
+    within(location).getByRole("textbox", { name: "Latitude" })
+  ).toBeVisible();
+  expect(
+    within(card).getByText(
+      "Applied to the emulator now. The Flow records them as Teaching evidence."
+    )
+  ).toBeVisible();
+  // Setting a location here is a change, so it reads as applied and counts.
+  await user.type(
+    within(location).getByRole("textbox", { name: "Latitude" }),
+    "12.97"
+  );
+  await user.type(
+    within(location).getByRole("textbox", { name: "Longitude" }),
+    "77.59"
+  );
+  await user.click(within(location).getByRole("button", { name: "Apply" }));
+  expect(onEmulate).toHaveBeenLastCalledWith(
+    { _tag: "location", latitude: 12.97, longitude: 77.59 },
+    expect.any(Function)
+  );
+  // Until the device accepts it, the inherited location is not this
+  // session's: a refusal leaves no Applied line and no badge.
+  expect(within(card).queryByText(/Applied:/u)).toBeNull();
+  expect(settings.textContent).toBe("");
+  const onApplied = onEmulate.mock.lastCall?.[1];
+  assert.isDefined(onApplied);
+  act(onApplied);
+  rerender(
+    <NativeStage
+      canAct
+      emulation={{
+        ...reported,
+        location: { latitude: 12.97, longitude: 77.59 },
+      }}
+      frame={{ height: 2424, width: 1080 }}
+      lockedReason={undefined}
+      observation={observation}
+      onActivate={vi.fn()}
+      onEmulate={onEmulate}
+      onKey={vi.fn()}
+      platform="Android"
+      sessionId="s-a"
+      stream={stream()}
+      takeover={false}
+    >
+      <canvas aria-label="Live device display" />
+    </NativeStage>
+  );
+  expect(within(card).getByText("Applied: 12.97, 77.59")).toBeVisible();
+  expect(
+    screen.getByRole("button", { name: "Device settings" }).textContent
+  ).toBe("1");
+});
+
+test("a late Apply for one session does not count on the session shown next", async () => {
+  const user = userEvent.setup();
+  const onEmulate = vi.fn<EmulateDevice>();
+  const located = {
+    appearance: "light",
+    location: { latitude: 12.97, longitude: 77.59 },
+    orientation: "portrait",
+  } as const;
+  const stage = (sessionId: string) => (
+    <NativeStage
+      canAct
+      emulation={located}
+      frame={{ height: 2424, width: 1080 }}
+      lockedReason={undefined}
+      observation={observation}
+      onActivate={vi.fn()}
+      onEmulate={onEmulate}
+      onKey={vi.fn()}
+      platform="Android"
+      sessionId={sessionId}
+      stream={stream()}
+      takeover={false}
+    >
+      <canvas aria-label="Live device display" />
+    </NativeStage>
+  );
+  const { rerender } = render(stage("s-a"));
+  const settings = screen.getByRole("button", { name: "Device settings" });
+  await user.click(settings);
+  const card = screen.getByRole("region", { name: "Device settings" });
+  const location = within(card).getByRole("group", { name: "Location" });
+  await user.type(
+    within(location).getByRole("textbox", { name: "Latitude" }),
+    "12.97"
+  );
+  await user.type(
+    within(location).getByRole("textbox", { name: "Longitude" }),
+    "77.59"
+  );
+  await user.click(within(location).getByRole("button", { name: "Apply" }));
+  const onApplied = onEmulate.mock.lastCall?.[1];
+  assert.isDefined(onApplied);
+  // The route moves to session B before A's device answers.
+  rerender(stage("s-b"));
+  act(onApplied);
+  expect(within(card).queryByText(/Applied:/u)).toBeNull();
+  expect(settings.textContent).toBe("");
+  // B changes a setting of its own, which leaves A's in place.
+  await user.click(within(card).getByRole("radio", { name: "Dark" }));
+  const onAppliedB = onEmulate.mock.lastCall?.[1];
+  assert.isDefined(onAppliedB);
+  act(onAppliedB);
+  // Back on A, its own change still counts, and B's does not.
+  rerender(stage("s-a"));
+  expect(within(card).getByText("Applied: 12.97, 77.59")).toBeVisible();
+  expect(settings.textContent).toBe("1");
 });
 
 test("the Field Variable card and the cards sit beside the frame, not on it", async () => {
@@ -233,6 +474,7 @@ test("the frame keeps room for the cards beside it", async () => {
       onEmulate={vi.fn()}
       onKey={vi.fn()}
       platform="Android"
+      sessionId="s-a"
       stream={stream()}
       takeover={false}
     >
@@ -264,6 +506,7 @@ test("an iOS comment attaches a picked element, and the screen gets no touch", a
           onKey={vi.fn()}
           pick={commentPick(comment, setComment)}
           platform="iOS"
+          sessionId="s-a"
           stream={stream({ format: "JPEG" })}
           takeover={false}
         >
@@ -295,6 +538,10 @@ test("an iOS comment attaches a picked element, and the screen gets no touch", a
   };
   render(<Harness />);
   await user.click(screen.getByRole("button", { name: "Attach element" }));
+  // A device is touched, not clicked.
+  expect(
+    screen.getByText("Tap an element to attach it to the comment")
+  ).toBeVisible();
   const picker = document.querySelector<HTMLElement>(
     '[data-slot="element-picker"]'
   );
@@ -451,7 +698,7 @@ test("pins the comments whose element is on this screen and lists them all", asy
     expect.stringContaining("Back returns to the list"),
     expect.stringContaining("Checkout opens the cart"),
   ]);
-  expect(items[2]).toHaveTextContent("0:05");
+  expect(items[2]).toHaveTextContent("00:05");
   // A native comment is a recorded event: there is no Edit.
   expect(within(list).queryByRole("button")).toBeNull();
   // SAFETY: the list has three items, checked above.

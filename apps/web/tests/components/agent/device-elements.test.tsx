@@ -67,16 +67,23 @@ const renderElements = (
 test("lists fields, then controls, then the rest, each label once", async () => {
   const user = userEvent.setup();
   renderElements();
+  // Each heading counts its entries; its region keeps the plain name.
   expect(
     screen.getAllByRole("heading", { level: 3 }).map((h) => h.textContent)
-  ).toEqual(["Fields", "Controls", "Other elements"]);
+  ).toEqual(["Fields 2", "Controls 2", "Other elements 1"]);
   expect(names("Fields")).toEqual([
     "Select Shopper name",
     "Select Unnamed field 1",
   ]);
   expect(names("Controls")).toEqual(["Activate Back", "Activate Sign in"]);
+  // An entry reads as its name; the role word beside it is only visual.
+  const role = screen
+    .getByRole("button", { name: "Select Shopper name" })
+    .querySelector("span:last-child");
+  expect(role).toHaveTextContent("field");
+  expect(role).toHaveAttribute("aria-hidden", "true");
   // The rest waits behind its heading while fields and controls exist.
-  const other = screen.getByRole("button", { name: "Other elements" });
+  const other = screen.getByRole("button", { name: "Other elements 1" });
   expect(other).toHaveAttribute("aria-expanded", "false");
   await user.click(other);
   // The button's own text and its heading repeat its label, so they are

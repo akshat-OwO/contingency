@@ -8,7 +8,14 @@ import type {
   AndroidWorkspaceSnapshot,
 } from "@contingency/protocol";
 import { RegistryProvider } from "@effect/atom-react";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Deferred, Effect } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
@@ -114,11 +121,11 @@ test("a session picked before the route moved on does not take it back", async (
   );
   const { rerender } = render(view("new"));
   // Picking a session starts a read that has not answered yet.
+  await user.click(screen.getByRole("combobox", { name: "Agent Session" }));
   await user.click(
-    screen.getByRole("combobox", { name: "Android Agent Session" })
-  );
-  await user.click(
-    await screen.findByRole("option", { name: /finished-checkout/u })
+    within(
+      await screen.findByRole("dialog", { name: "Agent Sessions" })
+    ).getByRole("button", { name: /finished-checkout/u })
   );
   // History moves the route to another session before that read answers.
   rerender(view(later));
@@ -129,7 +136,7 @@ test("a session picked before the route moved on does not take it back", async (
 
 const routed = (
   requested: string,
-  command: typeof runAndroidWorkspaceCommand
+  command: RpcDependencies["runAndroidWorkspaceCommand"]
 ) => (
   <RpcDependenciesProvider
     overrides={{
@@ -147,16 +154,99 @@ const routed = (
   </RpcDependenciesProvider>
 );
 
-test("a linked ended session shows its outcome but is no picker choice", async () => {
+test("a linked ended Run names itself in the picker but is no choice, and offers Task details and Done", async () => {
+  const user = userEvent.setup();
   render(routed(completed.id, runAndroidWorkspaceCommand));
-  const picker = await screen.findByRole("combobox", {
-    name: "Android Agent Session",
+  const picker = await screen.findByRole("combobox", { name: "Agent Session" });
+  // The trigger names the ended session, as iOS does.
+  await waitFor(() =>
+    expect(picker).toHaveTextContent("finished-checkout · Run")
+  );
+  const status = screen.getByRole("region", { name: "Session status" });
+  expect(within(status).getByText("Ended")).toBeVisible();
+  expect(
+    within(status).getByRole("button", {
+      name: "The Run ended. Its summary is beside it.",
+    })
+  ).toBeVisible();
+  expect(
+    within(status).getByRole("button", { name: "Task details" })
+  ).toBeVisible();
+  expect(within(status).getByRole("button", { name: "Done" })).toBeVisible();
+  expect(
+    within(status).queryByRole("button", { name: "New session" })
+  ).toBeNull();
+  // The listed sessions it would open hold no ended one, and nothing closes.
+  await user.click(picker);
+  const sessions = await screen.findByRole("dialog", {
+    name: "Agent Sessions",
   });
-  // Nothing is selected: the trigger shows its placeholder, not the session,
-  // and the listed sessions it would open hold no ended one.
-  await waitFor(() => expect(picker).toHaveTextContent("Android session"));
-  expect(picker).not.toHaveTextContent("finished-checkout");
-  expect(screen.getByRole("button", { name: "New session" })).toBeVisible();
+  expect(
+    within(sessions).queryByRole("button", { name: /finished-checkout/u })
+  ).toBeNull();
+  expect(
+    within(sessions).queryByRole("button", { name: "Close session" })
+  ).toBeNull();
+});
+
+test("an observe that fails because the Run ended leaves no alert", async () => {
+  const live = AgentSessionId.make("agent-live");
+  const running: AndroidWorkspaceSnapshot = {
+    ...completed,
+    completedAt: null,
+    controller: "agent",
+    id: live,
+    kind: "dry-run",
+    phase: "running",
+  };
+  const reads: string[] = [];
+  render(
+    routed(live, (command) => {
+      if (command._tag === "observe") {
+        return Effect.fail(
+          makeBrowserRpcError(
+            "agent_session_invalid",
+            "This Android session has ended, so there is nothing to observe."
+          )
+        );
+      }
+      reads.push(command._tag);
+      // The route's read finds it running; the follow-up read, ended.
+      return Effect.succeed(
+        reads.length === 1
+          ? running
+          : { ...completed, id: live, kind: "dry-run" as const, revision: 1 }
+      );
+    })
+  );
+  const status = await screen.findByRole("region", { name: "Session status" });
+  await waitFor(() => expect(within(status).getByText("Ended")).toBeVisible());
+  expect(reads).toEqual(["read", "read"]);
+  expect(screen.queryByText("The Android session did not answer")).toBeNull();
+});
+
+test("an observe that fails while the session still runs says it did not answer", async () => {
+  const live = AgentSessionId.make("agent-live");
+  const running: AndroidWorkspaceSnapshot = {
+    ...completed,
+    completedAt: null,
+    controller: "agent",
+    id: live,
+    kind: "dry-run",
+    phase: "running",
+  };
+  render(
+    routed(live, (command) =>
+      command._tag === "observe"
+        ? Effect.fail(
+            makeBrowserRpcError("agent_session_invalid", "adb went away.")
+          )
+        : Effect.succeed(running)
+    )
+  );
+  expect(
+    await screen.findByText("The Android session did not answer")
+  ).toBeVisible();
 });
 
 test("a link to a session with no record says it is gone and selects nothing", async () => {
@@ -177,7 +267,75 @@ test("a link to a session with no record says it is gone and selects nothing", a
     )
   ).toBeVisible();
   expect(screen.queryByText("The Android session did not answer")).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "Agent Session" })).toBeNull();
+});
+
+test("a setting the device accepts after the route moved on counts for its own session", async () => {
+  const user = userEvent.setup();
+  const live = (id: string, flow: string): AndroidWorkspaceSnapshot => ({
+    ...completed,
+    completedAt: null,
+    controller: "user",
+    emulation: { appearance: "light", orientation: "portrait" },
+    flowName: FlowName.make(flow),
+    id: AgentSessionId.make(id),
+    kind: "dry-run",
+    phase: "running",
+    preparation: {
+      differences: [],
+      evidence: [{ type: "observation" }],
+      pending: [],
+      phase: "ready",
+    },
+  });
+  const snapshots = new Map([
+    ["agent-a", live("agent-a", "flow-a")],
+    ["agent-b", live("agent-b", "flow-b")],
+  ]);
+  const gate = Effect.runSync(Deferred.make<true>());
+  const command = (next: AndroidWorkspaceCommand) =>
+    Effect.gen(function* answer() {
+      const id = "sessionId" in next ? next.sessionId : "";
+      const current = snapshots.get(id);
+      if (current === undefined) {
+        return yield* Effect.fail(
+          makeBrowserRpcError("agent_session_not_found", "No such session.")
+        );
+      }
+      if (next._tag !== "emulate") {
+        return current;
+      }
+      // A's device answers only after the route has moved to B.
+      yield* Deferred.await(gate);
+      const applied: AndroidWorkspaceSnapshot = {
+        ...current,
+        emulation: { appearance: "dark", orientation: "portrait" },
+        revision: current.revision + 1,
+      };
+      snapshots.set(id, applied);
+      return applied;
+    });
+  const { rerender } = render(routed("agent-a", command));
+  const settings = await screen.findByRole("button", {
+    name: "Device settings",
+  });
+  await user.click(settings);
+  await user.click(await screen.findByRole("radio", { name: "Dark" }));
+  rerender(routed("agent-b", command));
+  await waitFor(() =>
+    expect(
+      screen.getByRole("combobox", { name: "Agent Session" })
+    ).toHaveTextContent("flow-b")
+  );
+  await act(() => Effect.runPromise(Deferred.succeed(gate, true)));
+  // B never changed a setting, so it shows no badge.
   expect(
-    screen.queryByRole("combobox", { name: "Android Agent Session" })
-  ).toBeNull();
+    screen.getByRole("button", { name: "Device settings" }).textContent
+  ).toBe("");
+  rerender(routed("agent-a", command));
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: "Device settings" }).textContent
+    ).toBe("1")
+  );
 });

@@ -11,6 +11,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Deferred, Effect } from "effect";
@@ -138,6 +139,7 @@ const devtoolsTree = (
             onClose: () => {},
             onError: () => {},
             onRefreshNetwork: () => {},
+            onSelectPanel: () => {},
             onToggleDockSide: () => {},
             panel: "storage",
             refreshingNetwork: false,
@@ -178,12 +180,18 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-test("opens Storage with Cookies as the default inner tab", async () => {
+test("opens Storage with Cookies as the default storage area", async () => {
   renderDevtools();
-  expect(screen.getByRole("heading", { name: "Storage" })).toBeVisible();
+  expect(
+    within(screen.getByRole("group", { name: "DevTools panels" })).getByRole(
+      "button",
+      { name: "Storage" }
+    )
+  ).toHaveAttribute("aria-pressed", "true");
   const user = await openStorage();
-  expect(screen.getByRole("tab", { name: /Cookies/u })).toHaveAttribute(
-    "aria-selected",
+  const area = screen.getByRole("radiogroup", { name: "Storage area" });
+  expect(within(area).getByRole("radio", { name: "Cookies" })).toHaveAttribute(
+    "aria-checked",
     "true"
   );
   expect(
@@ -196,7 +204,7 @@ test("opens Storage with Cookies as the default inner tab", async () => {
     screen.queryByRole("button", { name: /Clear storage for App/u })
   ).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Refresh storage" })).toBeEnabled();
-  await user.click(screen.getByRole("tab", { name: /localStorage/u }));
+  await user.click(screen.getByRole("radio", { name: "Local" }));
   await waitFor(() => {
     expect(screen.getByText("featureFlag")).toBeInTheDocument();
   });
@@ -254,7 +262,7 @@ test("requires Save on the cookie form and cancels without writing", async () =>
 test("adds a Web Storage entry inline and disables Refresh while a cookie draft is dirty", async () => {
   renderDevtools();
   const user = await openStorage();
-  await user.click(screen.getByRole("tab", { name: /localStorage/u }));
+  await user.click(screen.getByRole("radio", { name: "Local" }));
   await waitFor(() => {
     expect(screen.getByText("featureFlag")).toBeInTheDocument();
   });
@@ -267,11 +275,51 @@ test("adds a Web Storage entry inline and disables Refresh while a cookie draft 
   await waitFor(() => {
     expect(rpc.set).toHaveBeenCalled();
   });
-  await user.click(screen.getByRole("tab", { name: /Cookies/u }));
+  await user.click(screen.getByRole("radio", { name: "Cookies" }));
   await user.click(screen.getByRole("button", { name: "Add cookie" }));
   expect(
     screen.getByRole("button", { name: "Refresh storage" })
   ).toBeDisabled();
+});
+
+test("lists network requests as a table with durations and switches panels from the header", async () => {
+  // jsdom has no layout; supply the viewport dimensions to the real virtualizer.
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(300);
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(600);
+  const onSelectPanel = vi.fn<BrowserDevtoolsProps["onSelectPanel"]>();
+  renderDevtools(false, {
+    networkRequests: [
+      {
+        durationMs: 42.4,
+        method: "GET",
+        requestId: BrowserRequestId.make("shop-document"),
+        resourceType: "document",
+        status: 200,
+        tabId,
+        timestamp: 1,
+        url: "https://app.example.com/shop.html",
+      },
+    ],
+    onSelectPanel,
+    panel: "network",
+  });
+  const table = screen.getByRole("table", { name: "Network requests" });
+  expect(
+    within(table)
+      .getAllByRole("columnheader")
+      .map((header) => header.textContent)
+  ).toEqual(["Path", "Status", "Type", "Time"]);
+  const [, row] = within(table).getAllByRole("row");
+  expect(row).toHaveTextContent("GET shop.html 200 document 42 ms");
+  expect(screen.getByText("1 request")).toBeInTheDocument();
+  const panels = screen.getByRole("group", { name: "DevTools panels" });
+  expect(
+    within(panels).getByRole("button", { name: "Network" })
+  ).toHaveAttribute("aria-pressed", "true");
+  await userEvent
+    .setup()
+    .click(within(panels).getByRole("button", { name: "Console" }));
+  expect(onSelectPanel).toHaveBeenCalledWith("console");
 });
 
 test("shows a failed detail fetch instead of reporting empty headers or payload", async () => {
