@@ -78,6 +78,23 @@ It drives the paths a user and an agent use: MCP operations through the broker, 
 
 Running `seed` again keeps every entry whose session or Run still stands, rebuilds the others, and prints the same manifest. `--only <state,...>` seeds those states and the states they depend on. `run-ended` is consumed by one capture, because the Workspace keeps an ended Run's last frame only while it watches the Run end; the next `seed` starts a fresh one. `seed reset` forgets the manifest. `cleanup` removes the manifest with the rest of the isolated state.
 
+Native states are opt-in. Without the flag, each one is `unreached`, and its reason names the flag.
+
+- `--android` uses the emulator in `CONTINGENCY_SEED_ANDROID_SERIAL`, or the only running emulator. Install the working [checkout fixture](fixtures/android-checkout/README.md) (`dev.contingency.checkout`) on it first.
+- `--ios` uses the simulator in `CONTINGENCY_SEED_IOS_UDID`, or the only booted simulator. Install `fixtures/ios-login` (`dev.contingency.ioslogin`) on it first. Build the CLI with the iOS framebuffer helper, as the [iOS recipe](features/workspace.md#ios-workspace) describes.
+
+A device holds one session at a time, so each platform's states form a chain:
+
+1. `seed` teaches and learns a `seed-<platform>-*` Flow through the start card and the device's live display. It then leaves a second Teaching session ready and saves the chain in the manifest.
+2. `seed capture` walks the chain in manifest order: recording, comment, closing the Teaching session, an agent Dry Run of the learned Flow, Takeover, completing the Run, the ended Run Summary, and then the start card on the freed device.
+3. After a capture, every state after `<platform>-teaching-ready` is `consumed`. The next `seed` rebuilds them.
+
+Seed one platform's states together with `--only`. Releasing the device closes every live `seed-*` session on it through the Workspace. The native states are:
+
+- Android: `android-teaching-ready`, `android-device-settings`, `android-screen-elements`, `android-stream-diagnostics`, `android-teaching-recording`, `android-comment`, `android-agent-driving`, `android-takeover`, `android-run-ended`, `android-run-summary-task` and `home-start-android-device`.
+- iOS: the ten `android-*` states with the `ios-` prefix, plus `ios-field-variable` and `home-start-ios-device`.
+- Always `unreached`: `android-field-variable`, because the checkout fixture has no password field, and `ios-guided-question`, because Guided Runs are browser-only.
+
 Capture every reached state, and its prototype counterpart when the prototype is served:
 
 ```sh

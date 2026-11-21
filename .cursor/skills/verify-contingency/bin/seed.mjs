@@ -2,7 +2,7 @@
 // prototype walks through, through the real server (#785), and captures each
 // state beside its prototype counterpart.
 //
-//   control-contingency seed [--only <name,...>]
+//   control-contingency seed [--only <name,...>] [--android] [--ios]
 //   control-contingency seed capture [--only <name,...>] [--prototype <url>] [--path <dir>]
 //
 // Seeding drives the same paths a user and an agent use: MCP operations
@@ -17,6 +17,7 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
 import { runDirectory } from "./catalog-paths.mjs";
+import { nativeSeeding } from "./seed-native.mjs";
 
 const here = import.meta.dirname;
 const control = path.join(here, "control-contingency");
@@ -415,6 +416,20 @@ const runStored = async (entry) => {
     return false;
   }
 };
+
+const native = nativeSeeding({
+  RefusalError,
+  always,
+  browser,
+  call,
+  click,
+  goto,
+  mcpPage,
+  operation,
+  run,
+  stamp,
+  waitFor,
+});
 
 const PROTOTYPE = {
   ended: "/ended:run_R3dj",
@@ -1191,6 +1206,9 @@ const states = [
     prototype: { actions: [{ click: ["button", tool] }], path: "/s1" },
     surface: "Web session canvas",
   })),
+
+  // Android and iOS (opt in with --android and --ios) ----------------------
+  ...native.states,
 ];
 
 /** States the real server cannot reach on demand, with the reason. */
@@ -1225,16 +1243,11 @@ const unreached = [
     "Flows page",
     "A Hidden Interval comes from an Android secure screen.",
   ],
-  [
-    "native-android",
-    "Native session canvas",
-    "Native seeding is not built yet; compare Android states by hand.",
-  ],
-  [
-    "native-ios",
-    "Native session canvas",
-    "Native seeding is not built yet; compare iOS states by hand.",
-  ],
+  ...native.unreached.map(([name, surface, , reason]) => [
+    name,
+    surface,
+    reason,
+  ]),
 ];
 
 // ---------------------------------------------------------------------------
@@ -1288,8 +1301,10 @@ const order = new Map(
     ...unreached.map(([name]) => name),
   ].map((name, index) => [name, index])
 );
-const writeManifest = async (byName) => {
+const writeManifest = async (byName, chains = {}) => {
   const manifest = {
+    // Each native chain's sessions that `seed capture` started (seed-native.mjs).
+    chains,
     entries: [...byName.values()].toSorted(
       (left, right) =>
         (order.get(left.name) ?? 999) - (order.get(right.name) ?? 999)
@@ -1310,19 +1325,31 @@ const seed = async (flags) => {
       .filter((entry) => order.has(entry.name))
       .map((entry) => [entry.name, entry])
   );
+  const chains = { ...previous.chains };
   const context = {
     entry: (name) => {
       const entry = byName.get(name);
       if (entry?.status !== "reached") {
         throw new Error(`${name} was not reached`);
       }
-      const { sessionId, url, recordingId } = entry;
-      return { recordingId, sessionId, url };
+      const { native: chain, recordingId, sessionId, url } = entry;
+      return { native: chain, recordingId, sessionId, url };
     },
   };
   const selected = withDependencies(only(flags));
   for (const state of selected) {
     const existing = byName.get(state.name);
+    // A native state drives a device, so it runs only when asked for.
+    if (state.platform !== undefined && flags[state.platform] !== true) {
+      byName.set(state.name, {
+        name: state.name,
+        prototype: state.prototype,
+        reason: native.flagReason(state.platform),
+        status: "unreached",
+        surface: state.surface,
+      });
+      continue;
+    }
     // A state that owns no server state is derived again on every seed, so
     // its handles follow this file; one that owns a session or Run is kept
     // while that still stands.
@@ -1347,9 +1374,14 @@ const seed = async (flags) => {
     );
     try {
       const built = await state.build(context);
+      if (state.platform !== undefined && built.native !== undefined) {
+        // A new chain starts; the Dry Run an earlier capture started is gone.
+        chains[state.platform] = {};
+      }
       byName.set(state.name, {
         ...built,
         name: state.name,
+        platform: state.platform,
         prototype: state.prototype,
         status: "reached",
         surface: state.surface,
@@ -1366,12 +1398,12 @@ const seed = async (flags) => {
         `failed  ${state.name}: ${byName.get(state.name).reason}\n`
       );
     }
-    await writeManifest(byName);
+    await writeManifest(byName, chains);
   }
   for (const [name, surface, reason] of unreached) {
     byName.set(name, { name, reason, status: "unreached", surface });
   }
-  const manifest = await writeManifest(byName);
+  const manifest = await writeManifest(byName, chains);
   process.stdout.write(`${JSON.stringify(manifest, null, 2)}\n`);
   const failed = manifest.entries.filter((entry) => entry.status === "failed");
   if (failed.length > 0) {
@@ -1382,9 +1414,41 @@ const seed = async (flags) => {
 // ---------------------------------------------------------------------------
 // Capture
 
-const runActions = async (actions = []) => {
+/** A chain placeholder such as `@chain:android:dryRun` names a session a capture step started. */
+const resolveUrl = (url, chains) => {
+  const match = /^@chain:(?<platform>\w+):(?<key>\w+)$/u.exec(url);
+  if (!match?.groups) {
+    return url;
+  }
+  const { key, platform } = match.groups;
+  const sessionId = chains[platform]?.[key];
+  if (!sessionId) {
+    throw new Error(
+      `No ${key} on the ${platform} chain yet; capture its earlier states first.`
+    );
+  }
+  return `${mcpPage("/")}?${platform}=${sessionId}`;
+};
+
+const runActions = async (actions = [], entry = {}, chains = {}) => {
   for (const action of actions) {
-    if (action.click) {
+    if (action.step) {
+      const { platform } = entry;
+      chains[platform] ??= {};
+      await native.steps[action.step]({
+        chain: chains[platform],
+        entry,
+        platform,
+      });
+    } else if (action.upload) {
+      // A placeholder build for the prototype's upload field; it reads only the name.
+      const [role, name] = action.upload;
+      const placeholder = path.join(seedDir, "prototype-build.zip");
+      await writeFile(placeholder, "");
+      await browser("set-input-files", { name, path: placeholder, role });
+    } else if (action.pick) {
+      await native.runPick(entry.platform, entry.sessionId, action.pick);
+    } else if (action.click) {
       const [role, name, extra] = action.click;
       await waitFor(role, name, extra);
       await click(role, name, extra);
@@ -1438,6 +1502,7 @@ const capture = async (flags) => {
   );
   await mkdir(out, { recursive: true });
   const prototypeUrl = flagValue(flags.prototype);
+  const chains = manifest.chains ?? {};
   const results = [];
   for (const entry of manifest.entries) {
     if (selected !== undefined && !selected.has(entry.name)) {
@@ -1454,8 +1519,8 @@ const capture = async (flags) => {
     const result = { name: entry.name, prod: undefined, prototype: undefined };
     try {
       await browser("resize", { height: 900, width: 1440 });
-      await goto(entry.url);
-      await runActions(entry.actions);
+      await goto(resolveUrl(entry.url, chains));
+      await runActions(entry.actions, entry, chains);
       await shoot(out, `${entry.name}.prod`, entry.ready);
       result.prod = "captured";
     } catch (error) {
@@ -1485,6 +1550,11 @@ const capture = async (flags) => {
       `captured ${entry.name}: prod ${result.prod}${result.prototype ? `, prototype ${result.prototype}` : ""}\n`
     );
   }
+  // Native capture steps start sessions that later entries name.
+  await writeFile(
+    manifestPath,
+    `${JSON.stringify({ ...manifest, chains }, null, 2)}\n`
+  );
   // A partial capture (--only) replaces its own rows and keeps the others.
   const capturesPath = path.join(out, "captures.json");
   let previousResults = [];

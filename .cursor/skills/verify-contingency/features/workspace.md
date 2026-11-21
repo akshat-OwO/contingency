@@ -116,6 +116,16 @@ Preconditions: `launch`, `ecommerce start` and `mcp start` on one verify directo
 - **Seed.** Run `control-contingency seed`. Require every entry in the printed manifest to be `reached` or `unreached`, with no `failed`. Each reached entry names a live session, a persisted Run or recording, or a page on the MCP or web process. The web process owns no sessions, so `home-empty` and `chrome-unknown-session` open there.
 - **Reseed.** Run `control-contingency seed` again. Require `kept` on stderr for every session-backed entry, `derived` for the rest, and the same manifest, except for a `run-ended` that a capture consumed.
 - **Capture.** Run `control-contingency seed capture --prototype http://127.0.0.1:4744/`. Require `prod captured` and `prototype captured` for each reached state in `artifacts/seed/captures.json`.
+- **Seed native states.** Native states need extra setup:
+  - For Android, run one emulator with the working [checkout fixture](../fixtures/android-checkout/README.md) installed. Set `CONTINGENCY_SEED_ANDROID_SERIAL` if more than one emulator runs.
+  - For iOS, boot one simulator with `fixtures/ios-login` installed, using the CLI build from [iOS Workspace](#ios-workspace). Set `CONTINGENCY_SEED_IOS_UDID` if more than one simulator is booted.
+  - Run `control-contingency seed --android --ios --only <native states>`, then `seed capture`. Use [the Seed section](../SKILL.md#seed) for the state list and the chain.
+  - Without a flag, require each state of that platform to be `unreached` with a reason that names the flag. With a flag, require the following:
+    - `<platform>-teaching-ready` is `reached` and names a live Teaching session.
+    - The later chain states are `reached` with `actions` and a `step`.
+    - `android-field-variable` and `ios-guided-question` are `unreached` with their reasons.
+  - Require `prod captured` for every native state, and no `Connecting to selected device` status in the prod ARIA. After the capture, the chain states are `consumed`; seed again before another capture.
+  - Drive the device only through the Workspace and the `browser android-pick`, `browser ios-pick` and `browser device-type` helpers. Never use adb, simctl or idb input.
 - **Compare.** For each state, set `<state>.prod-<theme>.png` beside `<state>.prototype-<theme>.png` and the approved `review/` PNG the manifest names, and diff `<state>.prod.aria.txt` against `<state>.prototype.aria.txt`. The prototype's sample data differs, so compare the Workspace chrome, not the page in the canvas. Record each difference with the surface, state, what differs, the evidence files and the owning file.
 - **Clean up.** Stop the prototype server, then run `control-contingency cleanup`. Require `$CONTINGENCY_VERIFY_DIR/seed` to be gone and `artifacts/seed/` to remain.
 

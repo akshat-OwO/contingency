@@ -37,7 +37,7 @@ Evidence: `.cursor/skills/verify-contingency/artifacts/seed/<state>.{prod,protot
 | `dock-refused-gesture` | A refused gesture's alert is transient. |
 | `teaching-demo-password` | The demo password asks only in a `contingency start --demo` work session. |
 | `flows-hidden-interval` | A Hidden Interval comes from an Android secure screen. |
-| `native-android`, `native-ios` | Native seeding is not built yet. These surfaces were not reviewed. |
+| `native-android`, `native-ios` | Native seeding was not built when the Web review ran. [Native states](#native-states) reviews them. |
 
 ## Patterns across surfaces
 
@@ -202,6 +202,61 @@ S1, "video stuck on Preparing video", was capture timing. Watched in place, the 
 | T35 | all canvas states | `combobox "Device pixel ratio"`, `status "Viewport size"` | A 1×/2×/3× radiogroup; a lock button named with a full sentence | `browser/browser-device-bar.tsx:181` | low |
 | T36 | all canvas states | Address field about 270px, legible | Narrower; the URL is cut mid-glyph | `agent/agent-workspace.tsx:576` | low |
 
+## Native states
+
+Added on 2026-11-21 with native seeding. The Method above applies, except for the following:
+
+- **Devices:** Android ran on a Pixel_9 emulator (API 36) with the working checkout fixture `dev.contingency.checkout`. iOS ran on a disposable iPhone simulator (iOS 26.5) with `fixtures/ios-login`.
+- **Seed and capture:** `seed --android --ios --only <the 23 native states>`, then `seed capture --prototype http://127.0.0.1:4744/ --path artifacts/seed-native`. Each platform's states form a chain on one device: Teaching, recording, comment, an agent Dry Run of the learned Flow, Takeover, the ended Run, and the start card.
+- **Prototype counterparts:** `/s2` is the prototype's Android Dry Run, `/s3` its iOS Guided Run and `/s5` its ended iOS Dry Run. Teaching states start a new Teaching session from its start card: press 2 or 3, choose or upload an app, then **Start teaching**.
+
+Evidence: `.cursor/skills/verify-contingency/artifacts/seed-native/<state>.{prod,prototype}-{light,dark}.png` and `<state>.{prod,prototype}.aria.txt`.
+
+### Native coverage
+
+23 states were reached and 2 were not.
+
+| Surface | Reached states |
+| --- | --- |
+| Native Teaching | `android-teaching-ready`, `android-teaching-recording`, `android-comment`, `ios-teaching-ready`, `ios-teaching-recording`, `ios-comment`, `ios-field-variable` |
+| Device rail | `android-device-settings`, `android-screen-elements`, `android-stream-diagnostics`, `ios-device-settings`, `ios-screen-elements`, `ios-stream-diagnostics` |
+| Native Runs | `android-agent-driving`, `android-takeover`, `ios-agent-driving`, `ios-takeover` |
+| Native Run Summary | `android-run-ended`, `android-run-summary-task`, `ios-run-ended`, `ios-run-summary-task` |
+| Start cards with a device | `home-start-android-device`, `home-start-ios-device` |
+
+| Unreached state | Why |
+| --- | --- |
+| `android-field-variable` | The Field Variable form opens only at a password field. The checkout fixture has none; `ios-field-variable` covers the form. |
+| `ios-guided-question` | Guided Runs are browser-only. `agent_device_workspace` starts only Teaching sessions, Dry Runs and Runs. |
+
+### Native findings
+
+Severity and table format follow [Findings](#findings). Owner paths are under `apps/web/src/components/`. Where the prototype was still writing its summary when captured, the ended rows compare against the approved `review/778-summary-native-task-light.png` and the `/s5` summary.
+
+These patterns from the Web review also apply to the native states: X1 for the active rail tool, X2 for mono text, X3 for Device settings fields, and X7 for Start recording.
+
+| ID | State | Prototype | Prod | Owner | Sev |
+| --- | --- | --- | --- | --- | --- |
+| N1 | `android-run-ended` | Last frame and Run Summary, no alert | A red alert covers the top of the stage: "The Android session did not answer. Error: This Android session has ended, so there is nothing to observe. Read its Summary, or start a new session." The observe loop fails once the Run ends. Its follow-up read clears the failure only for `paused`, so an ended session reports it. iOS shows no alert | `agent/android-workspace.tsx:357` | high |
+| N2 | `home-start-android-device` | Target App fits inside the card | The app search, the Installed apps list and the .apk dropzone run about 85px past the card's right edge. Long package names and build numbers sit outside the card, which runs below the fold at 900px (see H17) | `agent/android-start-card.tsx:305` | high |
+| N3 | `*-run-ended`, `*-run-summary-task` | `article "Run Summary"` with a "Dry Run of <flow>" heading, Run video, a Duration, Actions, Findings and Evidence row, and a `tablist` of Pass checks, Findings and Task. Device facts sit in the Task tab | One flat column: the verdict, Agent Assessment, Video, a Screens list and the Device facts. It has no Flow title, no stats and no tabs, and nothing names the Flow the Dry Run tested | `agent/android-run-summary.tsx:683` | med |
+| N4 | `*-agent-driving`, `*-takeover` | **Task details** beside the primary action | No **Task details** on native Runs. **Close session** sits in its place, which the prototype keeps out of the island (X6) | `agent/android-workspace.tsx:444`, `agent/ios-workspace.tsx:760` | med |
+| N5 | `*-run-ended` | Chip "Ended", the line "The Run ended…", then **Task details** and **Done** | Chip "Dry Run failed", a status button that repeats the Agent Assessment, and **New session**. The Run was assessed inconclusive after Takeover; the chip states the stricter verdict that the summary already gives | `agent/teaching-recording-state.ts:123`, `agent/android-workspace.tsx:464` | med |
+| N6 | `*-stream-diagnostics` | "Live · 60 fps", Device with OS version, Stream, Input to frame p95, Decode p95 and Decoded / dropped | Android reads "Waiting for frames" and "Frames shown 0" while the display shows frames, and its Device row is "Pixel_9" with no version. Both platforms lack the fps, latency, decode and dropped rows. T32 is the Web form of this finding | `agent/android-device.tsx:480` | med |
+| N7 | `home-start-android-device` | `combobox "Device": Pixel_9 · Android 16`; `combobox "Target App"` | The device reads "Pixel_9 emulator-5554 · API 36". Installed apps are an always-open list of every package rather than a combobox | `agent/android-setup-state.ts:72`, `agent/android-start-card.tsx:290` | med |
+| N8 | `android-run-ended` | The picker names the ended session: "profile · Dry Run" | The picker shows its placeholder "Android session" by design. iOS names the ended session ("seed-ios-… · iOS Dry Run") | `agent/android-workspace.tsx:776` | low |
+| N9 | all native states | `combobox "Agent Session"` with a platform glyph | `combobox "Android Agent Session"` or `"iOS Agent Session"`, without the glyph | `agent/android-dock.tsx:240`, `agent/ios-workspace.tsx:639` | low |
+| N10 | `*-teaching-recording`, `*-comment` | "Recording 00:00" | "Recording", no timer | `agent/android-dock.tsx:43`, `agent/ios-workspace.tsx:602` | low |
+| N11 | `*-teaching-ready` | **Start recording** filled red | Filled neutral, with a dot icon (X7) | `agent/android-workspace.tsx:474`, `agent/ios-workspace.tsx:794` | low |
+| N12 | `*-comment` | "Tap an element to attach it to the comment" | "Click an element…", on a touch device | `agent/android-device.tsx:701` | low |
+| N13 | `*-screen-elements` | Group headings with counts: "Fields 3", "Controls 8" | "Fields", "Controls", with no counts. Each entry ends with a role word, as in "Shopper name field" | `agent/device-elements.tsx:114` | low |
+| N14 | `android-device-settings`, `android-teaching-ready` | No badge until the user changes a setting. A `group "Location"` and the line "Applied to the emulator now. The Flow records them as Teaching evidence." | The Device settings rail button carries a "1" badge, and the card reads "Applied: 39.237255, -123.150032" for a location this session never set. The badge counts any location the emulator reports. Appearance and Location are `h3` sections with no helper line | `agent/android-device.tsx:281` | low |
+| N15 | `*-run-ended` | A "Last frame" label inside the device region | A `figure` captioned "Last frame of the session, kept at <time>" below the frame, outside any named device region | `agent/android-run-summary.tsx:141` | low |
+| N16 | all `ios-*` states | `navigation "Workspace"` first, then the device | `main "iOS Workspace"` puts the stage, or the ended frame, before the Workspace navigation. Android and the prototype put the navigation first | `agent/ios-workspace.tsx:1376` | low |
+| N17 | `*-agent-driving` | "Running 4/9" with a step count | "Agent driving" with no progress (see H7). The status sentence also differs: "The agent is driving the emulator. Take control to act yourself." | `agent/android-dock-state.ts:247`, `agent/ios-dock-state.ts:227` | low |
+
+These match the prototype: the agent's touch dot with its "Agent" label, the brand ring during Takeover, the rail on the right of the device, the comment card above the status island with "Earlier in this recording", the Field Variable card to the left of the iOS frame, and the Device fact list.
+
 ## Follow-up issues
 
 One issue per surface with findings, under #740. Each takes its rows above and, where a pattern applies, the pattern row. The patterns X1–X3 get their own token issue, because fixing them changes every surface.
@@ -217,3 +272,4 @@ One issue per surface with findings, under #740. Each takes its rows above and, 
 9. Flows page: S23–S30, X5.
 10. Web session canvas: T5, T20–T24, T26–T36.
 11. App chrome: H14, H15.
+12. Native states: N1–N17, with X7 for N11 and T32 for N6.

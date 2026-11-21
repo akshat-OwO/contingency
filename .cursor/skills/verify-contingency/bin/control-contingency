@@ -83,7 +83,7 @@ Commands:
   browser color-scheme --scheme <light|dark>
   browser settle
   browser hide --selector <css>
-  seed [--only <state,...>]
+  seed [--only <state,...>] [--android] [--ios]
   seed capture [--only <state,...>] [--prototype <url>] [--path <directory>]
   seed reset
   cli -- <contingency args...>
@@ -94,6 +94,8 @@ Commands:
 Environment:
   CONTINGENCY_VERIFY_DIR   Isolated run directory (created by launch)
   CONTINGENCY_VERIFY_PORT  Bind port; launch picks a free one otherwise
+  CONTINGENCY_SEED_ANDROID_SERIAL  Emulator for seed --android; the only running one otherwise
+  CONTINGENCY_SEED_IOS_UDID        Simulator for seed --ios; the only booted one otherwise
 `);
 };
 
