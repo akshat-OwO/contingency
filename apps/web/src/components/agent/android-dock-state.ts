@@ -13,7 +13,11 @@ import type { FlowsSessionView } from "@/components/catalog/flows-page-state";
 
 import type { DockStateTone } from "./workspace-dock";
 
-const KIND_LABEL: Record<AndroidWorkspaceSummary["kind"], string> = {
+/** What a native session does, as its picker row says it. */
+export const NATIVE_KIND_LABEL: Record<
+  AndroidWorkspaceSummary["kind"],
+  string
+> = {
   "dry-run": "Dry Run",
   run: "Run",
   teaching: "Teaching",
@@ -24,8 +28,21 @@ const KIND_LABEL: Record<AndroidWorkspaceSummary["kind"], string> = {
  * Flow name first, then what the session is doing with it, marked Android so
  * the two platforms never share a label.
  */
-export const androidSessionLabel = (session: AndroidWorkspaceSummary): string =>
-  `${session.flowName} · Android ${KIND_LABEL[session.kind]}`;
+export const androidSessionLabel = (
+  session: Pick<AndroidWorkspaceSummary, "flowName" | "kind">
+): string => `${session.flowName} · Android ${NATIVE_KIND_LABEL[session.kind]}`;
+
+/**
+ * The picker trigger's label, as the prototype's: the Flow, then what the
+ * session does with it, or the bare Flow while teaching. The platform glyph
+ * beside it says which device it runs on.
+ */
+export const nativeSessionTitle = (
+  session: Pick<AndroidWorkspaceSummary, "flowName" | "kind">
+): string =>
+  session.kind === "teaching"
+    ? session.flowName
+    : `${session.flowName} · ${NATIVE_KIND_LABEL[session.kind]}`;
 
 /** What the Flows page needs to know about an Android session. */
 export const androidFlowsSessionView = (
@@ -52,6 +69,23 @@ export const isLiveAndroidSession = (
   session.phase === "paused";
 
 /**
+ * A Dry Run or Run that finished or was closed: it keeps its last frame and
+ * Run Summary, and the status island offers Task details and Done (#757).
+ */
+export const isEndedNativeRun = (
+  session: Pick<AndroidWorkspaceSummary, "kind" | "phase">
+): boolean =>
+  session.kind !== "teaching" &&
+  (session.phase === "completed" || session.phase === "closed");
+
+/** The prototype's sentence while the agent drives a native Run. */
+export const AGENT_RUNNING_SENTENCE =
+  "The agent is following the Flow on its own. Take control at any time; the agent waits until you return it.";
+
+/** The prototype's sentence for an ended native Run. */
+export const ENDED_RUN_SENTENCE = "The Run ended. Its summary is beside it.";
+
+/**
  * The one gesture a dock state offers. Each value is one Android Workspace
  * command, so a label never claims something the protocol cannot do.
  */
@@ -64,6 +98,16 @@ export type AndroidDockGesture =
   | "return-control"
   | "verify-flow"
   | "retry-cleanup";
+
+/**
+ * Each primary action's tone, as the prototype's buttons and the Web dock:
+ * Start recording is filled red because it begins capture; the rest, Stop
+ * included, are filled neutral.
+ */
+export const nativeActionClassName = (gesture: AndroidDockGesture): string =>
+  gesture === "start-recording"
+    ? "bg-status-recording hover:bg-status-recording/90 ml-auto text-white"
+    : "ml-auto";
 
 export interface AndroidDockAction {
   readonly accessibleName: string;
@@ -98,7 +142,6 @@ const OUTCOME_LABEL: Record<
   working: "Working",
 };
 
-/** Capture states whose decision outlives the session that reached them. */
 /**
  * The tone of an ended session's verdict. Blocked and inconclusive are not
  * broken journeys; they ask the person to look, as the Run Summary does.
@@ -114,6 +157,7 @@ const COMPLETED_TONE: Record<
   working: "success",
 };
 
+/** Capture states whose decision outlives the session that reached them. */
 const DECIDED = new Set(["dry-run-passed", "dry-run-failed", "verified"]);
 
 const quiet = (
@@ -242,39 +286,51 @@ const controlPresentation = (
       action: action("return-control", "Return control"),
     };
   }
+  // The prototype's Running chip and sentence. A native Run reports no Agent
+  // Step count, so the chip carries the still progress ring without `n/m`.
   return {
-    ...quiet(
-      "Agent driving",
-      `The agent is driving the emulator. Take control to act yourself.`,
-      "live"
-    ),
+    ...quiet("Running", AGENT_RUNNING_SENTENCE, "busy"),
     action: action("take-control", "Take control"),
   };
 };
 
 /**
- * How the Android dock presents one session. It mirrors the browser dock: a
- * state badge, one sentence on what happens next, and at most one primary
- * action. Android adds only what a device needs first: preparing it, the Run
- * Environment Permission, and recovering the same device after a pause.
+ * An ended Dry Run or Run, as the Web ended Run reads (#757): the chip says
+ * only `Ended`, because the verdict is the Run Summary's. A decision the
+ * recording still waits on, Verify flow, Reject flow or Retry cleanup,
+ * outlives the session, so its action and sentence stay.
  */
-export const androidDockPresentation = (
+const endedRunPresentation = (
   session: AndroidWorkspaceSnapshot
 ): AndroidDockPresentation => {
-  // Verification and Cleanup stay reachable after the session ends.
-  if (session.captureState !== null && DECIDED.has(session.captureState._tag)) {
-    return teachingPresentation(session);
-  }
-  switch (session.phase) {
-    case "pending": {
-      if (session.preparation.pending.length > 0) {
-        return quiet(
-          "Decision needed",
-          "Answer the request above before the emulator is prepared.",
-          "attention"
-        );
-      }
-      return {
+  const decision =
+    session.captureState !== null && DECIDED.has(session.captureState._tag)
+      ? teachingPresentation(session)
+      : undefined;
+  const decides =
+    decision !== undefined && (decision.action !== null || decision.rejectable);
+  return {
+    ...quiet(
+      "Ended",
+      decides ? decision.nextStep : ENDED_RUN_SENTENCE,
+      "ended"
+    ),
+    action: decides ? decision.action : null,
+    rejectable: decides && decision.rejectable,
+  };
+};
+
+/** A session waiting on preparation, or on a decision before it. */
+const pendingPresentation = (
+  session: AndroidWorkspaceSnapshot
+): AndroidDockPresentation =>
+  session.preparation.pending.length > 0
+    ? quiet(
+        "Decision needed",
+        "Answer the request above before the emulator is prepared.",
+        "attention"
+      )
+    : {
         ...quiet(
           "Not prepared",
           `Prepare ${androidDeviceLabel(session.selection.device)} to show it here. Nothing is captured until you start recording.`
@@ -285,6 +341,26 @@ export const androidDockPresentation = (
           `Prepare selected emulator`
         ),
       };
+
+/**
+ * How the Android dock presents one session. It mirrors the browser dock: a
+ * state badge, one sentence on what happens next, and at most one primary
+ * action. Android adds only what a device needs first: preparing it, the Run
+ * Environment Permission, and recovering the same device after a pause.
+ */
+export const androidDockPresentation = (
+  session: AndroidWorkspaceSnapshot
+): AndroidDockPresentation => {
+  if (isEndedNativeRun(session)) {
+    return endedRunPresentation(session);
+  }
+  // Verification and Cleanup stay reachable after the session ends.
+  if (session.captureState !== null && DECIDED.has(session.captureState._tag)) {
+    return teachingPresentation(session);
+  }
+  switch (session.phase) {
+    case "pending": {
+      return pendingPresentation(session);
     }
     case "paused": {
       if (session.boundary?.reason === "confirmation") {

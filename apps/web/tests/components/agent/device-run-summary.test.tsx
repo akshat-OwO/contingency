@@ -1,6 +1,13 @@
-import { AgentSessionId, ContentHash } from "@contingency/protocol";
+import { AgentSessionId, ContentHash, FlowName } from "@contingency/protocol";
 import type { DeviceKeyframes, DeviceVideoStatus } from "@contingency/protocol";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { Effect } from "effect";
 import { Atom } from "effect/reactivity";
 import { afterEach, expect, test } from "vitest";
@@ -18,9 +25,12 @@ const session = {
   assessment: null,
   captureGaps: [],
   cleanup: null,
+  completedAt: "2026-11-05T10:01:04.000Z",
   error: null,
+  flowName: FlowName.make("login"),
   id: AgentSessionId.make("agent-ios-ended"),
   kind: "teaching",
+  phase: "closed",
   recordingId: null,
   requirements: {
     capabilities: ["semantic-actions", "screenshots"],
@@ -33,6 +43,7 @@ const session = {
     platform: "ios",
     preparation: { conditions: [], kind: "restart-app", startingData: "clear" },
   },
+  startedAt: "2026-11-05T10:00:00.000Z",
   takeoverOccurred: false,
 } as const;
 
@@ -158,12 +169,18 @@ test("an ended stage shows the last screen kept, or its fallback", () => {
     ],
     retained: true,
   });
+  // The frame keeps the live stage's region, with its label on the frame.
+  const device = screen.getByRole("region", { name: "iOS simulator" });
   expect(
-    screen.getByRole("img", { name: "The last screen this session kept" })
+    within(device).getByRole("img", {
+      name: "The last screen this session kept",
+    })
   ).toHaveAttribute(
     "src",
     `/ios/sessions/agent-ios-ended/keyframes/${hash("b")}`
   );
+  expect(within(device).getByText("Last frame")).toBeVisible();
+  expect(screen.queryByRole("figure")).toBeNull();
   cleanup();
   stage({
     keyframes: [{ capturedAt: "2026-11-05T10:00:00.000Z", hash: hash("a") }],
@@ -336,7 +353,17 @@ test("names the Starting Data the session applied", () => {
   expect(screen.getByText("App data cleared")).toBeTruthy();
 });
 
-test("marks each Capture Gap a fresh observation repaired", () => {
+const checkRow = (label: string) => {
+  const row = within(
+    screen.getByRole("list", { name: "Pass checks" })
+  ).getByText(label).parentElement;
+  if (row === null) {
+    throw new Error(`No ${label} check`);
+  }
+  return row;
+};
+
+test("marks each Capture Gap a fresh observation repaired", async () => {
   render(
     <RpcDependenciesProvider
       overrides={{
@@ -367,9 +394,151 @@ test("marks each Capture Gap a fresh observation repaired", () => {
       />
     </RpcDependenciesProvider>
   );
+  // Two gaps were never repaired, so the Dry Run cannot pass.
   expect(
-    screen.getByText(
+    within(checkRow("Capture complete")).getByLabelText("Failed")
+  ).toBeVisible();
+  expect(checkRow("Capture complete")).toHaveTextContent("2 open gaps");
+  // A Dry Run keeps its device facts in the Task segment.
+  await userEvent.click(screen.getByRole("tab", { name: "Task" }));
+  expect(
+    within(screen.getByRole("region", { name: "Device" })).getByText(
       "Capture incomplete (repaired automatically), Capture incomplete, Secure window"
     )
-  ).toBeTruthy();
+  ).toBeVisible();
+});
+
+const dryRun = (
+  overrides: Partial<{
+    readonly assessment: {
+      readonly explanation: string;
+      readonly observationId: string;
+      readonly outcome: "working" | "inconclusive" | "not-working" | "blocked";
+    } | null;
+    readonly takeoverOccurred: boolean;
+  }>,
+  video: DeviceVideoStatus | null = notRecorded
+) =>
+  render(
+    <RpcDependenciesProvider
+      overrides={{
+        deviceKeyframesAtom: () =>
+          Atom.make(
+            Effect.succeed({
+              keyframes: [
+                { capturedAt: "2026-11-05T10:00:00.000Z", hash: hash("a") },
+                { capturedAt: "2026-11-05T10:00:05.000Z", hash: hash("b") },
+              ],
+              retained: true,
+            })
+          ),
+        deviceVideoStatusAtom: videoAtom(video),
+      }}
+    >
+      <DeviceRunSummary
+        device="iPhone 17 · iOS 26.5"
+        platform="ios"
+        session={{
+          ...session,
+          assessment: {
+            explanation: "The welcome screen named the plan.",
+            observationId: "observation-7",
+            outcome: "working",
+          },
+          kind: "dry-run",
+          recordingId: null,
+          ...overrides,
+        }}
+        targetApp="dev.contingency.login · build 1"
+      />
+    </RpcDependenciesProvider>
+  );
+
+test("an ended Dry Run reads like the browser's Run Summary", async () => {
+  dryRun({});
+  expect(screen.getByText("Dry Run passed")).toBeVisible();
+  expect(
+    screen.getByRole("heading", { level: 3, name: "Dry Run of login" })
+  ).toBeVisible();
+  // The Agent Assessment explains the verdict, in the verdict header.
+  expect(
+    within(screen.getByRole("region", { name: "Run verdict" })).getByText(
+      "The welcome screen named the plan."
+    )
+  ).toBeVisible();
+  expect(screen.getByRole("region", { name: "Run video" })).toBeVisible();
+  const stats = screen.getByText("Duration", { selector: "dt" }).closest("dl");
+  expect(stats).toHaveTextContent("1m 04s");
+  expect(stats).toHaveTextContent("Screens2");
+  const tabs = screen.getByRole("tablist", { name: "Run Summary sections" });
+  expect(
+    within(tabs)
+      .getAllByRole("tab")
+      .map((tab) => tab.textContent)
+  ).toStrictEqual(["Pass checks", "Findings 0", "Task"]);
+  for (const label of [
+    "Run finished",
+    "Agent Assessment",
+    "No Takeover",
+    "Capture complete",
+  ]) {
+    expect(within(checkRow(label)).getByLabelText("Passed")).toBeVisible();
+  }
+  // ADR 0078: no browser check or scan applies to a device.
+  expect(screen.queryByText("Browser Checks")).toBeNull();
+  expect(
+    screen.getByRole("button", { name: "Copy observation observation-7" })
+  ).toBeVisible();
+  // An ended live session names itself; its Run ID is the persisted record's.
+  expect(
+    screen.getByRole("button", { name: "Copy Session ID agent-ios-ended" })
+  ).toBeVisible();
+  await userEvent.click(screen.getByRole("tab", { name: "Task" }));
+  const device = screen.getByRole("region", { name: "Device" });
+  expect(device).toHaveTextContent("iPhone 17 · iOS 26.5");
+  expect(device).toHaveTextContent("dev.contingency.login · build 1");
+  expect(
+    within(screen.getByRole("region", { name: "Referenced flows" })).getByRole(
+      "link",
+      { name: "login" }
+    )
+  ).toHaveAttribute("href", "/flow?flow=login");
+  expect(screen.queryByRole("region", { name: "Emulation" })).toBeNull();
+});
+
+test("a Dry Run after a Takeover says why it cannot pass", () => {
+  dryRun({
+    assessment: {
+      explanation: "The agent reached the welcome screen.",
+      observationId: "observation-7",
+      outcome: "inconclusive",
+    },
+    takeoverOccurred: true,
+  });
+  expect(screen.getByText("Dry Run failed")).toBeVisible();
+  // The runtime turned the assessment inconclusive for the Takeover, so the
+  // Takeover leads.
+  expect(
+    screen.getByText("You took control during this Dry Run, so it cannot pass.")
+  ).toBeVisible();
+  expect(
+    within(checkRow("No Takeover")).getByLabelText("Failed")
+  ).toBeVisible();
+});
+
+test("a Dry Run's screens stand in only for a video it cannot play", () => {
+  dryRun({}, ready);
+  expect(screen.getByLabelText("Recorded Run video")).toHaveAttribute(
+    "src",
+    "/ios/sessions/agent-ios-ended/video"
+  );
+  expect(screen.queryByRole("list", { name: "Screens" })).toBeNull();
+  cleanup();
+  dryRun({});
+  expect(
+    within(screen.getByRole("region", { name: "Run video" })).getByRole(
+      "list",
+      { name: "Screens" }
+    )
+  ).toBeVisible();
 });

@@ -930,16 +930,12 @@ const StoredNativeRunSummary = ({
   const { summary } = result.value;
   return (
     <section aria-label="Run Summary" className="grid gap-4 text-sm">
-      <h3 className="text-[15px] font-semibold tracking-[-0.015em] text-balance wrap-anywhere">
-        {summary.title}
-      </h3>
-      <NativeRunSummary cleanup={cleanup} summary={summary} />
-      <footer className="border-island-border flex flex-wrap items-center gap-2 border-t pt-3">
-        <EvidenceReference id={run.runId} kind="Run ID" />
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
-          <DeviceSessionLink native={native} />
-        </div>
-      </footer>
+      {/* The summary carries its own title and Run ID footer. */}
+      <NativeRunSummary
+        cleanup={cleanup}
+        links={<DeviceSessionLink native={native} />}
+        summary={summary}
+      />
       {scope === "global" ? (
         <p className="text-muted-foreground text-xs text-pretty">
           This Run is stored in ~/.contingency. Its video and screens open only

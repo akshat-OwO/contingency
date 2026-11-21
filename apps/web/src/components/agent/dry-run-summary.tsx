@@ -38,6 +38,7 @@ import {
   interactiveRunVerdict,
   runDuration,
   runOutcomeLabel,
+  runSummaryWhen,
 } from "@/components/agent/dry-run-summary-state";
 import {
   EvidenceList,
@@ -81,19 +82,6 @@ const dryRunSummaryVerdict = (verdict: DryRunVerdict): SummaryVerdict => ({
   tone: verdict === "failed" ? "failed" : "passed",
 });
 
-const whenFormat = new Intl.DateTimeFormat(undefined, {
-  day: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-  month: "short",
-});
-
-/** When the Run ended, as the verdict card's last fact. */
-const endedWhen = (summary: TaskAgentRunSummary): string | undefined => {
-  const ended = Date.parse(summary.endedAt);
-  return Number.isNaN(ended) ? undefined : whenFormat.format(ended);
-};
-
 /**
  * The verdict card, then what the Run was for, why it cannot pass, and the
  * Agent Assessment's explanation, in that order. The card's tone is the one
@@ -101,50 +89,38 @@ const endedWhen = (summary: TaskAgentRunSummary): string | undefined => {
  */
 const SummaryVerdictHeader = ({
   explanation,
+  facts,
   failure,
-  kind,
-  summary,
+  platform,
   title,
   verdict,
 }: {
   readonly explanation: string | undefined;
+  readonly facts: readonly string[];
   readonly failure: string | undefined;
-  readonly kind: string;
-  readonly summary: TaskAgentRunSummary;
+  readonly platform: ReactNode;
   readonly title: string;
   readonly verdict: SummaryVerdict;
-}) => {
-  const when = endedWhen(summary);
-  return (
-    <section aria-label="Run verdict" className="grid gap-3.5">
-      <VerdictCard
-        facts={when === undefined ? [kind] : [kind, when]}
-        platform={
-          <>
-            <GlobeIcon aria-hidden="true" />
-            Web
-          </>
-        }
-        verdict={verdict}
-      />
-      <div className="grid gap-1.5">
-        <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-pretty wrap-anywhere">
-          {title}
-        </h3>
-        {failure === undefined ? null : (
-          <p className="text-foreground/85 text-[13.5px] text-pretty">
-            {failure}
-          </p>
-        )}
-        {explanation === undefined ? null : (
-          <p className="text-muted-foreground text-[13.5px] text-pretty wrap-anywhere">
-            {explanation}
-          </p>
-        )}
-      </div>
-    </section>
-  );
-};
+}) => (
+  <section aria-label="Run verdict" className="grid gap-3.5">
+    <VerdictCard facts={facts} platform={platform} verdict={verdict} />
+    <div className="grid gap-1.5">
+      <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-pretty wrap-anywhere">
+        {title}
+      </h3>
+      {failure === undefined ? null : (
+        <p className="text-foreground/85 text-[13.5px] text-pretty">
+          {failure}
+        </p>
+      )}
+      {explanation === undefined ? null : (
+        <p className="text-muted-foreground text-[13.5px] text-pretty wrap-anywhere">
+          {explanation}
+        </p>
+      )}
+    </div>
+  </section>
+);
 
 /**
  * The Run's video, directly under the verdict and above the numbers and tabs,
@@ -356,12 +332,162 @@ const FindingSeek = ({
   );
 };
 
+/** One of the four numbers under the Run video. */
+export interface RunSummaryStat {
+  readonly label: string;
+  readonly value: ReactNode;
+}
+
+/** The Run ID, ready to copy, then ways out of the summary. */
+export const RunSummaryFooter = ({
+  id,
+  kind,
+  links,
+}: {
+  readonly id: string;
+  /** What the ID names, such as `Run ID`. */
+  readonly kind: string;
+  readonly links?: ReactNode;
+}) => (
+  <footer className="border-island-border flex flex-wrap items-center gap-2 border-t pt-3">
+    <EvidenceReference id={id} kind={kind} />
+    {links === undefined || links === null ? null : (
+      <div className="ml-auto flex flex-wrap items-center gap-1.5">{links}</div>
+    )}
+  </footer>
+);
+
 /**
- * A finished task Run: its verdict, its video, four numbers, and the rest
- * behind three segments. The video sits above the segments so switching
- * never moves it. The checks open first, so a failed Run reads as which
- * check is red rather than as paragraphs to compare. Each finding can show
- * its moment in the video. The Run ID closes the summary, ready to copy.
+ * Every Run Summary's frame, Web or native (#757): its verdict, its video,
+ * four numbers, and the rest behind three segments. The video sits above the
+ * segments so switching never moves it. The checks open first, so a failed
+ * Run reads as which check is red rather than as paragraphs to compare.
+ * Callers fill the video, the numbers, and each segment's body.
+ */
+export const RunSummaryFrame = ({
+  checks,
+  checksDetail,
+  checksLabel,
+  checksTab,
+  explanation,
+  facts,
+  failure,
+  findings,
+  findingsCount,
+  footer,
+  notice,
+  platform,
+  stats,
+  task,
+  title,
+  verdict,
+  video,
+}: {
+  readonly checks: readonly SummaryCheck[];
+  /** What the checks segment shows under the checklist, such as evidence. */
+  readonly checksDetail: ReactNode;
+  /** Names the checklist. */
+  readonly checksLabel: string;
+  /** Names the checks segment. */
+  readonly checksTab: string;
+  /** The Agent Assessment's explanation, under the title. */
+  readonly explanation: string | undefined;
+  /** The verdict card's facts, such as the kind and when it ended. */
+  readonly facts: readonly string[];
+  /** A sentence that outranks the checks, such as a failed observable outcome. */
+  readonly failure: string | undefined;
+  /** The findings segment's body. */
+  readonly findings: ReactNode;
+  readonly findingsCount: number;
+  /** Closes the summary, such as `RunSummaryFooter`. */
+  readonly footer: ReactNode;
+  /** Something that leads the summary, such as the error a session ended on. */
+  readonly notice?: ReactNode;
+  /** The platform on the verdict card, with its glyph. */
+  readonly platform: ReactNode;
+  readonly stats: readonly RunSummaryStat[];
+  /** The Task segment's body. */
+  readonly task: ReactNode;
+  readonly title: string;
+  readonly verdict: SummaryVerdict;
+  /** The Run video's region. */
+  readonly video: ReactNode;
+}) => {
+  usePublishRunSummaryVerdict(verdict);
+  const failing = checks.some(
+    (check) => !check.passed && check.notApplicable !== true
+  );
+  return (
+    <div className="grid gap-3.5" data-slot="run-summary">
+      {notice}
+      <SummaryVerdictHeader
+        explanation={explanation}
+        facts={facts}
+        failure={failure}
+        platform={platform}
+        title={title}
+        verdict={verdict}
+      />
+      {video}
+      <dl className="grid grid-cols-4 rounded-[14px] shadow-[inset_0_0_0_1px_var(--island-border)] [&>div+div]:border-l [&>div+div]:border-(--island-border)">
+        {stats.map((stat) => (
+          <Stat key={stat.label} label={stat.label} value={stat.value} />
+        ))}
+      </dl>
+      {/* Its sections sit one level under the summary's level 3 title. */}
+      <DetailHeadingLevel value={4}>
+        <Tabs className="gap-3" defaultValue="checks">
+          <TabsList aria-label="Run Summary sections" variant="segmented">
+            <TabsTrigger value="checks">
+              {checksTab}
+              {failing ? (
+                // The checklist names the failed check; the dot only draws
+                // the eye, so the segment keeps one stable name.
+                <span
+                  aria-hidden="true"
+                  className="bg-destructive size-1.5 rounded-full"
+                />
+              ) : null}
+            </TabsTrigger>
+            <TabsTrigger value="findings">
+              Findings{" "}
+              <span className="text-muted-foreground/80 font-mono text-xs tabular-nums">
+                {findingsCount}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="task">Task</TabsTrigger>
+          </TabsList>
+          <TabsContent className="grid gap-4" value="checks">
+            <Checklist checks={checks} label={checksLabel} />
+            {checksDetail}
+          </TabsContent>
+          <TabsContent className="grid gap-4" value="findings">
+            {findings}
+          </TabsContent>
+          <TabsContent className="grid gap-4 text-sm" value="task">
+            {task}
+          </TabsContent>
+        </Tabs>
+      </DetailHeadingLevel>
+      {footer}
+    </div>
+  );
+};
+
+/** The Task segment's closing facts, such as how the Run executed. */
+export const RunSummaryTaskFacts = ({
+  children,
+}: {
+  readonly children: ReactNode;
+}) => (
+  <dl className="border-island-border [&_dt]:text-muted-foreground grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-2 gap-y-1.5 border-t pt-3 text-[12.5px]">
+    {children}
+  </dl>
+);
+
+/**
+ * A finished task Run in the shared frame. Each finding can show its moment
+ * in the video. The Run ID closes the summary, ready to copy.
  */
 const TaskRunSummaryLayout = ({
   checks,
@@ -397,137 +523,105 @@ const TaskRunSummaryLayout = ({
   readonly verdict: SummaryVerdict;
   readonly videoSrc: string | undefined;
 }) => {
-  usePublishRunSummaryVerdict(verdict);
   const [seekAtom] = useState(() => Atom.make<VideoSeek | null>(null));
   const [seekAt, setSeekAt] = useAtom(seekAtom);
   const onSeek = (at: string) => {
     setSeekAt({ at, key: (seekAt?.key ?? 0) + 1 });
   };
-  const failing = checks.some(
-    (check) => !check.passed && check.notApplicable !== true
-  );
+  const src = videoSrc ?? agentRunVideoPath(summary.runId);
+  const when = runSummaryWhen(summary.endedAt);
   return (
-    <div className="grid gap-3.5" data-slot="run-summary">
-      <SummaryVerdictHeader
-        explanation={summary.assessment?.explanation}
-        failure={failure}
-        kind={kind}
-        summary={summary}
-        title={title}
-        verdict={verdict}
-      />
-      <SummaryVideo
-        seekAt={seekAt}
-        src={videoSrc ?? agentRunVideoPath(summary.runId)}
-        summary={summary}
-      />
-      <dl className="grid grid-cols-4 rounded-[14px] shadow-[inset_0_0_0_1px_var(--island-border)] [&>div+div]:border-l [&>div+div]:border-(--island-border)">
-        <Stat label="Duration" value={runDuration(summary)} />
-        <Stat label="Actions" value={summary.timeline.length} />
-        <Stat label="Findings" value={summary.findings.length} />
-        <Stat label="Evidence" value={evidenceCount(summary)} />
-      </dl>
-      {/* Its sections sit one level under the summary's level 3 title. */}
-      <DetailHeadingLevel value={4}>
-        <Tabs className="gap-3" defaultValue="checks">
-          <TabsList aria-label="Run Summary sections" variant="segmented">
-            <TabsTrigger value="checks">
-              {checksTab}
-              {failing ? (
-                // The checklist names the failed check; the dot only draws
-                // the eye, so the segment keeps one stable name.
-                <span
-                  aria-hidden="true"
-                  className="bg-destructive size-1.5 rounded-full"
-                />
-              ) : null}
-            </TabsTrigger>
-            <TabsTrigger value="findings">
-              Findings{" "}
-              <span className="text-muted-foreground/80 font-mono text-xs tabular-nums">
-                {summary.findings.length}
-              </span>
-            </TabsTrigger>
-            <TabsTrigger value="task">Task</TabsTrigger>
-          </TabsList>
-          <TabsContent className="grid gap-4" value="checks">
-            <Checklist checks={checks} label={checksLabel} />
-            {summary.assessment === null ? (
-              <p className="text-muted-foreground text-sm">
-                No Agent Assessment submitted.
-              </p>
-            ) : (
-              <EvidenceList hint evidence={summary.assessment.evidence} />
-            )}
-            <BrowserCheckResults run={summary} />
-            <ScanResults run={summary} />
-          </TabsContent>
-          <TabsContent className="grid gap-4" value="findings">
-            {summary.findings.length === 0 ? (
-              <p className="text-muted-foreground text-sm">
-                The agent reported no findings.
-              </p>
-            ) : (
-              <ul aria-label="Findings" className="grid gap-3.5">
-                {summary.findings.map((finding) => (
-                  <li
-                    className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-2.5"
-                    key={finding.id}
-                  >
-                    <FindingDot outcome={finding.outcome} />
-                    <div className="min-w-0 space-y-1">
-                      <p className="text-[13.5px] text-pretty wrap-anywhere">
-                        {finding.explanation}
-                      </p>
-                      <p className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px]">
-                        {assessmentOutcomeLabel[finding.outcome]} ·{" "}
-                        {finding.evidence.length} evidence
-                        <FindingSeek
-                          at={findingMoment(summary, finding)}
-                          onSeek={onSeek}
-                          summary={summary}
-                          videoSrc={
-                            videoSrc ?? agentRunVideoPath(summary.runId)
-                          }
-                        />
-                      </p>
-                      <EvidenceList evidence={finding.evidence} />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </TabsContent>
-          <TabsContent className="grid gap-4 text-sm" value="task">
-            <RequestedTask label={taskLabel} run={summary} />
-            <ReferencedFlows run={summary} />
-            <Pursuits run={summary} />
-            <BrowserModifications
-              modifications={summary.browserModifications ?? []}
-            />
-            <EmulationSection run={summary} />
-            <dl className="border-island-border [&_dt]:text-muted-foreground grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-2 gap-y-1.5 border-t pt-3 text-[12.5px]">
-              {details}
-              <dt>Execution</dt>
-              <dd>{runOutcomeLabel[summary.outcome]}</dd>
-            </dl>
-            {summary.videoPath === null ? null : (
-              <RunVideoLocation
-                src={videoSrc ?? agentRunVideoPath(summary.runId)}
-              />
-            )}
-          </TabsContent>
-        </Tabs>
-      </DetailHeadingLevel>
-      <footer className="border-island-border flex flex-wrap items-center gap-2 border-t pt-3">
-        <EvidenceReference id={summary.runId} kind="Run ID" />
-        {links === undefined || links === null ? null : (
-          <div className="ml-auto flex flex-wrap items-center gap-1.5">
-            {links}
-          </div>
-        )}
-      </footer>
-    </div>
+    <RunSummaryFrame
+      checks={checks}
+      checksDetail={
+        <>
+          {summary.assessment === null ? (
+            <p className="text-muted-foreground text-sm">
+              No Agent Assessment submitted.
+            </p>
+          ) : (
+            <EvidenceList hint evidence={summary.assessment.evidence} />
+          )}
+          <BrowserCheckResults run={summary} />
+          <ScanResults run={summary} />
+        </>
+      }
+      checksLabel={checksLabel}
+      checksTab={checksTab}
+      explanation={summary.assessment?.explanation}
+      facts={when === undefined ? [kind] : [kind, when]}
+      failure={failure}
+      findings={
+        summary.findings.length === 0 ? (
+          <p className="text-muted-foreground text-sm">
+            The agent reported no findings.
+          </p>
+        ) : (
+          <ul aria-label="Findings" className="grid gap-3.5">
+            {summary.findings.map((finding) => (
+              <li
+                className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-2.5"
+                key={finding.id}
+              >
+                <FindingDot outcome={finding.outcome} />
+                <div className="min-w-0 space-y-1">
+                  <p className="text-[13.5px] text-pretty wrap-anywhere">
+                    {finding.explanation}
+                  </p>
+                  <p className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px]">
+                    {assessmentOutcomeLabel[finding.outcome]} ·{" "}
+                    {finding.evidence.length} evidence
+                    <FindingSeek
+                      at={findingMoment(summary, finding)}
+                      onSeek={onSeek}
+                      summary={summary}
+                      videoSrc={src}
+                    />
+                  </p>
+                  <EvidenceList evidence={finding.evidence} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        )
+      }
+      findingsCount={summary.findings.length}
+      footer={
+        <RunSummaryFooter id={summary.runId} kind="Run ID" links={links} />
+      }
+      platform={
+        <>
+          <GlobeIcon aria-hidden="true" />
+          Web
+        </>
+      }
+      stats={[
+        { label: "Duration", value: runDuration(summary) },
+        { label: "Actions", value: summary.timeline.length },
+        { label: "Findings", value: summary.findings.length },
+        { label: "Evidence", value: evidenceCount(summary) },
+      ]}
+      task={
+        <>
+          <RequestedTask label={taskLabel} run={summary} />
+          <ReferencedFlows run={summary} />
+          <Pursuits run={summary} />
+          <BrowserModifications
+            modifications={summary.browserModifications ?? []}
+          />
+          <EmulationSection run={summary} />
+          <RunSummaryTaskFacts>
+            {details}
+            <dt>Execution</dt>
+            <dd>{runOutcomeLabel[summary.outcome]}</dd>
+          </RunSummaryTaskFacts>
+          {summary.videoPath === null ? null : <RunVideoLocation src={src} />}
+        </>
+      }
+      title={title}
+      verdict={verdict}
+      video={<SummaryVideo seekAt={seekAt} src={src} summary={summary} />}
+    />
   );
 };
 

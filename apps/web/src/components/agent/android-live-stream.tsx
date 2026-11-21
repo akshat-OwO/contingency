@@ -17,6 +17,11 @@ import {
   probeNativeInput,
 } from "./first-response-probe";
 import { makeNativeInputHandlers } from "./native-input";
+import {
+  makeDecodeTimer,
+  nativeFrameShown,
+  nativeFramesDropped,
+} from "./native-stream-status";
 import type { NativeStreamState } from "./native-stream-status";
 import {
   androidStreamRetryAtom,
@@ -132,6 +137,11 @@ export const AndroidLiveStream = ({
               let visible = false;
               let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
               let decoderFailed = false;
+              const timer = makeDecodeTimer(DECODE_BACKLOG * 4);
+              const drop = (count: number) =>
+                countAndroidStream(sessionId, (current) =>
+                  nativeFramesDropped(current, count)
+                );
               const decoder = new VideoDecoder({
                 error: () => {
                   // End this connection; the next one starts a fresh decoder.
@@ -141,6 +151,7 @@ export const AndroidLiveStream = ({
                   });
                 },
                 output: (frame) => {
+                  const decodeMs = timer.decoded(frame.timestamp);
                   if (!visible || signal.aborted) {
                     frame.close();
                     return;
@@ -157,12 +168,13 @@ export const AndroidLiveStream = ({
                     });
                   }
                   context.drawImage(frame, 0, 0);
-                  countAndroidStream(sessionId, (current) => ({
-                    ...current,
-                    decoded: current.decoded + 1,
-                    height: frame.displayHeight,
-                    width: frame.displayWidth,
-                  }));
+                  countAndroidStream(sessionId, (current) =>
+                    nativeFrameShown(current, {
+                      decodeMs,
+                      height: frame.displayHeight,
+                      width: frame.displayWidth,
+                    })
+                  );
                   frame.close();
                   probe.frame();
                   shown();
@@ -221,6 +233,7 @@ export const AndroidLiveStream = ({
                       if (decoder.state === "configured") {
                         decoder.reset();
                       }
+                      timer.reset();
                       configured = false;
                       continue;
                     }
@@ -233,14 +246,12 @@ export const AndroidLiveStream = ({
                       // resume at the next keyframe.
                       decoder.reset();
                       configured = false;
-                      countAndroidStream(sessionId, (current) => ({
-                        ...current,
-                        resyncs: current.resyncs + 1,
-                      }));
+                      drop(timer.rejoin());
                     }
                     const data = decodeBase64(event.data);
                     if (!configured) {
                       if (!event.key) {
+                        drop(timer.skipped());
                         continue;
                       }
                       const codec = h264Codec(data);
@@ -248,14 +259,12 @@ export const AndroidLiveStream = ({
                         throw new Error("Missing H.264 configuration");
                       }
                       decoder.configure({ codec, optimizeForLatency: true });
-                      countAndroidStream(sessionId, (current) => ({
-                        ...current,
-                        codec,
-                      }));
                       configured = true;
+                      timer.keyframe();
                       visible = true;
                     }
                     if (visible && decoder.state === "configured") {
+                      timer.decoding(event.timestamp);
                       decoder.decode(
                         new EncodedVideoChunk({
                           data,

@@ -26,6 +26,11 @@ import {
 } from "./screen-elements";
 import type { ObservedNode, ScreenBox } from "./screen-elements";
 
+/** How many entries a group lists, quieter than its title. */
+const GroupCount = ({ count }: { readonly count: number }) => (
+  <span className="font-mono tabular-nums opacity-70">{count}</span>
+);
+
 /**
  * The device's screen as a list of the elements on it, for anyone who does
  * not point at the mirror: each one sends the same tap a click at its centre
@@ -111,11 +116,8 @@ export const ScreenElements = ({
         </p>
       ) : null}
       {groups.map((group) => (
-        <section aria-labelledby={`device-elements-${group.id}`} key={group.id}>
-          <h3
-            className="text-muted-foreground px-1.5 pt-1 text-xs font-medium"
-            id={`device-elements-${group.id}`}
-          >
+        <section aria-label={group.title} key={group.id}>
+          <h3 className="text-muted-foreground px-1.5 pt-1 text-xs font-medium">
             {collapsible(group.id) ? (
               <button
                 aria-expanded={showOther}
@@ -128,10 +130,12 @@ export const ScreenElements = ({
                 ) : (
                   <ChevronRightIcon aria-hidden="true" className="size-3" />
                 )}
-                {group.title}
+                {group.title} <GroupCount count={group.entries.length} />
               </button>
             ) : (
-              group.title
+              <>
+                {group.title} <GroupCount count={group.entries.length} />
+              </>
             )}
           </h3>
           {collapsible(group.id) && !showOther ? null : (
@@ -181,7 +185,11 @@ export const ScreenElements = ({
                       <span className="min-w-0 flex-1 truncate text-left">
                         {label}
                       </span>
-                      <span className="text-muted-foreground shrink-0 text-xs">
+                      {/* The heading already says what kind it is. */}
+                      <span
+                        aria-hidden="true"
+                        className="text-muted-foreground shrink-0 font-mono text-xs"
+                      >
                         {roleWord(node.role)}
                       </span>
                     </Button>
@@ -192,6 +200,12 @@ export const ScreenElements = ({
           )}
         </section>
       ))}
+      {onAttach === undefined && groups.length > 0 ? (
+        <p className="text-muted-foreground px-1.5 pt-1 text-xs text-pretty">
+          Hover to find it on the screen. Choosing one taps its centre, the same
+          input a press on the screen sends.
+        </p>
+      ) : null}
     </div>
   );
 };

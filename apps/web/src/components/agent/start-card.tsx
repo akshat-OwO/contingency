@@ -69,7 +69,7 @@ export const StartSection = ({
 }) => (
   <section
     aria-label={label}
-    className="border-island-border relative grid gap-3 border-t py-3.5 pl-9"
+    className="border-island-border relative grid min-w-0 grid-cols-1 gap-3 border-t py-3.5 pl-9"
   >
     <SectionNumber className="absolute top-3.5 left-0">{number}</SectionNumber>
     {children}
@@ -183,8 +183,11 @@ export const StartCard = ({
     if (
       event.key !== "Escape" ||
       event.defaultPrevented ||
+      // An open list, or a combobox whose list is open, closes first.
       (event.target instanceof Element &&
-        event.target.closest('[role="listbox"]') !== null)
+        event.target.closest(
+          '[role="listbox"], [role="combobox"][aria-expanded="true"]'
+        ) !== null)
     ) {
       return;
     }
@@ -195,7 +198,7 @@ export const StartCard = ({
     <div className="grid w-full justify-items-center gap-3.5">
       <form
         aria-labelledby={`${ids}-title`}
-        className="island shadow-island-lift grid w-full max-w-[540px] gap-1 p-5 [--island-radius:28px]"
+        className="island shadow-island-lift grid w-full max-w-[540px] grid-cols-1 gap-1 p-5 [--island-radius:28px]"
         data-vt="start-card"
         noValidate
         onKeyDown={onKeyDown}

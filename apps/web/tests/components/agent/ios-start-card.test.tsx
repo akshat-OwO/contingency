@@ -96,6 +96,20 @@ const renderCard = (
   );
 };
 
+/** Picks the installed Shop from the Target App combobox once it lists. */
+const chooseShop = async (
+  user: ReturnType<typeof userEvent.setup>,
+  card: HTMLElement
+) => {
+  const picker = within(card).getByRole("combobox", { name: "Target App" });
+  await vi.waitFor(() => expect(picker).toBeEnabled());
+  await user.click(picker);
+  await user.click(
+    await screen.findByRole("option", { name: "Shop dev.shop · build 3" })
+  );
+  expect(picker).toHaveValue("Shop");
+};
+
 /** A file inside a chosen folder, as the folder picker reports it. */
 const folderFile = (path: string) => {
   const file = new File(["x"], path.split("/").at(-1) ?? path);
@@ -119,7 +133,7 @@ test("uploads a simulator .app folder and starts with its temporary copy", async
   ).toHaveTextContent("Running");
   expect(
     within(card).getByRole("combobox", { name: "Simulator" })
-  ).toHaveTextContent("iPhone 17");
+  ).toHaveTextContent(/^iPhone 17 · iOS 26\.5$/u);
   expect(
     within(card).getByRole("button", { name: "Upload a simulator .app" })
   ).toBeVisible();
@@ -168,7 +182,7 @@ test("starts an installed app with the declared Setup", async () => {
   const onStart = vi.fn(() => true);
   renderCard(onStart);
   const card = screen.getByRole("form", { name: "Teach on iOS" });
-  await user.click(await within(card).findByRole("button", { name: /Shop/u }));
+  await chooseShop(user, card);
   const setup = within(card).getByRole("button", { name: /^Setup/u });
   expect(setup).toHaveAttribute("aria-expanded", "false");
   await user.click(setup);
@@ -237,11 +251,13 @@ test("Start teaching waits for a valid Flow name, a running simulator and a Targ
     "Choose a running simulator to continue."
   );
   await user.click(within(card).getByRole("combobox", { name: "Simulator" }));
-  await user.click(await screen.findByRole("option", { name: /iPhone 16e/u }));
+  await user.click(
+    await screen.findByRole("option", { name: "iPhone 16e · iOS 26.5" })
+  );
   expect(start).toHaveAccessibleDescription(
     "Choose the Target App to continue."
   );
-  await user.click(await within(card).findByRole("button", { name: /Shop/u }));
+  await chooseShop(user, card);
   expect(start).toBeEnabled();
   await user.click(start);
   expect(onStart).toHaveBeenCalledWith(
@@ -257,12 +273,13 @@ test("asks for a simulator to be started when none is running", () => {
   expect(
     screen.getByRole("button", { name: "Start teaching" })
   ).toHaveAccessibleDescription("Start a simulator to continue.");
-  // The stopped simulator shows with Start, and no app list waits empty.
+  // The stopped simulator shows with Start; the app picker waits and says why.
   expect(screen.getByRole("button", { name: "Start iPhone 17" })).toBeVisible();
-  expect(
-    screen.getByText("Pick a running simulator to list its apps.")
-  ).toBeVisible();
-  expect(screen.queryByRole("list", { name: "Installed apps" })).toBeNull();
+  const picker = screen.getByRole("combobox", { name: "Target App" });
+  expect(picker).toBeDisabled();
+  expect(picker).toHaveAccessibleDescription(
+    "Pick a running simulator to list its apps."
+  );
 });
 
 test("closing the card discards an upload no session claimed", async () => {

@@ -63,13 +63,27 @@ export const unavailableReason = (device: AndroidDiscoveredDevice) => {
   return selectable(device) === null ? "Identity unreadable" : null;
 };
 
-/** A reported device as the shared device card shows it. */
+/**
+ * The OS version a device reports, as the Device field names it after the
+ * device: `Android 16`, else its API level, else nothing.
+ */
+const androidVersion = ({ api, release }: AndroidDiscoveredDevice) => {
+  if (release !== null) {
+    return `Android ${release}`;
+  }
+  return api === null ? "" : `API ${api}`;
+};
+
+/**
+ * A reported device as the shared device card shows it: `Pixel_9 · Android
+ * 16`. The serial tells two running devices apart; see `androidDeviceSerial`.
+ */
 export const androidDeviceChoice = (
   device: AndroidDiscoveredDevice
 ): DeviceChoice => {
   const reason = unavailableReason(device);
   const base = {
-    detail: `${device.serial} · API ${device.api}`,
+    detail: androidVersion(device),
     // An emulator is erased by its AVD; a phone is never erased.
     eraseId:
       device.kind === "emulator" && device.avd !== null
@@ -91,7 +105,8 @@ export const androidDeviceChoice = (
     return {
       ...base,
       bootId: device.avd,
-      detail: "Android emulator",
+      // A stopped emulator reports no version until it boots.
+      detail: "",
       status: { _tag: "stopped" },
     };
   }
@@ -101,6 +116,12 @@ export const androidDeviceChoice = (
       reason === null ? { _tag: "ready" } : { _tag: "unavailable", reason },
   };
 };
+
+/**
+ * What tells one running Android device from another in the Device field: its
+ * serial, which a device card selects by.
+ */
+export const androidDeviceSerial = (device: DeviceChoice) => device.id;
 
 const permissionLine =
   /^(?<decision>grant|revoke)\s+(?<permission>android\.permission\.[A-Z_]+)$/u;

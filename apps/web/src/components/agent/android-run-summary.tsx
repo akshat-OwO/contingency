@@ -5,6 +5,8 @@ import {
   deviceVideoStatusPath,
 } from "@contingency/protocol";
 import type {
+  AgentAssessmentOutcome,
+  AgentTaskRunOutcome,
   AndroidWorkspaceSnapshot,
   DevicePlatform,
   DeviceVideoCapture,
@@ -18,7 +20,22 @@ import type { Mutable } from "effect/Types";
 import { CircleAlertIcon, SmartphoneIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-import type { SummaryVerdict } from "@/components/agent/dry-run-summary-state";
+import type { RunSummaryStat } from "@/components/agent/dry-run-summary";
+import {
+  RunSummaryFooter,
+  RunSummaryFrame,
+  RunSummaryTaskFacts,
+} from "@/components/agent/dry-run-summary";
+import type {
+  SummaryCheck,
+  SummaryVerdict,
+} from "@/components/agent/dry-run-summary-state";
+import {
+  failedCheckSentence,
+  runDuration,
+  runOutcomeLabel,
+  runSummaryWhen,
+} from "@/components/agent/dry-run-summary-state";
 import { usePublishRunSummaryVerdict } from "@/components/agent/run-summary-dock";
 import { VerdictCard } from "@/components/agent/run-summary-verdict";
 import { WatcherLoader } from "@/components/brand";
@@ -30,7 +47,7 @@ import {
   deviceCleanupKey,
 } from "./android-workspace-state";
 import { EvidenceReference } from "./evidence-reference";
-import { DetailFacts, DetailSection } from "./run-detail-parts";
+import { DetailFacts, DetailSection, FlowPill } from "./run-detail-parts";
 import { RunVideoPlayer } from "./run-video";
 import { videoOffsetMs } from "./run-video-timeline";
 
@@ -138,16 +155,34 @@ export const DeviceLastScreen = ({
     return fallback;
   }
   return (
-    <figure className="flex h-full min-h-0 flex-col items-center justify-center gap-3">
-      <img
-        alt="The last screen this session kept"
-        className="min-h-0 w-auto max-w-full flex-1 rounded-[2rem] border-[6px] border-neutral-900 object-contain shadow-xl dark:border-neutral-700"
-        src={deviceKeyframePath(platform, sessionId, kept.hash)}
-      />
-      <figcaption className="text-muted-foreground text-xs">
-        Last frame of the session, kept at {time(kept.capturedAt)}
-      </figcaption>
-    </figure>
+    // The ended stage keeps the live stage's region, so the device is named
+    // the same way before and after the session ends.
+    <section
+      aria-label={platform === "android" ? "Android device" : "iOS simulator"}
+      className="flex h-full min-h-0 items-center justify-center"
+    >
+      <div className="relative flex h-full min-h-0 max-w-full">
+        <span
+          className="pointer-events-none absolute top-3.5 left-1/2 z-10 inline-flex h-[26px] -translate-x-1/2 items-center gap-1.5 rounded-[9px] bg-[oklch(0.18_0_0/0.78)] px-2.5 text-xs font-medium whitespace-nowrap text-[oklch(0.95_0_0)] backdrop-blur-sm"
+          title={`Kept at ${time(kept.capturedAt)}`}
+        >
+          <span
+            aria-hidden="true"
+            className="size-1.5 rounded-[1.5px] bg-current"
+          />
+          Last frame
+          <span className="sr-only">
+            {" "}
+            of the session, kept at {time(kept.capturedAt)}
+          </span>
+        </span>
+        <img
+          alt="The last screen this session kept"
+          className="h-full max-h-full w-auto max-w-full rounded-[2rem] border-[6px] border-neutral-900 object-contain shadow-xl dark:border-neutral-700"
+          src={deviceKeyframePath(platform, sessionId, kept.hash)}
+        />
+      </div>
+    </section>
   );
 };
 
@@ -239,7 +274,7 @@ const videoMomentAt = (
  * Run. Until it is rendered the summary says so, and a session without one
  * says why.
  */
-const DeviceVideo = ({
+const DeviceVideoBody = ({
   platform,
   result,
   retry,
@@ -256,110 +291,109 @@ const DeviceVideo = ({
   readonly sessionId: string;
   readonly teaching: boolean;
 }) => {
-  const body = (() => {
-    if (
-      result._tag === "Initial" ||
-      (AsyncResult.isSuccess(result) && result.value?.state === "preparing")
-    ) {
-      return (
-        <div
-          aria-live="polite"
-          className="text-muted-foreground flex w-full items-center justify-center gap-2 rounded-lg border py-3 text-xs"
-          role="status"
-        >
-          <WatcherLoader className="h-2.5" />
-          Preparing video…
-        </div>
-      );
-    }
-    if (result._tag === "Failure") {
-      return (
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="text-muted-foreground text-pretty" role="alert">
-            The video could not be read.
-          </p>
-          <Button onClick={retry} size="sm" variant="outline">
-            Retry
-          </Button>
-        </div>
-      );
-    }
-    const status = result.value;
-    if (status === null) {
-      return (
-        <p className="text-muted-foreground text-pretty">
-          This Workspace no longer holds the session, so its video cannot be
-          read here.
-        </p>
-      );
-    }
-    if (status.state === "purged") {
-      return (
-        <p className="text-muted-foreground text-pretty">
-          Cleanup deleted this session&apos;s video, with its recording.
-        </p>
-      );
-    }
-    if (status.state === "not-recorded") {
-      return (
-        <p className="text-muted-foreground text-pretty">{status.reason}</p>
-      );
-    }
-    if (status.state === "unavailable") {
-      return (
-        <div className="space-y-1.5" role="status">
-          <p className="font-medium">
-            This session&apos;s video is not available.
-          </p>
-          <p className="text-muted-foreground text-pretty">{status.reason}</p>
-          {status.directory === undefined ? null : (
-            <EvidenceReference id={status.directory} kind="Video folder" />
-          )}
-        </div>
-      );
-    }
-    if (status.state !== "ready") {
-      return null;
-    }
-    const notes = coverageNotes(status.capture);
+  if (
+    result._tag === "Initial" ||
+    (AsyncResult.isSuccess(result) && result.value?.state === "preparing")
+  ) {
     return (
-      <div className="space-y-1.5">
-        <RunVideoPlayer
-          className={undefined}
-          condensed={status.pacing === "condensed"}
-          path={status.path}
-          src={deviceVideoPath(platform, sessionId)}
-          subject={teaching ? "Teaching session" : "Run"}
-          timeMap={status.timeMap}
-          timeline={[]}
-          videoClassName="max-h-[28rem]"
-          {...(seekRequest === undefined ? {} : { seekRequest })}
-        />
-        {status.fallback === undefined ? null : (
-          <p className="text-muted-foreground text-xs text-pretty">
-            {status.fallback}
-          </p>
-        )}
-        {notes.map((note) => (
-          <p className="text-muted-foreground text-xs text-pretty" key={note}>
-            {note}
-          </p>
-        ))}
+      <div
+        aria-live="polite"
+        className="text-muted-foreground flex w-full items-center justify-center gap-2 rounded-lg border py-3 text-xs"
+        role="status"
+      >
+        <WatcherLoader className="h-2.5" />
+        Preparing video…
       </div>
     );
-  })();
+  }
+  if (result._tag === "Failure") {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="text-muted-foreground text-pretty" role="alert">
+          The video could not be read.
+        </p>
+        <Button onClick={retry} size="sm" variant="outline">
+          Retry
+        </Button>
+      </div>
+    );
+  }
+  const status = result.value;
+  if (status === null) {
+    return (
+      <p className="text-muted-foreground text-pretty">
+        This Workspace no longer holds the session, so its video cannot be read
+        here.
+      </p>
+    );
+  }
+  if (status.state === "purged") {
+    return (
+      <p className="text-muted-foreground text-pretty">
+        Cleanup deleted this session&apos;s video, with its recording.
+      </p>
+    );
+  }
+  if (status.state === "not-recorded") {
+    return <p className="text-muted-foreground text-pretty">{status.reason}</p>;
+  }
+  if (status.state === "unavailable") {
+    return (
+      <div className="space-y-1.5" role="status">
+        <p className="font-medium">
+          This session&apos;s video is not available.
+        </p>
+        <p className="text-muted-foreground text-pretty">{status.reason}</p>
+        {status.directory === undefined ? null : (
+          <EvidenceReference id={status.directory} kind="Video folder" />
+        )}
+      </div>
+    );
+  }
+  if (status.state !== "ready") {
+    return null;
+  }
+  const notes = coverageNotes(status.capture);
   return (
-    <section aria-labelledby="device-video" className="space-y-2">
-      <h3
-        className="text-muted-foreground text-xs font-medium"
-        id="device-video"
-      >
-        Video
-      </h3>
-      {body}
-    </section>
+    <div className="space-y-1.5">
+      <RunVideoPlayer
+        className={undefined}
+        condensed={status.pacing === "condensed"}
+        path={status.path}
+        src={deviceVideoPath(platform, sessionId)}
+        subject={teaching ? "Teaching session" : "Run"}
+        timeMap={status.timeMap}
+        timeline={[]}
+        videoClassName={
+          teaching
+            ? "max-h-[28rem]"
+            : "max-h-[min(18rem,40svh)] max-md:max-h-[24svh]"
+        }
+        {...(seekRequest === undefined ? {} : { seekRequest })}
+      />
+      {status.fallback === undefined ? null : (
+        <p className="text-muted-foreground text-xs text-pretty">
+          {status.fallback}
+        </p>
+      )}
+      {notes.map((note) => (
+        <p className="text-muted-foreground text-xs text-pretty" key={note}>
+          {note}
+        </p>
+      ))}
+    </div>
   );
 };
+
+/** A Teaching session's video, under its own heading. */
+const DeviceVideo = (props: Parameters<typeof DeviceVideoBody>[0]) => (
+  <section aria-labelledby="device-video" className="space-y-2">
+    <h3 className="text-muted-foreground text-xs font-medium" id="device-video">
+      Video
+    </h3>
+    <DeviceVideoBody {...props} />
+  </section>
+);
 
 /**
  * What the session kept of its screens: the keyframes it photographed as the
@@ -580,11 +614,15 @@ type SummarySession = Pick<
   | "captureGaps"
   | "captureRepairs"
   | "cleanup"
+  | "completedAt"
   | "error"
+  | "flowName"
   | "id"
   | "kind"
+  | "phase"
   | "recordingId"
   | "requirements"
+  | "startedAt"
   | "takeoverOccurred"
 >;
 
@@ -613,19 +651,20 @@ const startingEmulationLabel = (
   return `${emulation.orientation === "portrait" ? "Portrait" : "Landscape"}, ${emulation.appearance} appearance, ${where}`;
 };
 
-const deviceVerdict = (session: SummarySession): SummaryVerdict => {
-  if (session.assessment === null) {
-    return { label: "No assessment", tone: "attention" };
-  }
-  const { outcome } = session.assessment;
-  let tone: SummaryVerdict["tone"] = "attention";
-  if (outcome === "working") {
-    tone = "passed";
-  } else if (outcome === "not-working") {
-    tone = "failed";
-  }
-  return { label: OUTCOME[outcome], tone };
+const assessmentTone: Record<AgentAssessmentOutcome, SummaryVerdict["tone"]> = {
+  blocked: "attention",
+  inconclusive: "attention",
+  "not-working": "failed",
+  working: "passed",
 };
+
+const deviceVerdict = (session: SummarySession): SummaryVerdict =>
+  session.assessment === null
+    ? { label: "No assessment", tone: "attention" }
+    : {
+        label: OUTCOME[session.assessment.outcome],
+        tone: assessmentTone[session.assessment.outcome],
+      };
 
 /** Where the session's recording stands with Cleanup, as one sentence. */
 const cleanupLabel = (
@@ -648,9 +687,24 @@ const cleanupLabel = (
   return "Nothing to clean up; this session made no recording.";
 };
 
+const platformName = (platform: DevicePlatform) =>
+  platform === "android" ? "Android" : "iOS";
+
+/** The verdict card's platform: a phone glyph and the platform's name. */
+const DevicePlatformLabel = ({
+  platform,
+}: {
+  readonly platform: DevicePlatform;
+}) => (
+  <>
+    <SmartphoneIcon aria-hidden="true" />
+    {platformName(platform)}
+  </>
+);
+
 /**
- * The verdict card the browser summary opens on, for a device Run: the
- * Agent Assessment, the platform, and what kind of session it was.
+ * The verdict card a Teaching session opens on, when an assessment reached
+ * it: the Agent Assessment, the platform, and what kind of session it was.
  */
 const DeviceVerdictCard = ({
   platform,
@@ -664,109 +718,181 @@ const DeviceVerdictCard = ({
   return (
     <VerdictCard
       facts={[KIND[session.kind]]}
-      platform={
-        <>
-          <SmartphoneIcon aria-hidden="true" />
-          {platform === "android" ? "Android" : "iOS"}
-        </>
-      }
+      platform={<DevicePlatformLabel platform={platform} />}
       verdict={verdict}
     />
   );
 };
 
+/** What the session ended on, when it ended with an error. */
+const SessionError = ({ error }: { readonly error: string | null }) =>
+  error === null ? null : (
+    <section
+      aria-label="Error"
+      className="border-destructive/30 bg-destructive/5 flex gap-2.5 rounded-lg border p-3 text-sm"
+    >
+      <CircleAlertIcon
+        aria-hidden="true"
+        className="text-destructive mt-0.5 size-4 shrink-0"
+      />
+      <div className="space-y-1">
+        <h3 className="font-medium">The session ended with an error</h3>
+        <p className="text-muted-foreground text-pretty">{error}</p>
+      </div>
+    </section>
+  );
+
+/** How the Run executed, as its checklist and Task facts say it. */
+interface NativeExecution {
+  readonly finished: boolean;
+  readonly label: string;
+}
+
 /**
- * An ended device session's Run Summary, in the browser summary's place.
- * What went wrong leads when the agent never assessed the Run; the device and
- * Target App identity sit under it as reference.
+ * How an ended live session executed. Submitting the Agent Assessment
+ * completes a native Run; the snapshot keeps no other ending, so one that
+ * ended without an assessment says only that.
  */
-export const DeviceRunSummary = ({
+const sessionExecution = (session: SummarySession): NativeExecution => {
+  if (session.assessment !== null) {
+    return { finished: true, label: runOutcomeLabel.completed };
+  }
+  return session.phase === "refused"
+    ? { finished: false, label: "Refused before it ran" }
+    : { finished: false, label: "Ended without an assessment" };
+};
+
+/** The Capture Gaps no fresh same-device observation repaired. */
+const openCaptureGaps = (
+  session: Pick<SummarySession, "captureGaps" | "captureRepairs">
+): readonly string[] => {
+  const repaired = new Map<string, number>();
+  for (const repair of session.captureRepairs ?? []) {
+    repaired.set(repair.code, (repaired.get(repair.code) ?? 0) + 1);
+  }
+  return session.captureGaps.filter((code) => {
+    const remaining = repaired.get(code) ?? 0;
+    if (remaining === 0) {
+      return true;
+    }
+    repaired.set(code, remaining - 1);
+    return false;
+  });
+};
+
+/**
+ * A native Run's checks. A Dry Run passes only when the agent assessed the
+ * journey as working with no Takeover and no Capture Gap left open, the
+ * rule the device runtime applies (ADR 0078); a Run lists how it ended and
+ * its assessment as its record. Browser Checks and scans never apply.
+ */
+const nativeRunChecks = (
+  session: SummarySession,
+  execution: NativeExecution
+): readonly SummaryCheck[] => {
+  const record: readonly SummaryCheck[] = [
+    {
+      label: "Run finished",
+      passed: execution.finished,
+      value: execution.label,
+    },
+    {
+      label: "Agent Assessment",
+      passed: session.assessment?.outcome === "working",
+      value:
+        session.assessment === null
+          ? "None submitted"
+          : OUTCOME[session.assessment.outcome],
+    },
+  ];
+  if (session.kind !== "dry-run") {
+    return record;
+  }
+  const open = openCaptureGaps(session).length;
+  return [
+    ...record,
+    {
+      label: "No Takeover",
+      passed: !session.takeoverOccurred,
+      value: session.takeoverOccurred ? "User took control" : "Agent only",
+    },
+    {
+      label: "Capture complete",
+      passed: open === 0,
+      value: open === 0 ? "Yes" : `${open} open ${open === 1 ? "gap" : "gaps"}`,
+    },
+  ];
+};
+
+/**
+ * Why a native Dry Run cannot pass. The device runtime marks a working
+ * assessment inconclusive after a Takeover or an open Capture Gap, so those
+ * causes lead over the assessment they changed.
+ */
+const nativeFailureSentence = (
+  checks: readonly SummaryCheck[]
+): string | undefined => {
+  const failed = ["Run finished", "No Takeover", "Capture complete"]
+    .map((label) => checks.find((check) => check.label === label))
+    .find((check) => check !== undefined && !check.passed);
+  const first = failed ?? checks.find((check) => !check.passed);
+  return first === undefined ? undefined : failedCheckSentence(first);
+};
+
+/** A native Run's verdict: a Dry Run's pass rule, or a Run's assessment. */
+const nativeVerdict = (
+  session: SummarySession,
+  checks: readonly SummaryCheck[],
+  execution: NativeExecution
+): SummaryVerdict => {
+  if (session.kind === "dry-run") {
+    const missed = checks.filter((check) => !check.passed);
+    if (missed.length === 0) {
+      return { label: "Dry Run passed", tone: "passed" };
+    }
+    // Only how it was attempted missed: not a broken journey.
+    return missed.every((check) => check.label === "No Takeover")
+      ? { label: "Dry Run did not pass", tone: "attention" }
+      : { label: "Dry Run failed", tone: "failed" };
+  }
+  if (session.assessment !== null) {
+    return deviceVerdict(session);
+  }
+  return execution.finished
+    ? { label: "No assessment", tone: "attention" }
+    : { label: execution.label, tone: "failed" };
+};
+
+/** The device facts: where the Run ran, how it started, and what it kept. */
+const DeviceFacts = ({
   device,
-  ended,
-  platform,
   session,
-  stageShowsLastScreen = true,
   targetApp,
 }: {
   readonly device: string;
-  /** How a persisted Run ended, said apart from its Agent Assessment. */
-  readonly ended?: string | undefined;
-  readonly platform: DevicePlatform;
   readonly session: SummarySession;
-  /**
-   * Whether the session's stage beside the summary holds its last screen.
-   * Away from the stage, as on the Flows page, a lone screen draws inline.
-   */
-  readonly stageShowsLastScreen?: boolean;
   readonly targetApp: string;
-}) => (
-  <div className="space-y-5 text-sm">
-    {session.error === null ? null : (
-      <section
-        aria-label="Error"
-        className="border-destructive/30 bg-destructive/5 flex gap-2.5 rounded-lg border p-3"
-      >
-        <CircleAlertIcon
-          aria-hidden="true"
-          className="text-destructive mt-0.5 size-4 shrink-0"
-        />
-        <div className="space-y-1">
-          <h3 className="font-medium">The session ended with an error</h3>
-          <p className="text-muted-foreground text-pretty">{session.error}</p>
-        </div>
-      </section>
-    )}
-    {/*
-      Teaching records a journey; no agent assesses it, so its summary leads
-      with the screens rather than with an assessment that never comes.
-    */}
-    {session.kind === "teaching" && session.assessment === null ? null : (
-      <DeviceVerdictCard platform={platform} session={session} />
-    )}
-    {session.kind === "teaching" && session.assessment === null ? null : (
-      <section className="space-y-1">
-        <h3 className="text-muted-foreground text-xs font-medium">
-          Agent Assessment
-        </h3>
-        <p className="font-medium">
-          {session.assessment === null
-            ? "Not submitted"
-            : OUTCOME[session.assessment.outcome]}
-        </p>
-        {session.assessment === null ? null : (
-          <>
-            <p className="text-muted-foreground text-pretty">
-              {session.assessment.explanation}
-            </p>
-            <EvidenceReference
-              id={session.assessment.observationId}
-              kind="observation"
-            />
-          </>
-        )}
-      </section>
-    )}
-    <DeviceEvidence
-      cleanup={deviceCleanupKey(session.cleanup)}
-      platform={platform}
-      sessionId={session.id}
-      stageShowsLastScreen={stageShowsLastScreen}
-      teaching={session.kind === "teaching"}
-    />
+}) => {
+  let takeover = "None";
+  if (session.takeoverOccurred) {
+    takeover =
+      session.kind === "dry-run"
+        ? "Occurred; a Dry Run cannot pass"
+        : "Occurred";
+  }
+  return (
     <DetailSection label="Device">
       <DetailFacts>
-        <dt>Session</dt>
-        <dd>{KIND[session.kind]}</dd>
-        {ended === undefined ? null : (
+        {session.kind === "teaching" ? (
           <>
-            <dt>Ended</dt>
-            <dd>{ended}</dd>
+            <dt>Session</dt>
+            <dd>{KIND[session.kind]}</dd>
           </>
-        )}
+        ) : null}
         <dt>Device</dt>
         <dd className="wrap-anywhere">{device}</dd>
         <dt>Target App</dt>
-        <dd className="wrap-anywhere">{targetApp}</dd>
+        <dd className="font-mono wrap-anywhere">{targetApp}</dd>
         <dt>Starting data</dt>
         <dd>{startingDataLabel(session.requirements)}</dd>
         <dt>Starting Emulation</dt>
@@ -774,19 +900,301 @@ export const DeviceRunSummary = ({
           {startingEmulationLabel(session.requirements)}
         </dd>
         <dt>Takeover</dt>
-        <dd>
-          {session.takeoverOccurred
-            ? "Occurred; a Dry Run cannot pass"
-            : "None"}
-        </dd>
+        <dd>{takeover}</dd>
         <dt>Capture gaps</dt>
         <dd>{gapLabels(session).join(", ") || "None"}</dd>
         <dt>Cleanup</dt>
         <dd className="text-pretty">{cleanupLabel(session)}</dd>
       </DetailFacts>
     </DetailSection>
+  );
+};
+
+/** The verdict card's facts: the kind of Run, and when it ended. */
+const sessionFacts = (kind: string, session: SummarySession) => {
+  const when =
+    session.completedAt === null
+      ? undefined
+      : runSummaryWhen(session.completedAt);
+  return when === undefined ? [kind] : [kind, when];
+};
+
+/**
+ * The four numbers. A native Run records no action list or findings, so it
+ * counts the screens it kept, and its one piece of evidence is the
+ * observation its assessment cites.
+ */
+const nativeStats = (
+  session: SummarySession,
+  keyframes: ReturnType<typeof useDeviceKeyframes>["result"]
+): readonly RunSummaryStat[] => [
+  {
+    label: "Duration",
+    value:
+      session.completedAt === null
+        ? "–"
+        : runDuration({
+            endedAt: session.completedAt,
+            startedAt: session.startedAt,
+          }),
+  },
+  {
+    label: "Screens",
+    value:
+      AsyncResult.isSuccess(keyframes) && keyframes.value !== null
+        ? keyframes.value.keyframes.length
+        : "–",
+  },
+  { label: "Findings", value: 0 },
+  { label: "Evidence", value: session.assessment === null ? 0 : 1 },
+];
+
+/**
+ * Whether the kept screens stand in for the video. While the video renders
+ * or once it plays, it is the evidence; Cleanup deletes both together.
+ */
+const screensStandIn = (
+  result: ReturnType<typeof useDeviceVideo>["result"]
+): boolean => {
+  if (result._tag === "Failure") {
+    return true;
+  }
+  if (!AsyncResult.isSuccess(result)) {
+    return false;
+  }
+  return (
+    result.value === null ||
+    result.value.state === "not-recorded" ||
+    result.value.state === "unavailable"
+  );
+};
+
+/**
+ * An ended native Run or Dry Run in the Run Summary's shared frame (#757,
+ * #778): the verdict, the device's video, four numbers, then Pass checks (or
+ * Checks), Findings and Task, whose Device facts replace the browser's
+ * sections (ADR 0078). Without a video to play, the screens the session kept
+ * stand in for it under the video's place.
+ */
+const NativeRunSummaryLayout = ({
+  device,
+  execution,
+  links,
+  platform,
+  runId,
+  session,
+  stageShowsLastScreen,
+  targetApp,
+}: {
+  readonly device: string;
+  readonly execution: NativeExecution;
+  readonly links: React.ReactNode;
+  readonly platform: DevicePlatform;
+  readonly runId: string | undefined;
+  readonly session: SummarySession;
+  readonly stageShowsLastScreen: boolean;
+  readonly targetApp: string;
+}) => {
+  const cleanup = deviceCleanupKey(session.cleanup);
+  const video = useDeviceVideo(platform, session.id, cleanup);
+  const { result: keyframes } = useDeviceKeyframes(
+    platform,
+    session.id,
+    cleanup
+  );
+  const checks = nativeRunChecks(session, execution);
+  const kind = KIND[session.kind];
+  const dryRun = session.kind === "dry-run";
+  return (
+    <RunSummaryFrame
+      checks={checks}
+      checksDetail={
+        session.assessment === null ? (
+          <p className="text-muted-foreground text-sm">
+            No Agent Assessment submitted.
+          </p>
+        ) : (
+          <EvidenceReference
+            id={session.assessment.observationId}
+            kind="observation"
+          />
+        )
+      }
+      checksLabel={dryRun ? "Pass checks" : "Run checks"}
+      checksTab={dryRun ? "Pass checks" : "Checks"}
+      explanation={session.assessment?.explanation}
+      facts={sessionFacts(kind, session)}
+      failure={dryRun ? nativeFailureSentence(checks) : undefined}
+      findings={
+        <p className="text-muted-foreground text-sm">
+          The agent reported no findings.
+        </p>
+      }
+      findingsCount={0}
+      footer={
+        <RunSummaryFooter
+          id={runId ?? session.id}
+          kind={runId === undefined ? "Session ID" : "Run ID"}
+          links={links}
+        />
+      }
+      notice={<SessionError error={session.error} />}
+      platform={<DevicePlatformLabel platform={platform} />}
+      stats={nativeStats(session, keyframes)}
+      task={
+        <>
+          <DetailSection heading="Referenced Flows" label="Referenced flows">
+            <ul className="flex flex-wrap gap-1.5">
+              <li className="max-w-full">
+                <FlowPill example={false} name={session.flowName} />
+              </li>
+            </ul>
+          </DetailSection>
+          <DeviceFacts
+            device={device}
+            session={session}
+            targetApp={targetApp}
+          />
+          <RunSummaryTaskFacts>
+            <dt>Execution</dt>
+            <dd>{execution.label}</dd>
+          </RunSummaryTaskFacts>
+        </>
+      }
+      title={`${kind} of ${session.flowName}`}
+      verdict={nativeVerdict(session, checks, execution)}
+      video={
+        <section aria-label="Run video" className="space-y-2 text-sm">
+          <DeviceVideoBody
+            platform={platform}
+            result={video.result}
+            retry={video.refresh}
+            seekRequest={undefined}
+            sessionId={session.id}
+            teaching={false}
+          />
+          {screensStandIn(video.result) ? (
+            <DeviceRecording
+              cleanup={cleanup}
+              onShow={undefined}
+              platform={platform}
+              sessionId={session.id}
+              stageShowsLastScreen={stageShowsLastScreen}
+            />
+          ) : null}
+        </section>
+      }
+    />
+  );
+};
+
+/**
+ * An ended Teaching session's summary. Teaching records a journey; no agent
+ * assesses it, so it leads with the video and the screens it kept rather than
+ * with an assessment that never comes.
+ */
+const TeachingSummary = ({
+  device,
+  platform,
+  session,
+  stageShowsLastScreen,
+  targetApp,
+}: {
+  readonly device: string;
+  readonly platform: DevicePlatform;
+  readonly session: SummarySession;
+  readonly stageShowsLastScreen: boolean;
+  readonly targetApp: string;
+}) => (
+  <div className="space-y-5 text-sm">
+    <SessionError error={session.error} />
+    {session.assessment === null ? null : (
+      <>
+        <DeviceVerdictCard platform={platform} session={session} />
+        <section className="space-y-1">
+          <h3 className="text-muted-foreground text-xs font-medium">
+            Agent Assessment
+          </h3>
+          <p className="font-medium">{OUTCOME[session.assessment.outcome]}</p>
+          <p className="text-muted-foreground text-pretty">
+            {session.assessment.explanation}
+          </p>
+          <EvidenceReference
+            id={session.assessment.observationId}
+            kind="observation"
+          />
+        </section>
+      </>
+    )}
+    <DeviceEvidence
+      cleanup={deviceCleanupKey(session.cleanup)}
+      platform={platform}
+      sessionId={session.id}
+      stageShowsLastScreen={stageShowsLastScreen}
+      teaching
+    />
+    <DeviceFacts device={device} session={session} targetApp={targetApp} />
   </div>
 );
+
+/**
+ * An ended device session's Run Summary, in the browser summary's place. A
+ * Run or Dry Run reads like a browser Run's summary; Teaching shows what it
+ * recorded.
+ */
+export const DeviceRunSummary = ({
+  device,
+  links,
+  outcome,
+  platform,
+  runId,
+  session,
+  stageShowsLastScreen = true,
+  targetApp,
+}: {
+  readonly device: string;
+  /** Ways out of the summary, beside its Run ID. */
+  readonly links?: React.ReactNode;
+  /** How a persisted Run ended, said apart from its Agent Assessment. */
+  readonly outcome?: AgentTaskRunOutcome | undefined;
+  readonly platform: DevicePlatform;
+  /** The persisted Run's ID; an ended live session names itself instead. */
+  readonly runId?: string | undefined;
+  readonly session: SummarySession;
+  /**
+   * Whether the session's stage beside the summary holds its last screen.
+   * Away from the stage, as on the Flows page, a lone screen draws inline.
+   */
+  readonly stageShowsLastScreen?: boolean;
+  readonly targetApp: string;
+}) =>
+  session.kind === "teaching" ? (
+    <TeachingSummary
+      device={device}
+      platform={platform}
+      session={session}
+      stageShowsLastScreen={stageShowsLastScreen}
+      targetApp={targetApp}
+    />
+  ) : (
+    <NativeRunSummaryLayout
+      device={device}
+      execution={
+        outcome === undefined
+          ? sessionExecution(session)
+          : {
+              finished: outcome === "completed",
+              label: runOutcomeLabel[outcome],
+            }
+      }
+      links={links}
+      platform={platform}
+      runId={runId}
+      session={session}
+      stageShowsLastScreen={stageShowsLastScreen}
+      targetApp={targetApp}
+    />
+  );
 
 /** An ended Android session's Run Summary. */
 export const AndroidRunSummary = ({
@@ -820,15 +1228,6 @@ const catalogCleanup = (
   return cleanup === null ? null : { _tag: "pending" };
 };
 
-/** How a native Run ended, in words. */
-const RUN_ENDING: Record<NativeAgentRunSummary["outcome"], string> = {
-  completed: "Completed",
-  crashed: "Crashed",
-  interrupted: "Interrupted",
-  "process-exited": "Agent process exited",
-  "user-closed": "Closed by user",
-};
-
 /** The device a native Run's Flow names, from its requirements. */
 const requiredDevice = (
   requirements: NativeAgentRunSummary["requirements"]
@@ -860,24 +1259,31 @@ const requiredTargetApp = (
  * session snapshot exists, such as on the Flows page (ADR 0078). Its video and
  * screens are read by session, so they show while this Workspace still holds
  * the session's record. `cleanup` is the Dry Run's recording Cleanup as the
- * catalog lists it, or `null` when no recording is listed.
+ * catalog lists it, or `null` when no recording is listed. Its Run ID closes
+ * it, with `links` beside it.
  */
 export const NativeRunSummary = ({
   cleanup,
+  links,
   summary,
 }: {
   readonly cleanup: TeachingRecordingCleanupState["_tag"] | null;
+  readonly links?: React.ReactNode;
   readonly summary: NativeAgentRunSummary;
 }) => {
   const session: Mutable<SummarySession> = {
     assessment: summary.assessment,
     captureGaps: summary.captureGaps,
     cleanup: catalogCleanup(cleanup, summary.endedAt),
+    completedAt: summary.endedAt,
     error: null,
+    flowName: summary.flowName,
     id: summary.sessionId,
     kind: summary.kind,
+    phase: "closed",
     recordingId: summary.recordingId,
     requirements: summary.requirements,
+    startedAt: summary.startedAt,
     takeoverOccurred: summary.takeoverOccurred,
   };
   if (summary.captureRepairs !== undefined) {
@@ -886,8 +1292,10 @@ export const NativeRunSummary = ({
   return (
     <DeviceRunSummary
       device={requiredDevice(summary.requirements)}
-      ended={RUN_ENDING[summary.outcome]}
+      links={links}
+      outcome={summary.outcome}
       platform={summary.platform}
+      runId={summary.runId}
       session={session}
       stageShowsLastScreen={false}
       targetApp={requiredTargetApp(summary.requirements)}

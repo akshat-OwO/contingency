@@ -157,12 +157,16 @@ export const dryRunMissedOnlyQualifiers = (
   );
 };
 
-const failedCheckSentence = ({ label, value }: SummaryCheck): string => {
+/** Why a Dry Run cannot pass, said from the one check it missed. */
+export const failedCheckSentence = ({ label, value }: SummaryCheck): string => {
   switch (label) {
     case "Agent Assessment": {
       return value === "None submitted"
         ? "The agent submitted no assessment, so this Dry Run cannot pass."
         : `The agent assessed the journey as ${value.toLowerCase()}, so this Dry Run cannot pass.`;
+    }
+    case "Capture complete": {
+      return "Part of the screen went uncaptured and was never repaired, so this Dry Run cannot pass.";
     }
     case "Browser Checks": {
       return "Not every Browser Check passed, so this Dry Run cannot pass.";
@@ -271,8 +275,23 @@ export const dryRunVerdict = (
   return result === undefined ? "checks-passed" : "passed";
 };
 
+const whenFormat = new Intl.DateTimeFormat(undefined, {
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  month: "short",
+});
+
+/** When a Run ended, as the verdict card's last fact. */
+export const runSummaryWhen = (endedAt: string): string | undefined => {
+  const ended = Date.parse(endedAt);
+  return Number.isNaN(ended) ? undefined : whenFormat.format(ended);
+};
+
 /** `1m 04s`, or `42s` under a minute. */
-export const runDuration = (summary: TaskAgentRunSummary): string => {
+export const runDuration = (
+  summary: Pick<TaskAgentRunSummary, "endedAt" | "startedAt">
+): string => {
   const seconds = Math.max(
     0,
     Math.round(

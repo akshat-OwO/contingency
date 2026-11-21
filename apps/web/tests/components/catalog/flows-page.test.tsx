@@ -575,24 +575,48 @@ const nativeRunResult = () =>
     waiting: false,
   }) as const;
 
-test("shows a native Run's full Run Summary inline", () => {
+test("shows a native Run's full Run Summary inline", async () => {
   rpc.browse = browse([decodeRoot({ ...local, runs: [nativeEntry()] })]);
   rpc.nativeRun = nativeRunResult();
   renderPage();
   const summary = screen.getByRole("region", { name: "Run Summary" });
   expect(summary.querySelector('[data-slot="verdict-card"]')).toHaveTextContent(
-    "Working"
+    "Dry Run passed"
   );
+  expect(
+    within(summary).getByRole("heading", {
+      name: "Dry Run of 1mg mobile login",
+    })
+  ).toBeVisible();
   expect(
     within(summary).getByText("The OTP screen accepted the code.")
   ).toBeVisible();
   expect(
+    within(summary).getByRole("region", { name: "Run video" })
+  ).toBeVisible();
+  expect(
+    within(summary).getByRole("tablist", { name: "Run Summary sections" })
+  ).toBeVisible();
+  const frame = summary.querySelector<HTMLElement>('[data-slot="run-summary"]');
+  if (frame === null) {
+    throw new Error("No Run Summary frame");
+  }
+  expect(
+    within(frame).getByRole("button", {
+      name: `Copy Run ID agentrun-${nativeSessionId}`,
+    })
+  ).toBeVisible();
+  // The Flows page adds no second title or Run ID around the summary.
+  expect(
+    within(summary).getAllByRole("button", { name: /^Copy Run ID /u })
+  ).toHaveLength(1);
+  await userEvent.click(within(summary).getByRole("tab", { name: "Task" }));
+  expect(
     within(summary).getByText("com.aranoah.healthkart.plus · build 42")
   ).toBeVisible();
   // How it ended reads apart from the Agent Assessment.
-  expect(within(summary).getByText("Ended")).toBeVisible();
+  expect(within(summary).getByText("Execution")).toBeVisible();
   expect(within(summary).getByText("Completed")).toBeVisible();
-  expect(within(summary).getByRole("heading", { name: "Video" })).toBeVisible();
   expect(
     within(summary).getByRole("link", { name: "Device session" })
   ).toHaveAttribute("href", `/?android=${nativeSessionId}`);

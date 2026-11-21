@@ -12,10 +12,8 @@ import { AsyncResult, Atom } from "effect/reactivity";
 import { LoaderCircleIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import type { RpcDependencies } from "@/lib/rpc-dependencies";
-import { cn } from "@/lib/utils";
 
 import { DeviceChoices, useDeviceStarts } from "./device-choices";
 import { useDeviceErase } from "./device-erase";
@@ -39,11 +37,11 @@ import {
 } from "./start-card";
 import {
   BuildDropzone,
-  InstalledAppsFrame,
+  InstalledAppPicker,
   UploadedBuild,
   useBuildUpload,
 } from "./target-app-upload";
-import type { InstalledAppsNotice } from "./target-app-upload";
+import type { InstalledAppsRead } from "./target-app-upload";
 import type { HomePlatform } from "./workspace-home-state";
 
 interface SetupForm {
@@ -115,24 +113,18 @@ const useInstalledIosApps = (
   return state;
 };
 
-const installedAppsNotice = (
-  apps: Exclude<InstalledApps, { readonly _tag: "idle" }>
-): InstalledAppsNotice | null => {
-  if (apps._tag === "loading") {
-    return { _tag: "loading" };
-  }
-  if (apps._tag === "failed") {
-    return { _tag: "message", text: apps.message, tone: "destructive" };
-  }
-  if (apps.apps.length === 0) {
-    return {
-      _tag: "message",
-      text: "No apps are installed on this simulator yet.",
-      tone: "muted",
-    };
-  }
-  return null;
-};
+/** The simulator's apps as the Target App picker lists them. */
+const installedApps = (apps: InstalledApps): InstalledAppsRead =>
+  apps._tag === "loaded"
+    ? {
+        _tag: "loaded",
+        apps: apps.apps.map((app) => ({
+          detail: `${app.bundleId} · build ${app.build}`,
+          id: app.bundleId,
+          label: app.label || app.bundleId,
+        })),
+      }
+    : apps;
 
 /**
  * The Target App the card holds. An upload no session claimed is deleted as
@@ -177,55 +169,6 @@ const useIosTarget = (
   };
   return { choose, claimed, target, upload: uploading };
 };
-
-const InstalledIosApps = ({
-  apps,
-  onSelect,
-  target,
-}: {
-  readonly apps: InstalledApps;
-  readonly onSelect: (app: IosInstalledApp) => void;
-  readonly target: IosTarget | null;
-}) =>
-  apps._tag === "idle" ? (
-    // Nothing to list yet, so one line rather than an empty frame.
-    <p className="text-muted-foreground text-xs">
-      Pick a running simulator to list its apps.
-    </p>
-  ) : (
-    <InstalledAppsFrame notice={installedAppsNotice(apps)}>
-      {apps._tag === "loaded"
-        ? apps.apps.map((app) => {
-            const selected =
-              target?._tag === "installed" &&
-              target.app.bundleId === app.bundleId;
-            return (
-              <li key={app.bundleId}>
-                <button
-                  aria-pressed={selected}
-                  className={cn(
-                    "hover:bg-island-hover flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm",
-                    selected && "bg-island-hover"
-                  )}
-                  onClick={() => onSelect(app)}
-                  type="button"
-                >
-                  <span className="min-w-0 flex-1 truncate">
-                    {app.label || app.bundleId}
-                    {app.label === app.bundleId ? null : (
-                      <span className="text-muted-foreground ml-2 font-mono text-xs">
-                        {app.bundleId}
-                      </span>
-                    )}
-                  </span>
-                  <Badge variant="outline">build {app.build}</Badge>
-                </button>
-              </li>
-            );
-          })
-        : null}
-    </InstalledAppsFrame>
-  );
 
 /** Section 3: what restarting the app applies before Teaching and every Run. */
 const IosSetupChoices = ({
@@ -431,34 +374,49 @@ export const IosStartCard = ({
       </StartSection>
 
       <StartSection label="Target App" number={2}>
-        <Part title="Target App">
-          <div className="grid gap-3">
-            {target?._tag === "uploaded" ? (
-              <UploadedBuild
-                detail={`${target.upload.bundleId} · build ${target.upload.build} · installs with your consent`}
-                name={target.upload.name}
-                onRemove={() => choose(null)}
-                title={target.upload.label || target.upload.name}
-              />
-            ) : (
-              <BuildDropzone
-                describedBy={uploadStatusId}
-                directory
-                label="Upload a simulator .app"
-                onFiles={(files, folder) => upload.start(files, folder)}
-                state={upload.state}
-              />
-            )}
-            <p className="text-muted-foreground before:bg-island-border after:bg-island-border flex items-center gap-3 text-xs before:h-px before:flex-1 after:h-px after:flex-1">
-              or pick an app already on this simulator
-            </p>
-            <InstalledIosApps
-              apps={apps}
-              onSelect={(app) => choose({ _tag: "installed", app })}
-              target={target}
-            />
+        <div className="grid min-w-0 grid-cols-1 gap-2.5">
+          <InstalledAppPicker
+            apps={installedApps(apps)}
+            emptyMessage={
+              apps._tag === "loaded" && apps.apps.length === 0
+                ? "No apps are installed on this simulator yet."
+                : "No installed app matches."
+            }
+            idleMessage="Pick a running simulator to list its apps."
+            onSelect={(bundleId) => {
+              const app =
+                apps._tag === "loaded"
+                  ? apps.apps.find((entry) => entry.bundleId === bundleId)
+                  : undefined;
+              if (app !== undefined) {
+                choose({ _tag: "installed", app });
+              }
+            }}
+            selected={target?._tag === "installed" ? target.app.bundleId : null}
+          />
+          <div
+            aria-hidden="true"
+            className="text-muted-foreground before:bg-island-border after:bg-island-border flex items-center gap-3 text-xs before:h-px before:flex-1 after:h-px after:flex-1"
+          >
+            or
           </div>
-        </Part>
+          {target?._tag === "uploaded" ? (
+            <UploadedBuild
+              detail={`${target.upload.bundleId} · build ${target.upload.build} · installs with your consent`}
+              name={target.upload.name}
+              onRemove={() => choose(null)}
+              title={target.upload.label || target.upload.name}
+            />
+          ) : (
+            <BuildDropzone
+              describedBy={uploadStatusId}
+              directory
+              label="Upload a simulator .app"
+              onFiles={(files, folder) => upload.start(files, folder)}
+              state={upload.state}
+            />
+          )}
+        </div>
       </StartSection>
 
       <StartSetup summary="Starting data, start and finish">

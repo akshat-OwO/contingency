@@ -27,6 +27,15 @@ const stopped = (name: string): DeviceChoice => ({
   status: { _tag: "stopped" },
 });
 
+/** A running Android emulator, told apart from another only by its serial. */
+const pixel = (serial: string): DeviceChoice => ({
+  detail: "Android 16",
+  id: serial,
+  kind: "Emulator",
+  name: "Pixel_9",
+  status: { _tag: "ready" },
+});
+
 const renderChoices = (
   devices: readonly DeviceChoice[],
   starts: Readonly<Record<string, DeviceStart>> = {},
@@ -62,18 +71,52 @@ test("a ready device is chosen from the Select", async () => {
 
 test("shows the chosen device and its state in the hint row", () => {
   renderChoices([ready], {}, "ready");
-  expect(field()).toHaveTextContent("iPhone 17");
+  // The field names the device and its OS version, as the #744 card does.
+  expect(field()).toHaveTextContent(/^iPhone 17 · iOS 27\.1$/u);
   const hint = screen.getByRole("group", { name: "iPhone 17" });
-  expect(within(hint).getByText("Running · iOS 27.1")).toBeVisible();
+  expect(within(hint).getByText("Running")).toBeVisible();
   expect(within(hint).queryByRole("button")).toBeNull();
+});
+
+test("tells running devices of one name apart by what identifies them", async () => {
+  const user = userEvent.setup();
+  render(
+    <DeviceChoices
+      devices={[pixel("emulator-5554"), pixel("emulator-5556")]}
+      emptyMessage="Nothing exists."
+      identify={(device) => device.id}
+      label="Device"
+      onSelect={vi.fn()}
+      onStart={vi.fn()}
+      selected="emulator-5556"
+      starts={{}}
+    />
+  );
+  const device = screen.getByRole("combobox", { name: "Device" });
+  // The trigger reads as the prototype; the serial stays in the hint row.
+  expect(device).toHaveTextContent(/^Pixel_9 · Android 16$/u);
+  expect(
+    within(screen.getByRole("group", { name: "Pixel_9" })).getByText(
+      "Running · emulator-5556"
+    )
+  ).toBeVisible();
+  await user.click(device);
+  expect(
+    await screen.findByRole("option", {
+      name: "Pixel_9 · Android 16 emulator-5554",
+    })
+  ).toBeVisible();
+  expect(
+    screen.getByRole("option", { name: "Pixel_9 · Android 16 emulator-5556" })
+  ).toBeVisible();
 });
 
 test("while nothing runs, a stopped device shows with Start", async () => {
   const user = userEvent.setup();
   const { onStart } = renderChoices([stopped("iPhone 16")]);
-  expect(field()).toHaveTextContent("iPhone 16");
+  expect(field()).toHaveTextContent("iPhone 16 · iOS 26.5");
   const hint = screen.getByRole("group", { name: "iPhone 16" });
-  expect(within(hint).getByText("Stopped · iOS 26.5")).toBeVisible();
+  expect(within(hint).getByText("Stopped")).toBeVisible();
   await user.click(
     within(hint).getByRole("button", { name: "Start iPhone 16" })
   );
@@ -86,7 +129,7 @@ test("a starting device shows progress and cannot be started twice", () => {
   });
   const hint = screen.getByRole("group", { name: "iPhone 16" });
   expect(hint).toHaveAttribute("aria-busy", "true");
-  expect(within(hint).getByText("Starting… iOS 26.5")).toBeVisible();
+  expect(within(hint).getByText("Booting…")).toBeVisible();
   expect(
     within(hint).getByRole("button", { name: "Start iPhone 16" })
   ).toBeDisabled();
@@ -127,7 +170,9 @@ test("an unavailable device is a disabled option that says why", async () => {
   expect(screen.getByText("Choose one of the running devices.")).toBeVisible();
   await user.click(field());
   expect(
-    await screen.findByRole("option", { name: /iPhone Air.*Shutting Down/u })
+    await screen.findByRole("option", {
+      name: "iPhone Air · iOS 27.1 Shutting Down",
+    })
   ).toHaveAttribute("aria-disabled", "true");
 });
 

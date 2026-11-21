@@ -99,14 +99,19 @@ test("offers the listed sessions without a selected Android session", async () =
   await user.tab();
   expect(screen.getByRole("link", { name: "Contingency home" })).toHaveFocus();
   await user.tab();
-  expect(
-    screen.getByRole("combobox", { name: "Android Agent Session" })
-  ).toHaveFocus();
+  expect(screen.getByRole("combobox", { name: "Agent Session" })).toHaveFocus();
   await user.keyboard("{ArrowDown}");
+  const dialog = await screen.findByRole("dialog", { name: "Agent Sessions" });
   expect(
-    await screen.findByRole("option", { name: "paused-checkout · Android Run" })
+    within(dialog).getByRole("button", {
+      name: "paused-checkout · Android Run",
+    })
   ).toBeVisible();
-  await user.keyboard("{End}{Enter}");
+  await user.click(
+    within(dialog).getByRole("button", {
+      name: "finished-checkout · Android Run",
+    })
+  );
   expect(onSelect).toHaveBeenCalledWith(completed.id);
 });
 
@@ -122,9 +127,7 @@ test("says a linked session is gone without offering a session selector", () => 
   expect(
     screen.getByText("The session this link named is no longer available.")
   ).toBeVisible();
-  expect(
-    screen.queryByRole("combobox", { name: "Android Agent Session" })
-  ).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "Agent Session" })).toBeNull();
   expect(
     screen.getByRole("button", { name: "Start an Android session" })
   ).toBeEnabled();
@@ -215,6 +218,24 @@ test("Confirmation keeps the device healthy and Take control enables the rail", 
     ),
   });
   expect(screen.queryByText("Device disconnected")).toBeNull();
+  // The island offers Task details beside the action; closing the session
+  // is in the session picker instead (#753).
+  const status = screen.getByRole("region", { name: "Session status" });
+  expect(
+    within(status).getByRole("button", { name: "Task details" })
+  ).toBeVisible();
+  expect(
+    within(status).queryByRole("button", { name: "Close session" })
+  ).toBeNull();
+  await user.click(screen.getByRole("combobox", { name: "Agent Session" }));
+  await user.click(
+    within(
+      await screen.findByRole("dialog", { name: "Agent Sessions" })
+    ).getByRole("button", { name: "Close session" })
+  );
+  expect(mutate).toHaveBeenLastCalledWith(
+    expect.objectContaining({ _tag: "close", sessionId: session.id })
+  );
   for (const name of ["Android Back", "Android Home", "Android Recents"]) {
     expect(screen.getByRole("button", { name })).toBeDisabled();
   }
@@ -462,5 +483,66 @@ test("a native Teaching comment attaches the element the user picks on the scree
       element: { observationId: "observed", target: "@e2" },
       text: "Checkout must stay enabled",
     })
+  );
+});
+
+test("Teaching shows Start recording filled red, then the recording's clock in its chip", () => {
+  const ready: AndroidWorkspaceSnapshot = {
+    ...completed,
+    captureState: { _tag: "setup", requestedAt: "2026-10-15T00:00:00.000Z" },
+    completedAt: null,
+    id: AgentSessionId.make("agent-teaching"),
+    kind: "teaching",
+    phase: "running",
+  };
+  const state: WorkspaceState = {
+    attached: null,
+    dismissedField: null,
+    failure: null,
+    highlightedComment: null,
+    inputRefusal: null,
+    instructing: false,
+    instructionPending: false,
+    picking: false,
+    refusalDismissed: false,
+    session: ready,
+    unavailable: false,
+  };
+  const view = (session: AndroidWorkspaceSnapshot) => (
+    <RpcDependenciesProvider>
+      <AndroidSessionView
+        mutate={vi.fn()}
+        notices={null}
+        pending={false}
+        session={session}
+        setState={vi.fn()}
+        state={{ ...state, session }}
+      />
+    </RpcDependenciesProvider>
+  );
+  const { rerender } = render(view(ready));
+  const status = screen.getByRole("region", { name: "Session status" });
+  // Teaching has no Task details, and the Start action begins capture in red.
+  expect(
+    within(status).queryByRole("button", { name: "Task details" })
+  ).toBeNull();
+  expect(
+    within(status).getByRole("button", { name: "Start recording" })
+  ).toHaveClass("bg-status-recording");
+  rerender(
+    view({
+      ...ready,
+      captureState: {
+        _tag: "recording",
+        startedAt: "2026-10-15T00:00:00.000Z",
+      },
+    })
+  );
+  const timer = within(status).getByRole("timer");
+  expect(timer).toHaveAccessibleName(
+    /^Elapsed recording time (?:\d+:)?\d{2}:\d{2}$/u
+  );
+  expect(timer.closest('[data-slot="dock-state"]')).toHaveTextContent(
+    /^Recording/u
   );
 });

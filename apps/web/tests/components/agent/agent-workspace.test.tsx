@@ -1199,6 +1199,17 @@ test("swaps the start card's platform in place and keeps the Flow name", async (
   expect(testRouter.state.location.search).toEqual({});
 });
 
+/** Picks the installed Shop from a start card's Target App combobox. */
+const chooseInstalledShop = async (
+  user: ReturnType<typeof userEvent.setup>,
+  card: HTMLElement
+) => {
+  const picker = within(card).getByRole("combobox", { name: "Target App" });
+  await vi.waitFor(() => expect(picker).toBeEnabled());
+  await user.click(picker);
+  await user.click(await screen.findByRole("option", { name: /^Shop /u }));
+};
+
 test("a slow Android start leaves a newer platform choice alone", async () => {
   rpc.sessionsResult = resultFor([]);
   const gate = Promise.withResolvers<boolean>();
@@ -1209,7 +1220,7 @@ test("a slow Android start leaves a newer platform choice alone", async () => {
     await screen.findByRole("button", { name: "Start an Android session" })
   );
   const card = screen.getByRole("form", { name: "Teach on Android" });
-  await user.click(await within(card).findByRole("button", { name: /Shop/u }));
+  await chooseInstalledShop(user, card);
   await user.click(
     within(card).getByRole("button", { name: "Start teaching" })
   );
@@ -1246,7 +1257,7 @@ test("confirms preparation, then opens the started Android session", async () =>
   const name = within(card).getByRole("textbox", { name: "Flow name" });
   await user.clear(name);
   await user.type(name, "checkout");
-  await user.click(await within(card).findByRole("button", { name: /Shop/u }));
+  await chooseInstalledShop(user, card);
   await user.click(within(card).getByRole("button", { name: /^Setup/u }));
   await user.click(
     within(card).getByRole("radio", { name: "Camera: Grant before start" })
@@ -1391,7 +1402,7 @@ test("starts an iOS session from its card, then opens it", async () => {
   const card = screen.getByRole("form", { name: "Teach on iOS" });
   const name = within(card).getByRole("textbox", { name: "Flow name" });
   const start = within(card).getByRole("button", { name: "Start teaching" });
-  await user.click(await within(card).findByRole("button", { name: /Shop/u }));
+  await chooseInstalledShop(user, card);
   // An invalid Flow name keeps Start disabled rather than reaching the start.
   await user.clear(name);
   await user.type(name, "check/out");
@@ -1454,7 +1465,7 @@ test("a slow iOS start leaves a newer platform choice alone", async () => {
     await screen.findByRole("button", { name: "Start an iOS session" })
   );
   const card = screen.getByRole("form", { name: "Teach on iOS" });
-  await user.click(await within(card).findByRole("button", { name: /Shop/u }));
+  await chooseInstalledShop(user, card);
   await user.click(
     within(card).getByRole("button", { name: "Start teaching" })
   );

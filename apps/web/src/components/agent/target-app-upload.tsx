@@ -2,17 +2,25 @@ import { useAtom } from "@effect/atom-react";
 import { Effect, Fiber } from "effect";
 import { Atom } from "effect/reactivity";
 import { LoaderCircleIcon, PackageIcon, UploadIcon, XIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxLabel,
+  ComboboxList,
+} from "@/components/ui/combobox";
 import {
   FileInput,
   FileInputDropzone,
   FileInputTrigger,
   relativePath,
 } from "@/components/ui/file-input";
-import { Skeleton } from "@/components/ui/skeleton";
 import type { AppBundleFile, TargetAppBuildUploadError } from "@/lib/rpc";
 import { cn } from "@/lib/utils";
 
@@ -152,7 +160,7 @@ export const BuildDropzone = ({
   // part of a bundle, so a folder comes through the picker alone (#752).
   const Zone = directory ? FolderPickerRow : FileInputDropzone;
   return (
-    <div className="grid gap-1.5">
+    <div className="grid min-w-0 grid-cols-1 gap-1.5">
       <FileInput
         {...(accept === undefined ? {} : { accept })}
         directory={directory}
@@ -233,75 +241,119 @@ export const UploadedBuild = ({
   </div>
 );
 
-export type InstalledAppsNotice =
+/** An installed app as the Target App picker lists it. */
+export interface InstalledAppOption {
+  /** What the app is chosen by: a package name or a bundle ID. */
+  readonly id: string;
+  readonly label: string;
+  /** The identity line under its name, such as its ID and build. */
+  readonly detail: string;
+}
+
+/** The device's apps: none to read yet, being read, unreadable or read. */
+export type InstalledAppsRead =
+  | { readonly _tag: "idle" }
   | { readonly _tag: "loading" }
-  | {
-      readonly _tag: "message";
-      readonly text: string;
-      readonly tone: "muted" | "destructive";
-    };
+  | { readonly _tag: "failed"; readonly message: string }
+  | { readonly _tag: "loaded"; readonly apps: readonly InstalledAppOption[] };
 
 /**
- * The apps on a device, in a frame whose height never changes. Loading,
- * failure and empty notices render inside it, so the steps below stay in
- * place when the read finishes.
+ * What the picker's field says while it cannot list apps. A placeholder is a
+ * hint rather than a sentence, so the idle reason drops its full stop.
  */
-/** Name and badge widths that vary like a real app list. */
-const skeletonRows = [
-  { badge: "w-14", name: "w-2/5" },
-  { badge: "w-12", name: "w-1/2" },
-  { badge: "w-14", name: "w-1/3" },
-  { badge: "w-12", name: "w-3/5" },
-  { badge: "w-14", name: "w-2/5" },
-] as const;
+const pickerPlaceholder = (apps: InstalledAppsRead, idle: string) => {
+  switch (apps._tag) {
+    case "idle": {
+      return idle.replace(/\.$/u, "");
+    }
+    case "loading": {
+      return "Reading installed apps…";
+    }
+    default: {
+      return "Search installed apps";
+    }
+  }
+};
 
-export const InstalledAppsFrame = ({
-  children,
-  notice,
+/**
+ * The installed Target App as the #744 card shows it: one `Target App`
+ * combobox that searches the device's apps by name or ID and lists them in a
+ * popup, so a long list never stretches or widens the card. It waits,
+ * disabled, until there are apps to list; why it waits is its placeholder on
+ * screen and its description for assistive technology.
+ */
+export const InstalledAppPicker = ({
+  apps,
+  emptyMessage,
+  idleMessage,
+  onSelect,
+  selected,
 }: {
-  readonly children?: ReactNode;
-  readonly notice: InstalledAppsNotice | null;
-}) => (
-  <div className="h-44 overflow-y-auto rounded-lg border">
-    {notice?._tag === "loading" ? (
-      <>
-        <p className="sr-only" role="status">
-          Reading installed apps…
-        </p>
-        <div aria-hidden="true" className="py-0.5">
-          {skeletonRows.map((row, index) => (
-            <div
-              className="flex items-center justify-between gap-2 px-2.5 py-2"
-              // The rows are fixed placeholders; their order never changes.
-              // oxlint-disable-next-line react/no-array-index-key
-              key={index}
-            >
-              <Skeleton
-                className={cn("h-4 motion-reduce:animate-none", row.name)}
-              />
-              <Skeleton
-                className={cn(
-                  "h-5 rounded-full motion-reduce:animate-none",
-                  row.badge
-                )}
-              />
-            </div>
-          ))}
-        </div>
-      </>
-    ) : null}
-    {notice?._tag === "message" ? (
-      <p
-        className={cn(
-          "flex h-full items-center justify-center px-4 text-center text-xs",
-          notice.tone === "destructive"
-            ? "text-destructive"
-            : "text-muted-foreground"
-        )}
+  readonly apps: InstalledAppsRead;
+  /** Said in the list when no app matches the search. */
+  readonly emptyMessage: string;
+  /** Why there is nothing to list yet, such as no device being chosen. */
+  readonly idleMessage: string;
+  readonly onSelect: (id: string) => void;
+  /** The chosen app's ID, or null when none or an upload is the Target App. */
+  readonly selected: string | null;
+}) => {
+  const ids = useId();
+  const listed = apps._tag === "loaded" ? apps.apps : [];
+  const statusId = `${ids}-status`;
+  return (
+    <div className="grid min-w-0 grid-cols-1 gap-1.5">
+      <Combobox
+        disabled={apps._tag !== "loaded"}
+        onValueChange={(value: string | null) => {
+          if (value !== null) {
+            onSelect(value);
+          }
+        }}
+        value={
+          selected !== null && listed.some((app) => app.id === selected)
+            ? selected
+            : null
+        }
       >
-        {notice.text}
+        <ComboboxLabel>Target App</ComboboxLabel>
+        <ComboboxInput
+          aria-describedby={apps._tag === "loaded" ? undefined : statusId}
+          placeholder={pickerPlaceholder(apps, idleMessage)}
+        />
+        <ComboboxContent>
+          <ComboboxEmpty>{emptyMessage}</ComboboxEmpty>
+          <ComboboxList>
+            {listed.map((app) => (
+              <ComboboxItem
+                key={app.id}
+                keywords={[app.id]}
+                label={app.label}
+                value={app.id}
+              >
+                <span className="grid min-w-0 flex-1">
+                  <span className="truncate">{app.label}</span>{" "}
+                  <span className="text-muted-foreground truncate font-mono text-xs">
+                    {app.detail}
+                  </span>
+                </span>
+              </ComboboxItem>
+            ))}
+          </ComboboxList>
+        </ComboboxContent>
+      </Combobox>
+      <p
+        aria-live="polite"
+        className={cn(
+          "text-xs text-pretty",
+          apps._tag === "failed" ? "text-destructive" : "sr-only"
+        )}
+        id={statusId}
+      >
+        {apps._tag === "idle" ? idleMessage : null}
+        {apps._tag === "loading" ? "Reading installed apps…" : null}
+        {apps._tag === "failed" ? apps.message : null}
       </p>
-    ) : null}
-    {notice === null ? <ul aria-label="Installed apps">{children}</ul> : null}
-  </div>
-);
+    </div>
+  );
+};

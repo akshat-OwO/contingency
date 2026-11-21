@@ -112,11 +112,21 @@ export const RefreshDevicesButton = ({
   </Button>
 );
 
-/** What a device's option says beside its name. */
-const optionNote = (device: DeviceChoice) => {
+/**
+ * A device as the trigger shows it and its option leads with it, as the #744
+ * card does: its name, then its OS version when known, `Pixel_9 · Android 16`.
+ */
+const deviceLabel = (device: DeviceChoice) =>
+  device.detail === "" ? device.name : `${device.name} · ${device.detail}`;
+
+/**
+ * What a device's option says after its label: what tells a running device
+ * apart, such as its serial, or why it is not running.
+ */
+const optionNote = (device: DeviceChoice, identity: string | undefined) => {
   switch (device.status._tag) {
     case "ready": {
-      return device.detail;
+      return identity;
     }
     case "stopped": {
       return "Stopped";
@@ -133,27 +143,42 @@ const optionNote = (device: DeviceChoice) => {
   }
 };
 
-/** A device as its option and the trigger show it: its name, then a note. */
-const DeviceLabel = ({ device }: { readonly device: DeviceChoice }) => (
-  <span className="flex w-full min-w-0 items-center justify-between gap-3">
-    <span className="truncate">{device.name}</span>
-    <span className="text-muted-foreground min-w-0 truncate text-xs tabular-nums">
-      {optionNote(device)}
+/** A device's option: its label, then a quieter note that can truncate. */
+const DeviceOption = ({
+  device,
+  identity,
+}: {
+  readonly device: DeviceChoice;
+  readonly identity: string | undefined;
+}) => {
+  const note = optionNote(device, identity);
+  return (
+    <span className="flex w-full min-w-0 items-center justify-between gap-3">
+      <span className="min-w-0 truncate">{deviceLabel(device)}</span>
+      {note === undefined ? null : (
+        <>
+          {" "}
+          <span className="text-muted-foreground min-w-0 truncate text-xs tabular-nums">
+            {note}
+          </span>
+        </>
+      )}
     </span>
-  </span>
-);
+  );
+};
 
 /** The shown device's state under the field, said as it changes. */
-const deviceStatus = (device: DeviceChoice) => {
+const deviceStatus = (device: DeviceChoice, identity: string | undefined) => {
   switch (device.status._tag) {
     case "ready": {
-      return `Running · ${device.detail}`;
+      return identity === undefined ? "Running" : `Running · ${identity}`;
     }
     case "stopped": {
-      return `Stopped · ${device.detail}`;
+      return "Stopped";
     }
     case "starting": {
-      return `Starting… ${device.detail}`;
+      // Start itself reads "Starting…" beside this.
+      return "Booting…";
     }
     default: {
       return device.status.reason;
@@ -168,10 +193,12 @@ const deviceStatus = (device: DeviceChoice) => {
 const DeviceHint = ({
   device,
   erase,
+  identity,
   onStart,
 }: {
   readonly device: DeviceChoice;
   readonly erase: DeviceEraseControls | undefined;
+  readonly identity: string | undefined;
   readonly onStart: (bootId: string) => void;
 }) => {
   const { bootId, status } = device;
@@ -192,7 +219,7 @@ const DeviceHint = ({
             : "text-muted-foreground"
         )}
       >
-        {deviceStatus(device)}
+        {deviceStatus(device, identity)}
       </span>
       <span className="flex shrink-0 items-center gap-1">
         {isStartable(device) ? (
@@ -241,6 +268,7 @@ export const DeviceChoices = ({
   devices,
   emptyMessage,
   erase,
+  identify,
   label,
   onRefresh,
   onSelect,
@@ -253,6 +281,11 @@ export const DeviceChoices = ({
   readonly emptyMessage: string;
   /** Device Erase (ADR 0081); absent where the card does not offer it. */
   readonly erase?: DeviceEraseControls;
+  /**
+   * What tells a running device apart from another of its name, such as an
+   * Android serial; absent where the name is enough.
+   */
+  readonly identify?: (device: DeviceChoice) => string;
   /** The field's name, such as Device or Simulator. */
   readonly label: string;
   readonly onRefresh?: () => void;
@@ -267,7 +300,7 @@ export const DeviceChoices = ({
   const current =
     picked ?? (ready.length === 0 ? shown.find(isStartable) : undefined);
   return (
-    <div className="grid gap-1.5">
+    <div className="grid min-w-0 grid-cols-1 gap-1.5">
       {erase === undefined ? null : (
         <DeviceEraseRequests controls={erase} devices={shown} />
       )}
@@ -283,8 +316,10 @@ export const DeviceChoices = ({
           value={current?.id ?? null}
         >
           <SelectTrigger aria-label={label} variant="island">
-            <SelectValue>
-              {current === undefined ? null : <DeviceLabel device={current} />}
+            <SelectValue className="min-w-0">
+              {current === undefined ? null : (
+                <span className="truncate">{deviceLabel(current)}</span>
+              )}
             </SelectValue>
           </SelectTrigger>
           <SelectContent variant="island">
@@ -292,10 +327,10 @@ export const DeviceChoices = ({
               <SelectItem
                 disabled={device.status._tag === "unavailable"}
                 key={device.id}
-                label={device.name}
+                label={deviceLabel(device)}
                 value={device.id}
               >
-                <DeviceLabel device={device} />
+                <DeviceOption device={device} identity={identify?.(device)} />
               </SelectItem>
             ))}
           </SelectContent>
@@ -309,7 +344,12 @@ export const DeviceChoices = ({
               : "Choose one of the running devices."}
           </p>
         ) : (
-          <DeviceHint device={current} erase={erase} onStart={onStart} />
+          <DeviceHint
+            device={current}
+            erase={erase}
+            identity={identify?.(current)}
+            onStart={onStart}
+          />
         )}
         {onRefresh === undefined ? null : (
           <RefreshDevicesButton onRefresh={onRefresh} />
