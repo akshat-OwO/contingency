@@ -491,10 +491,10 @@ test("Tabs follow the tabs pattern and keep their slots", async () => {
   ).toHaveTextContent("Targets");
 });
 
-test("Segmented Tabs follow the tabs pattern for the Run Summary", async () => {
+test("Tabs default to segmented and follow the tabs pattern", async () => {
   render(
     <Tabs defaultValue="checks">
-      <TabsList aria-label="Run Summary sections" variant="segmented">
+      <TabsList aria-label="Run Summary sections">
         <TabsTrigger value="checks">Checks</TabsTrigger>
         <TabsTrigger value="findings">Findings</TabsTrigger>
         <TabsTrigger value="task">Task</TabsTrigger>

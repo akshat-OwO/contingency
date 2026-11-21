@@ -66,10 +66,15 @@ it.effect(
         { asset: "readme.md", name: "type-fest" },
       ]) {
         const candidates = require.resolve.paths(name) ?? [];
-        // These are transitive dependencies; resolve through their direct owner.
+        // type-fest is transitive (configstore -> dot-prop -> type-fest), so
+        // resolve it through dot-prop, its direct owner, not the hoisted copy.
         const owner =
           name === "type-fest"
-            ? createRequire(require.resolve("configstore"))
+            ? createRequire(
+                createRequire(require.resolve("configstore")).resolve(
+                  "dot-prop"
+                )
+              )
             : require;
         const paths =
           name === "type-fest" ? (owner.resolve.paths(name) ?? []) : candidates;
