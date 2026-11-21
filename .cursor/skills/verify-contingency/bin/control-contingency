@@ -47,6 +47,8 @@ Commands:
   browser canvas-type --text <text> [--enter]
   browser android-pick --session-id <id> --role <role> --name <name> | --fx <fraction> --fy <fraction>
   browser android-idle
+  browser native-close
+  browser target-app --app <package-or-bundle-id>
   browser device-type --text <text>
   browser measures [--clear]
   browser android-no-overlays
@@ -59,7 +61,7 @@ Commands:
   browser fill --role <role> --name <name> | --label <label> --value <value> [--partial]
   browser select --role <role> --name <name> --value <option-value> [--partial]
   browser press --key <key> [--role <role> --name <name> [--partial]]
-  browser wait --role <role> --name <name> [--state visible|hidden] [--has-text <substring>] [--timeout-ms <n>] [--partial]
+  browser wait --role <role> --name <name> [--state visible|hidden|enabled] [--has-text <substring>] [--timeout-ms <n>] [--partial]
   browser wait --text <substring> [--timeout-ms <n>] [--partial]
   mcp start
   mcp channels
@@ -376,6 +378,17 @@ const runPageAction = async (page, appUrl, action, flags) => {
       const { waitAndroidIdle } = await import("./android-ui.mjs");
       await waitAndroidIdle(page);
       return "Android dock ready";
+    }
+    case "native-close": {
+      const { closeNativeSession } = await import("./android-ui.mjs");
+      return JSON.stringify(await closeNativeSession(page));
+    }
+    case "target-app": {
+      if (typeof flags.app !== "string") {
+        throw new Error("browser target-app needs --app.");
+      }
+      const { chooseTargetApp } = await import("./android-ui.mjs");
+      return JSON.stringify(await chooseTargetApp(page, flags.app));
     }
     case "device-type": {
       if (typeof flags.text !== "string") {
@@ -815,6 +828,7 @@ const runPageAction = async (page, appUrl, action, flags) => {
     }
     case "wait": {
       const state = flags.state === "hidden" ? "hidden" : "visible";
+      const enabled = flags.state === "enabled";
       const timeout =
         typeof flags["timeout-ms"] === "string"
           ? Number(flags["timeout-ms"])
@@ -841,6 +855,15 @@ const runPageAction = async (page, appUrl, action, flags) => {
         target = locator(page, flags);
       }
       await target.waitFor({ state, timeout });
+      if (enabled) {
+        // A control that waits on data, such as the Target App combobox.
+        await page.waitForFunction(
+          (element) =>
+            !element.disabled && element.getAttribute("aria-disabled") !== "true",
+          await target.elementHandle(),
+          { timeout }
+        );
+      }
       return "";
     }
     case "flows-layout-check": {

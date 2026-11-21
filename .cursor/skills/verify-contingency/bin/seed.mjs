@@ -1503,6 +1503,14 @@ const capture = async (flags) => {
   await mkdir(out, { recursive: true });
   const prototypeUrl = flagValue(flags.prototype);
   const chains = manifest.chains ?? {};
+  // Native capture steps start sessions that later entries name, and a
+  // one-shot entry is spent once its capture starts, so the manifest is saved
+  // after each entry, failed ones included.
+  const saveManifest = () =>
+    writeFile(
+      manifestPath,
+      `${JSON.stringify({ ...manifest, chains }, null, 2)}\n`
+    );
   const results = [];
   for (const entry of manifest.entries) {
     if (selected !== undefined && !selected.has(entry.name)) {
@@ -1520,6 +1528,14 @@ const capture = async (flags) => {
     try {
       await browser("resize", { height: 900, width: 1440 });
       await goto(resolveUrl(entry.url, chains));
+      if (entry.consumed === true) {
+        // From here its actions advance the session it names, so a second
+        // capture could not show this state again, even if this one fails.
+        entry.status = "consumed";
+        entry.reason =
+          "A capture used this state's session; run `seed` again to rebuild it.";
+        await saveManifest();
+      }
       await runActions(entry.actions, entry, chains);
       await shoot(out, `${entry.name}.prod`, entry.ready);
       result.prod = "captured";
@@ -1546,15 +1562,12 @@ const capture = async (flags) => {
       );
     }
     results.push(result);
+    await saveManifest();
     process.stderr.write(
       `captured ${entry.name}: prod ${result.prod}${result.prototype ? `, prototype ${result.prototype}` : ""}\n`
     );
   }
-  // Native capture steps start sessions that later entries name.
-  await writeFile(
-    manifestPath,
-    `${JSON.stringify({ ...manifest, chains }, null, 2)}\n`
-  );
+  await saveManifest();
   // A partial capture (--only) replaces its own rows and keeps the others.
   const capturesPath = path.join(out, "captures.json");
   let previousResults = [];

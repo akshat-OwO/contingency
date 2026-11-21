@@ -7,6 +7,8 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { chooseTargetApp, closeNativeSession } from "./android-ui.mjs";
+
 /**
  * Starting Data and Device Erase on a proof-owned emulator (ADR 0081).
  *
@@ -165,37 +167,20 @@ const teach = async (startingData) => {
   await page
     .getByRole("textbox", { exact: true, name: "Flow name" })
     .fill(flowName);
-  // An interrupted listing can fail a concurrent one (a pre-existing
-  // discovery race outside this proof), so retry the listing, never setup.
-  const listed = page.getByRole("list", {
-    exact: true,
-    name: "Installed apps",
-  });
-  const unread = page.getByText(
-    /Could not read APK metadata|discovery failed/u
-  );
+  // The option reads `<AVD> · Android 16 emulator-5554`.
   const option = new RegExp(serial, "u");
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    let picked = await pickDevice(option, 20_000);
-    for (let refresh = 0; refresh < 12 && !picked; refresh += 1) {
-      receipt.listingRetries = (receipt.listingRetries ?? 0) + 1;
-      await click("Refresh devices");
-      picked = await pickDevice(option, 20_000);
-    }
-    assert.ok(picked, `The Device field does not list ${serial}.`);
-    await listed.or(unread).first().waitFor({ timeout: 120_000 });
-    if ((await listed.count()) > 0) {
-      break;
-    }
+  let picked = await pickDevice(option, 20_000);
+  for (let refresh = 0; refresh < 12 && !picked; refresh += 1) {
     receipt.listingRetries = (receipt.listingRetries ?? 0) + 1;
     await click("Refresh devices");
+    picked = await pickDevice(option, 20_000);
   }
-  await page
-    .getByRole("textbox", { name: "Search installed apps" })
-    .fill(appId);
-  await page
-    .getByRole("button", { name: new RegExp(appId, "u") })
-    .click({ timeout: 90_000 });
+  assert.ok(picked, `The Device field does not list ${serial}.`);
+  // An interrupted listing can fail a concurrent one (a pre-existing
+  // discovery race outside this proof), so the Target App combobox's listing
+  // is retried, never setup.
+  const chosen = await chooseTargetApp(page, appId);
+  receipt.listingRetries = (receipt.listingRetries ?? 0) + chosen.refreshes;
   // Clear resets runtime grants, so the fixture's launch-time notification
   // request needs a declared grant applied after the clear.
   await openSetup();
@@ -234,8 +219,10 @@ const session = async () => {
   assert.ok(found, `No session for ${flowName}.`);
   return read(found.id);
 };
+// Close session is in the Agent Session picker; a closed Teaching session
+// offers New session.
 const close = async () => {
-  await click("Close session");
+  await closeNativeSession(page);
   await button("New session").waitFor({ timeout: 60_000 });
 };
 try {
@@ -265,7 +252,7 @@ try {
     // Once booted it is listed under its serial, and the stopped pick goes.
     await hint(avd).waitFor({ state: "detached", timeout: 240_000 });
     assert.ok(
-      await pickDevice(new RegExp(`^${avd} emulator-`, "u")),
+      await pickDevice(new RegExp(`^${avd}(?: · .*)? emulator-`, "u")),
       `The Device field does not list the booted ${avd}.`
     );
     await hint(avd)
@@ -380,7 +367,7 @@ try {
     await openCard();
     // Show the proof AVD, so its hint row reports the erase.
     assert.ok(
-      await pickDevice(new RegExp(`^${avd} emulator-`, "u")),
+      await pickDevice(new RegExp(`^${avd}(?: · .*)? emulator-`, "u")),
       `The Device field does not list ${avd}.`
     );
     const banner = page.getByRole("region", {
@@ -404,7 +391,7 @@ try {
     await erasing.waitFor({ state: "detached", timeout: 300_000 });
     // It may start again under another serial, which drops the pick.
     assert.ok(
-      await pickDevice(new RegExp(`^${avd} emulator-`, "u"), 120_000),
+      await pickDevice(new RegExp(`^${avd}(?: · .*)? emulator-`, "u"), 120_000),
       `The Device field does not list the erased ${avd}.`
     );
     await hint(avd)

@@ -513,8 +513,8 @@ try {
   const stopped = await read(taughtSession.id);
   assert.equal(stopped.captureState._tag, "ready");
   await snapshot("teaching-stopped");
-  await click("Close session");
-  await wait("New session");
+  // Close session is in the Agent Session picker, not the island.
+  await control("browser", "native-close");
 
   await tool("agent_teaching_recording_claim", {
     action: "take",
@@ -659,12 +659,15 @@ try {
   await wait("Verify flow");
   await snapshot("dry-run-passed");
   await click("Verify flow");
-  // The badge, not the Run Summary sentence that starts the same way.
+  // Nothing waits on the ended Dry Run once it is verified, so the island
+  // reads Ended with the ended Run's sentence; MCP reads back the decision.
   await control(
     "browser",
     "wait",
-    "--text",
-    "Flow verified",
+    "--role",
+    "button",
+    "--name",
+    "The Run ended. Its summary is beside it.",
     "--timeout-ms",
     "90000"
   );
@@ -858,7 +861,7 @@ try {
   assert.equal(crossAppRead.phase, "running");
   await openView(crossApp.id);
   await wait("Take control");
-  await click("Close session");
+  await control("browser", "native-close");
   receipt.coverage.unexpectedApp = {
     actedOn: { name: settingsControl.name, packageName: settingsPackage },
     captureGaps: crossAppRead.captureGaps,
@@ -896,7 +899,7 @@ try {
   const elsewhereRead = await read(elsewhere.id);
   assert.equal(elsewhereRead.captureState._tag, "ready");
   assert.deepEqual(elsewhereRead.captureGaps, []);
-  await click("Close session");
+  await control("browser", "native-close");
   receipt.coverage.teachingElsewhere = {
     captureGaps: elsewhereRead.captureGaps,
     lifecycle: elsewhereRead.captureState,
@@ -1060,8 +1063,7 @@ try {
       const current = await read(id);
       if (["pending", "running", "paused"].includes(current.phase)) {
         await openView(id);
-        await click("Close session");
-        await wait("New session");
+        await control("browser", "native-close");
         const closedSession = await read(id);
         assert.equal(closedSession.phase, "closed");
       }

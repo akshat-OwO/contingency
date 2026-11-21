@@ -1,26 +1,95 @@
 /* oxlint-disable eslint/no-await-in-loop -- UI gestures run in order. */
 import assert from "node:assert/strict";
 
-/** Wait on the UI command completion, including forwarded stream input. */
+/**
+ * Wait on the UI command completion, including forwarded stream input. The
+ * live device stage is `aria-busy` while a dock command runs; an ended
+ * session's last frame has no busy state, so it never reads as idle.
+ */
 export const waitAndroidIdle = async (page) => {
   await page
     .getByRole("region", { exact: true, name: "Session status" })
     .waitFor();
   await page.waitForFunction(
     () => {
-      const dock = document.querySelector('[aria-label="Session status"]');
-      // Match the accessible name: the visible label is "Close" on a narrow
-      // dock and "Close session" on a wider one.
-      const close = dock?.querySelector('button[aria-label="Close session"]');
+      const stage = document.querySelector(
+        'section[aria-label="Android device"][aria-busy]'
+      );
       return Boolean(
-        close &&
-        !close.disabled &&
+        stage?.getAttribute("aria-busy") === "false" &&
         !document.querySelector('[aria-busy="true"]')
       );
     },
     undefined,
     { timeout: 90_000 }
   );
+};
+
+/**
+ * Closes the shown Android or iOS session as a user does. **Close session**
+ * sits in the `Agent Session` picker, beside the shown live session, not in
+ * the Session status island. Once the session closes, the island offers
+ * **New session** after Teaching, or **Done** after a Dry Run or Run.
+ */
+export const closeNativeSession = async (page) => {
+  await page
+    .getByRole("combobox", { exact: true, name: "Agent Session" })
+    .click();
+  await page
+    .getByRole("dialog", { exact: true, name: "Agent Sessions" })
+    .getByRole("button", { exact: true, name: "Close session" })
+    .click();
+  const island = page.getByRole("region", {
+    exact: true,
+    name: "Session status",
+  });
+  await island
+    .getByRole("button", { exact: true, name: "New session" })
+    .or(island.getByRole("button", { exact: true, name: "Done" }))
+    .first()
+    .waitFor({ timeout: 90_000 });
+  return { closed: true };
+};
+
+const escapeRegExp = (text) => text.replaceAll(/[$()*+.?[\\\]^{|}]/gu, "\\$&");
+
+/**
+ * Picks an installed Target App on the Android or iOS start card. The
+ * `Target App` combobox waits, disabled, until the device's apps are read;
+ * typing searches by name or ID, and each app is an `option` named
+ * `<Label> <id> · build <n>`. Reading a freshly booted device's apps is slow,
+ * and an app that updates mid-listing fails the whole listing (a pre-existing
+ * discovery race), so a failed listing is refreshed, never preparation.
+ */
+export const chooseTargetApp = async (page, appId, timeout = 300_000) => {
+  const field = page.getByRole("combobox", {
+    exact: true,
+    name: "Target App",
+  });
+  const failed = page.getByText(
+    /Could not read APK metadata|discovery failed/u
+  );
+  const deadline = Date.now() + timeout;
+  let refreshes = 0;
+  while (!(await field.isEnabled({ timeout: 30_000 }))) {
+    assert.ok(Date.now() < deadline, "The Target App field never listed apps.");
+    if ((await failed.count()) > 0) {
+      refreshes += 1;
+      assert.ok(refreshes <= 5, "The installed-app listing kept failing.");
+      await page
+        .getByRole("button", { exact: true, name: "Refresh devices" })
+        .click();
+    }
+    await page.waitForTimeout(1000);
+  }
+  await field.click();
+  await field.fill(appId);
+  await page
+    .getByRole("option", {
+      name: new RegExp(`${escapeRegExp(appId)} · build `, "u"),
+    })
+    .click({ timeout: 30_000 });
+  return { appId, refreshes };
 };
 
 /** Resolve a semantic name only to aim the real mouse; the click goes to the device. */
@@ -188,7 +257,8 @@ export const openAndroidStartCard = async (
     "Teach on Android"
   );
   await fill("Flow name", flowName);
-  // Each device is an option of the Device field, named with its serial.
+  // Each device is an option of the Device field: `Pixel_9 · Android 16
+  // emulator-5554`, its name, OS version and serial.
   await control("browser", "click", "--role", "combobox", "--name", "Device");
   await control(
     "browser",
@@ -199,58 +269,12 @@ export const openAndroidStartCard = async (
     selection.device.serial,
     "--partial"
   );
-  await fill("Search installed apps", selection.environment.appId);
-  // Reading installed apps pulls each APK's label; a freshly booted device is
-  // slow. An app that updates mid-listing fails the whole listing (a
-  // pre-existing discovery race), so retry the listing, never setup.
-  const shows = async (...args) => {
-    try {
-      await control("browser", "wait", ...args);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  const listingDeadline = Date.now() + 300_000;
-  for (let refreshes = 0; ;) {
-    assert.ok(Date.now() < listingDeadline, "Installed apps did not list.");
-    if (
-      await shows(
-        "--role",
-        "button",
-        "--name",
-        selection.environment.appId,
-        "--partial",
-        "--timeout-ms",
-        "5000"
-      )
-    ) {
-      break;
-    }
-    const failed =
-      (await shows(
-        "--text",
-        "Could not read APK metadata",
-        "--partial",
-        "--timeout-ms",
-        "500"
-      )) ||
-      (await shows(
-        "--text",
-        "Android discovery failed",
-        "--partial",
-        "--timeout-ms",
-        "500"
-      ));
-    if (failed) {
-      refreshes += 1;
-      assert.ok(refreshes <= 5, "The installed-app listing kept failing.");
-      await click("Refresh devices");
-    }
-  }
-  await click(selection.environment.appId, true);
-  // Starting data, permissions, Variables and conditions sit in Setup.
-  await click("Setup", true);
+  // The Target App combobox lists the device's apps once they are read.
+  await control("browser", "target-app", "--app", selection.environment.appId);
+  // Starting data, permissions, Variables and conditions sit in Setup. The
+  // In progress shelf can list a session named like `setup-sign-in`, so
+  // Setup is named with its hint.
+  await click("Setup Starting data", true);
   await select(
     "Starting screen element role",
     selection.setup.conditions[0].role

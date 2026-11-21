@@ -586,7 +586,8 @@ try {
   const stopped = await read(teaching.id);
   assert.equal(stopped.captureState._tag, "ready");
   receipt.coverage.teaching = true;
-  await click("Close session");
+  // Close session is in the Agent Session picker, not the island.
+  await control("browser", "native-close");
   const { recordingId } = stopped;
   const interval = JSON.parse(
     await readFile(

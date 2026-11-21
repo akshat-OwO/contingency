@@ -257,6 +257,37 @@ These patterns from the Web review also apply to the native states: X1 for the a
 
 These match the prototype: the agent's touch dot with its "Agent" label, the brand ring during Takeover, the rail on the right of the device, the comment card above the status island with "Earlier in this recording", the Field Variable card to the left of the iOS frame, and the Device fact list.
 
+### After
+
+On 2026-11-21, the same 23 states were seeded again and captured into `artifacts/seed-native-after`, on branch `seed-workspace-states`. 23 were reached and 2 were not, for the same reasons. The 39 Web states were captured into `artifacts/seed-after`.
+
+| ID | Status | After evidence |
+| --- | --- | --- |
+| N1 | Fixed | No alert in `android-run-ended` |
+| N2 | Fixed | The Target App combobox fits inside the card in `home-start-android-device` |
+| N3 | Fixed | `region "Run verdict"`, the heading "Dry Run of …", Run video, the Duration, Screens, Findings and Evidence stats, and the Pass checks, Findings and Task tabs |
+| N4 | Fixed | **Task details** in the island. **Close session** moved to the Agent Sessions dialog |
+| N5 | Fixed | The chip reads "Ended", then "The Run ended. Its summary is beside it.", **Task details** and **Done** |
+| N6 | Fixed | "Live · 1 fps" (the screen was static), Device "Pixel_9 · Android 16", Input to frame p95, Decode p95, Decoded / dropped |
+| N7 | Fixed | `combobox "Device": Pixel_9 · Android 16` and `combobox "Target App"`. iOS reads `<name> · iOS 26.5` |
+| N8 | Fixed | The picker reads "seed-android-… · Dry Run" |
+| N9 | Fixed | `combobox "Agent Session"` with a glyph, on both platforms |
+| N10 | Fixed | The island shows a `timer "Elapsed recording time 00:10"` |
+| N11 | Fixed | **Start recording** is red |
+| N12 | Fixed | "Tap an element to attach it to the comment" |
+| N13 | Mostly fixed | The headings have counts ("Fields 1", "Controls 1"), and the accessible names no longer end in a role word. A mono role tag is still shown, as in the prototype |
+| N14 | Fixed | No badge, a `group "Location"`, and the helper line |
+| N15 | Fixed | `region "Android device"` with a "Last frame" chip |
+| N16 | Fixed | `navigation "Workspace"` comes first in `ios-*` states |
+| N17 | Partly fixed | The chip and sentence now match: "Running" and "The agent is following the Flow on its own…". Native Runs still show no step count |
+
+The after captures show these changes:
+
+- Pass checks no longer shows the Screens filmstrip. The Screens count is now one of the stats.
+- The iOS Run video poster is plain grey.
+- The Task tab's Device rows sit below the fold, so you have to scroll the summary to see them.
+- In `android-comment`, the Screen elements card and the Comment card nearly touch. This was also true before.
+
 ## Follow-up issues
 
 One issue per surface with findings, under #740. Each takes its rows above and, where a pattern applies, the pattern row. The patterns X1–X3 get their own token issue, because fixing them changes every surface.

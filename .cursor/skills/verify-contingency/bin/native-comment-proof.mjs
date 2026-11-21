@@ -372,7 +372,7 @@ try {
             command: { _tag: "close", operationId: operation(), sessionId },
             source: "user",
           })
-        : button("Close session")
+        : control("browser", "native-close")
     ).catch((error) => receipt.blockers.push(`close: ${String(error)}`));
   }
   await writeFile(

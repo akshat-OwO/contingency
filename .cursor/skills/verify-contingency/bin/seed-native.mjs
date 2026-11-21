@@ -15,6 +15,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { promisify } from "node:util";
 
 import { nativeComment } from "./android-ui.mjs";
+import { iosRpc } from "./ios-workspace-rpc.mjs";
 
 const execute = promisify(execFile);
 const LIVE = new Set(["pending", "running", "paused"]);
@@ -81,8 +82,24 @@ const androidDevice = async () => {
   return { serial: running[0] };
 };
 
-/** The one booted iOS simulator, or the one the env var names. */
-const iosDevice = async () => {
+/** A booted simulator's option in the start card's Simulator field. */
+const simulatorOption = (simulator) =>
+  `${simulator.name} · iOS ${simulator.runtimeVersion}`;
+
+/** Whether a listed session holds the device this seed resolved. */
+const holdsDevice = (platform, session, resolved) =>
+  platform === "android"
+    ? session.selection?.device?.serial === resolved.serial
+    : session.selection?.device?.udid === resolved.udid;
+
+/**
+ * The one booted iOS simulator, or the one the env var names, with the
+ * Simulator option that picks it. A booted simulator's option reads
+ * `<name> · iOS <version>` with no UDID, so the start card can tell it from
+ * another only by that text; two booted simulators that read the same are
+ * refused rather than guessed between.
+ */
+const iosDevice = async (workspaceUrl) => {
   const { stdout } = await execute("xcrun", [
     "simctl",
     "list",
@@ -101,7 +118,25 @@ const iosDevice = async () => {
         : `seed --ios needs exactly one booted simulator (found ${booted.length}); set CONTINGENCY_SEED_IOS_UDID.`
     );
   }
-  return { name: booted[0].name, udid: booted[0].udid };
+  const [{ udid }] = booted;
+  // The Workspace's own list, so the option matches the one the card shows.
+  const listed = await iosRpc(workspaceUrl, "ios.devices.list", {});
+  const chosen = listed.find((simulator) => simulator.udid === udid);
+  if (chosen === undefined) {
+    throw new Error(`The Workspace does not list simulator ${udid}.`);
+  }
+  const alike = listed.filter(
+    (simulator) =>
+      simulator.udid !== udid &&
+      simulator.state === "Booted" &&
+      simulatorOption(simulator) === simulatorOption(chosen)
+  );
+  if (alike.length > 0) {
+    throw new Error(
+      `Simulators ${[udid, ...alike.map((simulator) => simulator.udid)].join(", ")} all read "${simulatorOption(chosen)}" in the Simulator field; shut the others down or rename ${udid}.`
+    );
+  }
+  return { name: chosen.name, option: simulatorOption(chosen), udid };
 };
 
 const prototypeStart = (key) => ({
@@ -154,7 +189,10 @@ export const nativeSeeding = (kit) => {
     device(platform, { _tag: "observe", image: false, sessionId });
   const viewUrl = (platform, sessionId) =>
     `${kit.mcpPage("/")}?${PLATFORMS[platform].query}=${sessionId}`;
-  const devices = { android: androidDevice, ios: iosDevice };
+  const devices = {
+    android: androidDevice,
+    ios: () => iosDevice(kit.mcpPage("/")),
+  };
   const resolved = new Map();
   const deviceOf = (platform) => {
     if (!resolved.has(platform)) {
@@ -184,7 +222,10 @@ export const nativeSeeding = (kit) => {
       await sleep(500);
     }
   };
-  /** The live session the start card opened, once the host lists it. */
+  /**
+   * The live session the start card opened, once the host lists it. It must
+   * hold the resolved device, or the card picked another.
+   */
   const findSession = async (platform, flowName) => {
     const deadline = Date.now() + 60_000;
     for (;;) {
@@ -193,6 +234,12 @@ export const nativeSeeding = (kit) => {
         (session) => session.flowName === flowName && LIVE.has(session.phase)
       );
       if (found) {
+        const held = await deviceOf(platform);
+        if (!holdsDevice(platform, found, held)) {
+          throw new Error(
+            `${flowName} opened on ${JSON.stringify(found.selection?.device)}, not ${held.serial ?? held.udid}.`
+          );
+        }
         return found;
       }
       if (Date.now() > deadline) {
@@ -230,30 +277,14 @@ export const nativeSeeding = (kit) => {
       });
     }
   };
-  /** Picks the Target App once the installed apps list it. */
-  const chooseApp = async (platform) => {
-    const { app } = PLATFORMS[platform];
-    const deadline = Date.now() + 300_000;
-    // Reading a freshly booted device's apps is slow, and an app that
-    // updates mid-listing fails the listing; refresh it, never preparation.
-    while (!(await shows("button", app, 5000, { partial: true }))) {
-      if (Date.now() > deadline) {
-        throw new Error(`${app} never showed in Installed apps.`);
-      }
-      if (
-        platform === "android" &&
-        (await shows("text", "Could not read APK metadata", 500, {
-          partial: true,
-        }))
-      ) {
-        await click("button", "Refresh devices");
-      }
-    }
-    await click("button", app, { partial: true });
-  };
+  /**
+   * Picks the Target App in its combobox once the device's apps are read; a
+   * failed listing is refreshed, never preparation.
+   */
+  const chooseApp = (platform) =>
+    browser("target-app", { app: PLATFORMS[platform].app });
   const startAndroid = async (flowName) => {
     const { serial } = await deviceOf("android");
-    const { app } = PLATFORMS.android;
     await goto(kit.mcpPage("/?android=new"));
     await waitFor("form", "Teach on Android", { "timeout-ms": 60_000 });
     await browser("fill", {
@@ -262,12 +293,8 @@ export const nativeSeeding = (kit) => {
       value: flowName,
     });
     await click("combobox", "Device");
+    // The option reads `Pixel_9 · Android 16 emulator-5554`.
     await click("option", serial, { partial: true });
-    await browser("fill", {
-      name: "Search installed apps",
-      role: "textbox",
-      value: app,
-    });
     await chooseApp("android");
     await fillSetup("android");
     await click("button", "Start teaching");
@@ -277,7 +304,7 @@ export const nativeSeeding = (kit) => {
     return findSession("android", flowName);
   };
   const startIos = async (flowName) => {
-    const { name } = await deviceOf("ios");
+    const { option } = await deviceOf("ios");
     const { prepare } = PLATFORMS.ios;
     await goto(kit.mcpPage("/?ios=new"));
     await waitFor("form", "Teach on iOS", { "timeout-ms": 60_000 });
@@ -287,7 +314,9 @@ export const nativeSeeding = (kit) => {
       value: flowName,
     });
     await click("combobox", "Simulator");
-    await click("option", `${name} iOS`, { partial: true });
+    // The whole option, such as `iPhone 17 · iOS 26.5`, which `iosDevice`
+    // checked no other booted simulator shares.
+    await click("option", option);
     await chooseApp("ios");
     await fillSetup("ios");
     await click("button", "Start teaching");
@@ -353,7 +382,10 @@ export const nativeSeeding = (kit) => {
     }
   };
 
-  /** Stop recording and close the session from its dock, as the user does. */
+  /**
+   * Stop recording, then close the session from the Agent Session picker,
+   * as the user does; the Session status island has no Close session.
+   */
   const stopAndClose = async (platform, sessionId) => {
     if (await shows("button", "Stop recording")) {
       await click("button", "Stop recording");
@@ -364,7 +396,7 @@ export const nativeSeeding = (kit) => {
         "stopped recording"
       );
     }
-    await click("button", "Close session");
+    await browser("native-close");
     await until(
       platform,
       sessionId,
@@ -422,15 +454,22 @@ export const nativeSeeding = (kit) => {
     return { flowName, recordingId, selection };
   };
 
-  /** Close this seed's sessions still holding the device, from their docks. */
+  /**
+   * Close this seed's live sessions on the resolved device, from their
+   * pickers. Seed sessions on other devices are left alone.
+   */
   const releaseDevice = async (platform) => {
+    const held = await deviceOf(platform);
     const listed = await call("agent_device_sessions_list", { platform });
     for (const session of listed.filter(
-      (entry) => entry.flowName.startsWith("seed-") && LIVE.has(entry.phase)
+      (entry) =>
+        entry.flowName.startsWith("seed-") &&
+        LIVE.has(entry.phase) &&
+        holdsDevice(platform, entry, held)
     )) {
       // The user holds a Teaching session, so the user closes it.
       await goto(viewUrl(platform, session.id));
-      await waitFor("button", "Close session", { "timeout-ms": 60_000 });
+      await waitFor("combobox", "Agent Session", { "timeout-ms": 60_000 });
       await stopAndClose(platform, session.id);
     }
   };
@@ -693,10 +732,11 @@ export const nativeSeeding = (kit) => {
           actions: [{ step: "complete" }],
           consumed: true,
           holder: "none",
+          // The ended stage keeps the device's region, with a Last frame chip.
           ready: [
-            "text",
-            "Last frame of the session",
-            { partial: true, "timeout-ms": 180_000 },
+            "region",
+            platform === "android" ? "Android device" : "iOS simulator",
+            { "has-text": "Last frame", "timeout-ms": 180_000 },
           ],
         },
         ended
@@ -704,9 +744,9 @@ export const nativeSeeding = (kit) => {
       onDryRun(
         `${platform}-run-summary-task`,
         "Run details",
-        // The device summary has no tabs; its Device list is in the one column.
+        // The Device facts sit in the summary's Task tab, as in the prototype.
         {
-          actions: [],
+          actions: [{ click: ["tab", "Task"] }],
           consumed: true,
           holder: "none",
           ready: ["region", "Device"],
@@ -737,15 +777,14 @@ export const nativeSeeding = (kit) => {
                   ]
                 : [
                     { click: ["combobox", "Simulator"] },
-                    {
-                      click: [
-                        "option",
-                        `${chosen.name} iOS`,
-                        { partial: true },
-                      ],
-                    },
+                    { click: ["option", chosen.option] },
                   ],
-            ready: ["button", p.app, { partial: true, "timeout-ms": 120_000 }],
+            // The Target App combobox waits, disabled, until the apps are read.
+            ready: [
+              "combobox",
+              "Target App",
+              { state: "enabled", "timeout-ms": 120_000 },
+            ],
             url: kit.mcpPage(`/?${p.query}=new`),
           };
         },

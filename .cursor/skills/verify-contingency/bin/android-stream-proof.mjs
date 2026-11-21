@@ -385,14 +385,15 @@ try {
   await snapshot("secure-window");
   receipt.coverage.secureWindow = {
     hidden: true,
-    recovery: "Close session; no hidden canvas input",
+    recovery: "Close session from the picker; no hidden canvas input",
   };
   // A secure window pauses the session, so recording cannot be stopped.
   const paused = await command({ _tag: "read", sessionId });
   assert.equal(paused.phase, "paused");
-  await wait("Close session");
+  await wait("Agent Session", "combobox");
   await androidIdle(control);
-  await click("Close session");
+  // Close session is in the Agent Session picker, not the island.
+  await control("browser", "native-close");
   await wait("New session");
   const closed = await command({ _tag: "read", sessionId });
   assert.equal(closed.phase, "closed");
@@ -421,8 +422,7 @@ try {
         "--url",
         `${instance.mcpUrl}?android=${session.id}`
       );
-      await click("Close session");
-      await wait("New session");
+      await control("browser", "native-close");
       const closedSession = await command({
         _tag: "read",
         sessionId: session.id,

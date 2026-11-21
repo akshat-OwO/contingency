@@ -571,7 +571,8 @@ const rotationCase = async () => {
   assert.equal(retained.status, "stopped");
   assert.deepEqual(retained.gaps, []);
   assertStoppedLast(await events(stopped.recordingId));
-  await click("Close session");
+  // Close session is in the Agent Session picker, not the island.
+  await control("browser", "native-close");
   const entries = await learn(stopped.recordingId);
   const actions = entries.filter(
     (entry) => entry._tag === "action" && !focusTap(entry)
@@ -682,7 +683,8 @@ const foldCase = async () => {
   assert.equal(retained.status, "stopped");
   assert.deepEqual(retained.gaps, []);
   assertStoppedLast(await events(stopped.recordingId));
-  await click("Close session");
+  // Close session is in the Agent Session picker, not the island.
+  await control("browser", "native-close");
   const entries = await learn(stopped.recordingId);
   assert.deepEqual(
     entries
@@ -964,7 +966,8 @@ const stopRace = async (stage) => {
   await evidence(`stop-${stage}`);
   const daemon = await productDaemon();
   const helper = await selectedSimulatorResource(instance, selected);
-  await click("Close session");
+  // Close session is in the Agent Session picker, not the island.
+  await control("browser", "native-close");
   receipt.coverage[`stop-${stage}`] = {
     backendInputs: inputs,
     eventsAfterStop: 0,

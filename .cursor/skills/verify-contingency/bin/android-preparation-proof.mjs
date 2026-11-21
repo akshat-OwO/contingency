@@ -7,6 +7,8 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { promisify } from "node:util";
 
+import { chooseTargetApp, closeNativeSession } from "./android-ui.mjs";
+
 const root = path.resolve(import.meta.dirname, "../../../..");
 const require = createRequire(path.join(root, "packages/cli/package.json"));
 const { chromium } = require("playwright-core");
@@ -142,7 +144,10 @@ const open = async (name, upload, starting) => {
   await page
     .getByRole("textbox", { exact: true, name: "Flow name" })
     .fill(flowName);
-  await page.getByRole("button", { name: new RegExp(serial, "u") }).click();
+  // Each device is an option of the Device field, such as
+  // `Pixel_9 · Android 16 emulator-5554`.
+  await page.getByRole("combobox", { exact: true, name: "Device" }).click();
+  await page.getByRole("option", { name: new RegExp(serial, "u") }).click();
   if (upload) {
     // The drop zone's button opens the file chooser; answer it with the APK.
     const chooser = page.waitForEvent("filechooser");
@@ -153,12 +158,7 @@ const open = async (name, upload, starting) => {
       .getByText(/replaces build 1 with your consent/u)
       .waitFor({ timeout: 90_000 });
   } else {
-    await page
-      .getByRole("textbox", { name: "Search installed apps" })
-      .fill(appId);
-    await page
-      .getByRole("button", { name: new RegExp(appId, "u") })
-      .click({ timeout: 90_000 });
+    await chooseTargetApp(page, appId);
   }
   if (starting) {
     await page.getByRole("button", { name: /^Setup/u }).click();
@@ -185,8 +185,10 @@ const selected = async () => {
   assert.equal(session.selection.device.serial, serial);
   return read(session.id);
 };
+// Close session is in the Agent Session picker; a closed Teaching session
+// offers New session.
 const close = async () => {
-  await click("Close session");
+  await closeNativeSession(page);
   await wait("New session");
   console.log("Closed session");
 };
@@ -313,12 +315,12 @@ try {
       path.join(evidence, "journal.json"),
       `${JSON.stringify(journal, null, 2)}\n`
     );
-    if (
-      await page
-        .getByRole("button", { exact: true, name: "Close session" })
-        .count()
-    ) {
-      await click("Close session");
+    const picker = page.getByRole("combobox", {
+      exact: true,
+      name: "Agent Session",
+    });
+    if ((await picker.count()) > 0) {
+      await closeNativeSession(page).catch(() => null);
     }
   } finally {
     try {
