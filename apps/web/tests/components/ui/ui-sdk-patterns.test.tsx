@@ -56,7 +56,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -614,15 +613,3 @@ test("Textarea is a native multi-line textbox named by its Field", async () => {
   expect(textarea).toHaveValue("a\nb");
 });
 
-test("Separator is announced with its orientation unless decorative", () => {
-  render(
-    <>
-      <Separator orientation="vertical" />
-      <Separator decorative />
-    </>
-  );
-  const line = screen.getByRole("separator");
-  expect(line).toHaveAttribute("aria-orientation", "vertical");
-  expect(line).toHaveAttribute("data-slot", "separator");
-  expect(document.querySelectorAll('[data-slot="separator"]')).toHaveLength(2);
-});

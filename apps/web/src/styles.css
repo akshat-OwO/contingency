@@ -1,12 +1,38 @@
 @layer ui-sdk;
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 @import "@fontsource-variable/geist-mono";
 
 @custom-variant dark (&:is(.dark *));
 @custom-variant reduce-transparency (@media (prefers-reduced-transparency: reduce));
+
+/*
+ * State variants the Primitives style with. UI SDK marks state with presence
+ * attributes (`data-open`, `data-checked`, `data-disabled`), and `:where`
+ * keeps the selector's specificity at zero so a utility on the same element
+ * can still override it.
+ */
+@custom-variant data-open {
+  &:where([data-state="open"]),
+  &:where([data-open]:not([data-open="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-checked {
+  &:where([data-state="checked"]),
+  &:where([data-checked]:not([data-checked="false"])) {
+    @slot;
+  }
+}
+
+@custom-variant data-disabled {
+  &:where([data-disabled="true"]),
+  &:where([data-disabled]:not([data-disabled="false"])) {
+    @slot;
+  }
+}
 
 /*
  * The one material for slim chrome that floats over the live Page: the dock,
