@@ -1,6 +1,11 @@
+import { createHash } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { expect, it } from "@effect/vitest";
 import { AppError } from "agent-device";
-import { Effect, Scope } from "effect";
+import { Effect, Schema, Scope } from "effect";
 
 import {
   androidBackendError,
@@ -282,4 +287,63 @@ it("a snapshot taken mid-transition is an incomplete capture, not a backend fail
       "capture"
     ).code
   ).toBe("runtime_failed");
+});
+
+it("agrees with the installed agent-device helper manifest and APK checksum", async () => {
+  const cliManifest = Schema.decodeUnknownSync(
+    Schema.Struct({
+      devDependencies: Schema.Record(Schema.String, Schema.String),
+    })
+  )(JSON.parse(await readFile(path.resolve("package.json"), "utf-8")));
+  expect(cliManifest.devDependencies["agent-device"]).toBe(
+    androidHelperRelease.version
+  );
+
+  const packageRoot = path.resolve(
+    path.dirname(fileURLToPath(import.meta.resolve("agent-device"))),
+    "../.."
+  );
+  const pkg = Schema.decodeUnknownSync(
+    Schema.Struct({ version: Schema.String })
+  )(
+    JSON.parse(await readFile(path.join(packageRoot, "package.json"), "utf-8"))
+  );
+  expect(pkg.version).toBe(androidHelperRelease.version);
+
+  const manifest = Schema.decodeUnknownSync(
+    Schema.Struct({
+      packageName: Schema.String,
+      sha256: Schema.String,
+      statusProtocol: Schema.String,
+      version: Schema.String,
+      versionCode: Schema.Number,
+    })
+  )(
+    JSON.parse(
+      await readFile(
+        path.join(
+          packageRoot,
+          `android/snapshot-helper/dist/agent-device-android-snapshot-helper-${androidHelperRelease.version}.manifest.json`
+        ),
+        "utf-8"
+      )
+    )
+  );
+  expect(manifest).toMatchObject({
+    packageName: androidHelperRelease.packageName,
+    sha256: androidHelperRelease.sha256,
+    statusProtocol: "android-snapshot-helper-v1",
+    version: androidHelperRelease.version,
+    versionCode: androidHelperRelease.versionCode,
+  });
+
+  const apkBytes = await readFile(
+    path.join(
+      packageRoot,
+      `android/snapshot-helper/dist/agent-device-android-snapshot-helper-${androidHelperRelease.version}.apk`
+    )
+  );
+  expect(createHash("sha256").update(apkBytes).digest("hex")).toBe(
+    androidHelperRelease.sha256
+  );
 });

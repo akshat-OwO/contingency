@@ -1,19 +1,18 @@
 {
-  "capturedAt": "2026-11-09T17:37:35.924Z",
+  "capturedAt": "2026-11-21T14:29:44.877Z",
   "nodes": [
     {
       "index": 0,
       "type": "android.widget.TextView",
       "kind": "text",
-      "label": "12:14",
-      "value": "12:14",
-      "contentDescription": "12:14 AM",
+      "label": "7:59",
+      "contentDescription": "7:59 PM",
       "identifier": "com.android.systemui:id/clock",
       "rect": {
         "x": 11,
-        "y": 41,
-        "width": 160,
-        "height": 59
+        "y": 49,
+        "width": 104,
+        "height": 43
       },
       "enabled": true,
       "selected": false,
@@ -28,11 +27,11 @@
       "index": 1,
       "type": "android.widget.ImageView",
       "kind": "image",
-      "label": "Android System notification: ",
+      "label": "Security & privacy notification: ",
       "rect": {
-        "x": 171,
+        "x": 115,
         "y": 0,
-        "width": 67,
+        "width": 58,
         "height": 142
       },
       "enabled": true,
@@ -51,10 +50,10 @@
       "label": "Wifi signal full.",
       "identifier": "com.android.systemui:id/wifi_signal",
       "rect": {
-        "x": 840,
-        "y": 44,
-        "width": 53,
-        "height": 53
+        "x": 891,
+        "y": 51,
+        "width": 39,
+        "height": 39
       },
       "enabled": true,
       "selected": false,
@@ -67,14 +66,15 @@
     },
     {
       "index": 3,
-      "type": "android.widget.ImageView",
-      "kind": "image",
-      "label": "Airplane mode.",
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "label": "T-Mobile, three bars.",
+      "identifier": "com.android.systemui:id/mobile_combo",
       "rect": {
-        "x": 907,
-        "y": 37,
-        "width": 54,
-        "height": 67
+        "x": 930,
+        "y": 42,
+        "width": 39,
+        "height": 58
       },
       "enabled": true,
       "selected": false,
@@ -87,34 +87,55 @@
     },
     {
       "index": 4,
-      "type": "android.widget.LinearLayout",
-      "kind": "group",
-      "label": "Battery charging, 100 percent.",
-      "identifier": "com.android.systemui:id/battery",
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "identifier": "com.android.systemui:id/mobile_signal",
       "rect": {
-        "x": 977,
-        "y": 47,
-        "width": 28,
-        "height": 47
+        "x": 930,
+        "y": 51,
+        "width": 39,
+        "height": 39
       },
       "enabled": true,
       "selected": false,
       "editable": false,
       "password": false,
       "visibleToUser": true,
-      "depth": 0,
+      "depth": 1,
+      "parentIndex": 3,
       "bundleId": "com.android.systemui",
       "ref": "e5"
     },
     {
       "index": 5,
+      "type": "android.widget.LinearLayout",
+      "kind": "group",
+      "label": "Battery charging, 100 percent.",
+      "identifier": "com.android.systemui:id/battery",
+      "rect": {
+        "x": 985,
+        "y": 54,
+        "width": 20,
+        "height": 34
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.android.systemui",
+      "ref": "e6"
+    },
+    {
+      "index": 6,
       "type": "android.widget.ImageView",
       "kind": "image",
       "rect": {
-        "x": 977,
-        "y": 47,
-        "width": 28,
-        "height": 47
+        "x": 985,
+        "y": 54,
+        "width": 20,
+        "height": 34
       },
       "enabled": true,
       "selected": false,
@@ -122,19 +143,19 @@
       "password": false,
       "visibleToUser": true,
       "depth": 1,
-      "parentIndex": 4,
+      "parentIndex": 5,
       "bundleId": "com.android.systemui",
-      "ref": "e6"
+      "ref": "e7"
     },
     {
-      "index": 6,
+      "index": 7,
       "type": "android.widget.FrameLayout",
       "kind": "group",
       "rect": {
-        "x": 0,
-        "y": 0,
-        "width": 1080,
-        "height": 2424
+        "x": 456,
+        "y": 288,
+        "width": 592,
+        "height": 337
       },
       "enabled": true,
       "selected": false,
@@ -143,44 +164,25 @@
       "visibleToUser": true,
       "depth": 0,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e7"
-    },
-    {
-      "index": 7,
-      "type": "android.widget.LinearLayout",
-      "kind": "group",
-      "rect": {
-        "x": 0,
-        "y": 0,
-        "width": 1080,
-        "height": 2424
-      },
-      "enabled": true,
-      "selected": false,
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "depth": 1,
-      "parentIndex": 6,
-      "bundleId": "com.google.android.deskclock",
       "ref": "e8"
     },
     {
       "index": 8,
-      "type": "android.widget.FrameLayout",
+      "type": "android.view.ViewGroup",
       "kind": "group",
       "rect": {
-        "x": 0,
-        "y": 0,
-        "width": 1080,
-        "height": 2424
+        "x": 456,
+        "y": 288,
+        "width": 592,
+        "height": 337
       },
       "enabled": true,
       "selected": false,
       "editable": false,
       "password": false,
       "visibleToUser": true,
-      "depth": 2,
+      "hittable": true,
+      "depth": 1,
       "parentIndex": 7,
       "bundleId": "com.google.android.deskclock",
       "ref": "e9"
@@ -189,12 +191,33 @@
       "index": 9,
       "type": "android.widget.LinearLayout",
       "kind": "group",
-      "identifier": "com.google.android.deskclock:id/action_bar_root",
       "rect": {
-        "x": 0,
-        "y": 0,
-        "width": 1080,
-        "height": 2424
+        "x": 488,
+        "y": 341,
+        "width": 528,
+        "height": 252
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 2,
+      "parentIndex": 8,
+      "bundleId": "com.google.android.deskclock",
+      "ref": "e10"
+    },
+    {
+      "index": 10,
+      "type": "android.widget.TextView",
+      "kind": "text",
+      "label": "You can find the privacy policy here in the more options menu.",
+      "identifier": "com.google.android.deskclock:id/body",
+      "rect": {
+        "x": 488,
+        "y": 341,
+        "width": 525,
+        "height": 102
       },
       "enabled": true,
       "selected": false,
@@ -202,27 +225,6 @@
       "password": false,
       "visibleToUser": true,
       "depth": 3,
-      "parentIndex": 8,
-      "bundleId": "com.google.android.deskclock",
-      "ref": "e10"
-    },
-    {
-      "index": 10,
-      "type": "android.widget.FrameLayout",
-      "kind": "group",
-      "identifier": "android:id/content",
-      "rect": {
-        "x": 0,
-        "y": 0,
-        "width": 1080,
-        "height": 2424
-      },
-      "enabled": true,
-      "selected": false,
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "depth": 4,
       "parentIndex": 9,
       "bundleId": "com.google.android.deskclock",
       "ref": "e11"
@@ -232,10 +234,154 @@
       "type": "android.view.ViewGroup",
       "kind": "group",
       "rect": {
+        "x": 488,
+        "y": 443,
+        "width": 525,
+        "height": 147
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 3,
+      "parentIndex": 9,
+      "bundleId": "com.google.android.deskclock",
+      "ref": "e12"
+    },
+    {
+      "index": 12,
+      "type": "android.widget.TextView",
+      "kind": "text",
+      "label": "Dismiss",
+      "identifier": "com.google.android.deskclock:id/dismiss_button",
+      "rect": {
+        "x": 488,
+        "y": 464,
+        "width": 126,
+        "height": 126
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "hittable": true,
+      "depth": 4,
+      "parentIndex": 11,
+      "bundleId": "com.google.android.deskclock",
+      "ref": "e13"
+    },
+    {
+      "index": 13,
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "rect": {
         "x": 0,
-        "y": 0,
+        "y": 142,
         "width": 1080,
-        "height": 2424
+        "height": 2282
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 0,
+      "bundleId": "com.google.android.deskclock",
+      "ref": "e14"
+    },
+    {
+      "index": 14,
+      "type": "android.widget.LinearLayout",
+      "kind": "group",
+      "rect": {
+        "x": 0,
+        "y": 142,
+        "width": 1080,
+        "height": 2282
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 1,
+      "parentIndex": 13,
+      "bundleId": "com.google.android.deskclock",
+      "ref": "e15"
+    },
+    {
+      "index": 15,
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "rect": {
+        "x": 0,
+        "y": 142,
+        "width": 1080,
+        "height": 2282
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 2,
+      "parentIndex": 14,
+      "bundleId": "com.google.android.deskclock",
+      "ref": "e16"
+    },
+    {
+      "index": 16,
+      "type": "android.widget.LinearLayout",
+      "kind": "group",
+      "identifier": "com.google.android.deskclock:id/action_bar_root",
+      "rect": {
+        "x": 0,
+        "y": 142,
+        "width": 1080,
+        "height": 2282
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 3,
+      "parentIndex": 15,
+      "bundleId": "com.google.android.deskclock",
+      "ref": "e17"
+    },
+    {
+      "index": 17,
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "identifier": "android:id/content",
+      "rect": {
+        "x": 0,
+        "y": 142,
+        "width": 1080,
+        "height": 2282
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 4,
+      "parentIndex": 16,
+      "bundleId": "com.google.android.deskclock",
+      "ref": "e18"
+    },
+    {
+      "index": 18,
+      "type": "android.view.ViewGroup",
+      "kind": "group",
+      "rect": {
+        "x": 0,
+        "y": 142,
+        "width": 1080,
+        "height": 2282
       },
       "enabled": true,
       "selected": false,
@@ -243,20 +389,20 @@
       "password": false,
       "visibleToUser": true,
       "depth": 5,
-      "parentIndex": 10,
+      "parentIndex": 17,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e12"
+      "ref": "e19"
     },
     {
-      "index": 12,
+      "index": 19,
       "type": "android.view.ViewGroup",
       "kind": "group",
       "identifier": "com.google.android.deskclock:id/content",
       "rect": {
         "x": 0,
-        "y": 0,
+        "y": 142,
         "width": 1080,
-        "height": 2424
+        "height": 2282
       },
       "enabled": true,
       "selected": false,
@@ -264,20 +410,20 @@
       "password": false,
       "visibleToUser": true,
       "depth": 6,
-      "parentIndex": 11,
+      "parentIndex": 18,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e13"
+      "ref": "e20"
     },
     {
-      "index": 13,
+      "index": 20,
       "type": "android.widget.LinearLayout",
       "kind": "group",
       "identifier": "com.google.android.deskclock:id/app_bar_layout",
       "rect": {
         "x": 0,
-        "y": 0,
+        "y": 142,
         "width": 1080,
-        "height": 310
+        "height": 168
       },
       "enabled": true,
       "selected": false,
@@ -285,12 +431,12 @@
       "password": false,
       "visibleToUser": true,
       "depth": 7,
-      "parentIndex": 12,
+      "parentIndex": 19,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e14"
+      "ref": "e21"
     },
     {
-      "index": 14,
+      "index": 21,
       "type": "android.view.ViewGroup",
       "kind": "group",
       "identifier": "com.google.android.deskclock:id/toolbar",
@@ -306,22 +452,21 @@
       "password": false,
       "visibleToUser": true,
       "depth": 8,
-      "parentIndex": 13,
+      "parentIndex": 20,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e15"
+      "ref": "e22"
     },
     {
-      "index": 15,
+      "index": 22,
       "type": "android.widget.TextView",
       "kind": "text",
       "label": "World Clock",
-      "value": "World Clock",
       "identifier": "com.google.android.deskclock:id/action_bar_title",
       "rect": {
         "x": 63,
-        "y": 177,
-        "width": 369,
-        "height": 97
+        "y": 183,
+        "width": 319,
+        "height": 85
       },
       "enabled": true,
       "selected": false,
@@ -329,12 +474,12 @@
       "password": false,
       "visibleToUser": true,
       "depth": 9,
-      "parentIndex": 14,
+      "parentIndex": 21,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e16"
+      "ref": "e23"
     },
     {
-      "index": 16,
+      "index": 23,
       "type": "android.support.v7.widget.LinearLayoutCompat",
       "kind": "linearlayoutcompat",
       "rect": {
@@ -349,12 +494,12 @@
       "password": false,
       "visibleToUser": true,
       "depth": 9,
-      "parentIndex": 14,
+      "parentIndex": 21,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e17"
+      "ref": "e24"
     },
     {
-      "index": 17,
+      "index": 24,
       "type": "android.widget.ImageView",
       "kind": "image",
       "label": "More options",
@@ -372,12 +517,12 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 10,
-      "parentIndex": 16,
+      "parentIndex": 23,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e18"
+      "ref": "e25"
     },
     {
-      "index": 18,
+      "index": 25,
       "type": "android.view.ViewGroup",
       "kind": "group",
       "identifier": "com.google.android.deskclock:id/desk_clock_pager_frame",
@@ -385,7 +530,7 @@
         "x": 0,
         "y": 310,
         "width": 1080,
-        "height": 1881
+        "height": 1883
       },
       "enabled": true,
       "selected": false,
@@ -393,12 +538,12 @@
       "password": false,
       "visibleToUser": true,
       "depth": 7,
-      "parentIndex": 12,
+      "parentIndex": 19,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e19"
+      "ref": "e26"
     },
     {
-      "index": 19,
+      "index": 26,
       "type": "android.view.ViewGroup",
       "kind": "group",
       "identifier": "com.google.android.deskclock:id/desk_clock_pager",
@@ -406,7 +551,7 @@
         "x": 0,
         "y": 310,
         "width": 1080,
-        "height": 1881
+        "height": 1883
       },
       "enabled": true,
       "selected": false,
@@ -415,19 +560,19 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 8,
-      "parentIndex": 18,
+      "parentIndex": 25,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e20"
+      "ref": "e27"
     },
     {
-      "index": 20,
+      "index": 27,
       "type": "android.widget.FrameLayout",
       "kind": "group",
       "rect": {
         "x": 0,
         "y": 310,
         "width": 1080,
-        "height": 1881
+        "height": 1883
       },
       "enabled": true,
       "selected": false,
@@ -435,12 +580,12 @@
       "password": false,
       "visibleToUser": true,
       "depth": 9,
-      "parentIndex": 19,
+      "parentIndex": 26,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e21"
+      "ref": "e28"
     },
     {
-      "index": 21,
+      "index": 28,
       "type": "android.view.ViewGroup",
       "kind": "group",
       "identifier": "com.google.android.deskclock:id/world_clock_fragment",
@@ -448,7 +593,7 @@
         "x": 0,
         "y": 310,
         "width": 1080,
-        "height": 1881
+        "height": 1883
       },
       "enabled": true,
       "selected": false,
@@ -456,12 +601,12 @@
       "password": false,
       "visibleToUser": true,
       "depth": 10,
-      "parentIndex": 20,
+      "parentIndex": 27,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e22"
+      "ref": "e29"
     },
     {
-      "index": 22,
+      "index": 29,
       "type": "android.widget.GridView",
       "kind": "gridview",
       "identifier": "com.google.android.deskclock:id/cities",
@@ -469,7 +614,7 @@
         "x": 0,
         "y": 310,
         "width": 1080,
-        "height": 1881
+        "height": 1883
       },
       "enabled": true,
       "selected": false,
@@ -478,16 +623,15 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 11,
-      "parentIndex": 21,
+      "parentIndex": 28,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e23"
+      "ref": "e30"
     },
     {
-      "index": 23,
+      "index": 30,
       "type": "android.widget.TextView",
       "kind": "text",
-      "label": "12:14 AM",
-      "value": "12:14 AM",
+      "label": "7:59 PM",
       "identifier": "com.google.android.deskclock:id/digital_clock",
       "rect": {
         "x": 131,
@@ -501,23 +645,22 @@
       "password": false,
       "visibleToUser": true,
       "depth": 12,
-      "parentIndex": 22,
+      "parentIndex": 29,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e24"
+      "ref": "e31"
     },
     {
-      "index": 24,
+      "index": 31,
       "type": "android.widget.TextView",
       "kind": "text",
-      "label": "Fri, Nov 6",
-      "value": "Fri, Nov 6",
-      "contentDescription": "Friday, November 6",
+      "label": "Sat, Nov 21",
+      "contentDescription": "Saturday, November 21",
       "identifier": "com.google.android.deskclock:id/current_date",
       "rect": {
-        "x": 425,
+        "x": 438,
         "y": 725,
-        "width": 230,
-        "height": 80
+        "width": 205,
+        "height": 62
       },
       "enabled": true,
       "selected": false,
@@ -525,22 +668,21 @@
       "password": false,
       "visibleToUser": true,
       "depth": 12,
-      "parentIndex": 22,
+      "parentIndex": 29,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e25"
+      "ref": "e32"
     },
     {
-      "index": 25,
+      "index": 32,
       "type": "android.widget.TextView",
       "kind": "text",
       "label": "No locations",
-      "value": "No locations",
       "contentDescription": "No locations selected",
       "rect": {
         "x": 42,
-        "y": 805,
+        "y": 787,
         "width": 996,
-        "height": 1111
+        "height": 1131
       },
       "enabled": true,
       "selected": false,
@@ -548,19 +690,19 @@
       "password": false,
       "visibleToUser": true,
       "depth": 12,
-      "parentIndex": 22,
+      "parentIndex": 29,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e26"
+      "ref": "e33"
     },
     {
-      "index": 26,
+      "index": 33,
       "type": "android.widget.Button",
       "kind": "button",
       "label": "Add city",
       "identifier": "com.google.android.deskclock:id/fab",
       "rect": {
         "x": 828,
-        "y": 1939,
+        "y": 1941,
         "width": 210,
         "height": 210
       },
@@ -571,20 +713,20 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 8,
-      "parentIndex": 18,
+      "parentIndex": 25,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e27"
+      "ref": "e34"
     },
     {
-      "index": 27,
+      "index": 34,
       "type": "android.widget.FrameLayout",
       "kind": "group",
       "identifier": "com.google.android.deskclock:id/navigation_bar",
       "rect": {
         "x": 0,
-        "y": 2191,
+        "y": 2193,
         "width": 1080,
-        "height": 233
+        "height": 231
       },
       "enabled": true,
       "selected": false,
@@ -592,19 +734,19 @@
       "password": false,
       "visibleToUser": true,
       "depth": 7,
-      "parentIndex": 12,
+      "parentIndex": 19,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e28"
+      "ref": "e35"
     },
     {
-      "index": 28,
+      "index": 35,
       "type": "android.view.ViewGroup",
       "kind": "group",
       "rect": {
         "x": 0,
-        "y": 2191,
+        "y": 2193,
         "width": 1080,
-        "height": 170
+        "height": 168
       },
       "enabled": true,
       "selected": false,
@@ -612,21 +754,21 @@
       "password": false,
       "visibleToUser": true,
       "depth": 8,
-      "parentIndex": 27,
+      "parentIndex": 34,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e29"
+      "ref": "e36"
     },
     {
-      "index": 29,
+      "index": 36,
       "type": "android.widget.FrameLayout",
       "kind": "group",
       "label": "Alarms",
       "identifier": "com.google.android.deskclock:id/tab_menu_alarm",
       "rect": {
         "x": 0,
-        "y": 2191,
+        "y": 2193,
         "width": 216,
-        "height": 170
+        "height": 168
       },
       "enabled": true,
       "selected": false,
@@ -636,179 +778,20 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 9,
-      "parentIndex": 28,
-      "bundleId": "com.google.android.deskclock",
-      "ref": "e30"
-    },
-    {
-      "index": 30,
-      "type": "android.widget.ImageView",
-      "kind": "image",
-      "identifier": "com.google.android.deskclock:id/navigation_bar_item_icon_view",
-      "rect": {
-        "x": 76,
-        "y": 2217,
-        "width": 63,
-        "height": 63
-      },
-      "enabled": true,
-      "selected": false,
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "depth": 10,
-      "parentIndex": 29,
-      "bundleId": "com.google.android.deskclock",
-      "ref": "e31"
-    },
-    {
-      "index": 31,
-      "type": "android.widget.TextView",
-      "kind": "text",
-      "label": "Alarms",
-      "value": "Alarms",
-      "identifier": "com.google.android.deskclock:id/navigation_bar_item_small_label_view",
-      "rect": {
-        "x": 46,
-        "y": 2302,
-        "width": 122,
-        "height": 43
-      },
-      "enabled": true,
-      "selected": false,
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "depth": 10,
-      "parentIndex": 29,
-      "bundleId": "com.google.android.deskclock",
-      "ref": "e32"
-    },
-    {
-      "index": 32,
-      "type": "android.widget.FrameLayout",
-      "kind": "group",
-      "label": "World Clock",
-      "identifier": "com.google.android.deskclock:id/tab_menu_clock",
-      "rect": {
-        "x": 216,
-        "y": 2191,
-        "width": 216,
-        "height": 170
-      },
-      "enabled": true,
-      "selected": true,
-      "roleDescription": "Tab",
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "hittable": true,
-      "depth": 9,
-      "parentIndex": 28,
-      "bundleId": "com.google.android.deskclock",
-      "ref": "e33"
-    },
-    {
-      "index": 33,
-      "type": "android.widget.ImageView",
-      "kind": "image",
-      "identifier": "com.google.android.deskclock:id/navigation_bar_item_icon_view",
-      "rect": {
-        "x": 292,
-        "y": 2217,
-        "width": 63,
-        "height": 63
-      },
-      "enabled": true,
-      "selected": true,
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "depth": 10,
-      "parentIndex": 32,
-      "bundleId": "com.google.android.deskclock",
-      "ref": "e34"
-    },
-    {
-      "index": 34,
-      "type": "android.widget.TextView",
-      "kind": "text",
-      "label": "World Clock",
-      "value": "World Clock",
-      "identifier": "com.google.android.deskclock:id/navigation_bar_item_large_label_view",
-      "rect": {
-        "x": 217,
-        "y": 2302,
-        "width": 213,
-        "height": 43
-      },
-      "enabled": true,
-      "selected": true,
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "depth": 10,
-      "parentIndex": 32,
-      "bundleId": "com.google.android.deskclock",
-      "ref": "e35"
-    },
-    {
-      "index": 35,
-      "type": "android.widget.FrameLayout",
-      "kind": "group",
-      "label": "Timers",
-      "identifier": "com.google.android.deskclock:id/tab_menu_timer",
-      "rect": {
-        "x": 432,
-        "y": 2191,
-        "width": 216,
-        "height": 170
-      },
-      "enabled": true,
-      "selected": false,
-      "roleDescription": "Tab",
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "hittable": true,
-      "depth": 9,
-      "parentIndex": 28,
-      "bundleId": "com.google.android.deskclock",
-      "ref": "e36"
-    },
-    {
-      "index": 36,
-      "type": "android.widget.ImageView",
-      "kind": "image",
-      "identifier": "com.google.android.deskclock:id/navigation_bar_item_icon_view",
-      "rect": {
-        "x": 508,
-        "y": 2217,
-        "width": 63,
-        "height": 63
-      },
-      "enabled": true,
-      "selected": false,
-      "editable": false,
-      "password": false,
-      "visibleToUser": true,
-      "depth": 10,
       "parentIndex": 35,
       "bundleId": "com.google.android.deskclock",
       "ref": "e37"
     },
     {
       "index": 37,
-      "type": "android.widget.TextView",
-      "kind": "text",
-      "label": "Timers",
-      "value": "Timers",
-      "identifier": "com.google.android.deskclock:id/navigation_bar_item_small_label_view",
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "identifier": "com.google.android.deskclock:id/navigation_bar_item_icon_view",
       "rect": {
-        "x": 480,
-        "y": 2302,
-        "width": 118,
-        "height": 43
+        "x": 76,
+        "y": 2219,
+        "width": 63,
+        "height": 63
       },
       "enabled": true,
       "selected": false,
@@ -816,21 +799,177 @@
       "password": false,
       "visibleToUser": true,
       "depth": 10,
-      "parentIndex": 35,
+      "parentIndex": 36,
       "bundleId": "com.google.android.deskclock",
       "ref": "e38"
     },
     {
       "index": 38,
+      "type": "android.widget.TextView",
+      "kind": "text",
+      "label": "Alarms",
+      "identifier": "com.google.android.deskclock:id/navigation_bar_item_small_label_view",
+      "rect": {
+        "x": 50,
+        "y": 2304,
+        "width": 115,
+        "height": 40
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 10,
+      "parentIndex": 36,
+      "bundleId": "com.google.android.deskclock",
+      "ref": "e39"
+    },
+    {
+      "index": 39,
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "label": "World Clock",
+      "identifier": "com.google.android.deskclock:id/tab_menu_clock",
+      "rect": {
+        "x": 216,
+        "y": 2193,
+        "width": 216,
+        "height": 168
+      },
+      "enabled": true,
+      "selected": true,
+      "roleDescription": "Tab",
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "hittable": true,
+      "depth": 9,
+      "parentIndex": 35,
+      "bundleId": "com.google.android.deskclock",
+      "ref": "e40"
+    },
+    {
+      "index": 40,
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "identifier": "com.google.android.deskclock:id/navigation_bar_item_icon_view",
+      "rect": {
+        "x": 292,
+        "y": 2219,
+        "width": 63,
+        "height": 63
+      },
+      "enabled": true,
+      "selected": true,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 10,
+      "parentIndex": 39,
+      "bundleId": "com.google.android.deskclock",
+      "ref": "e41"
+    },
+    {
+      "index": 41,
+      "type": "android.widget.TextView",
+      "kind": "text",
+      "label": "World Clock",
+      "identifier": "com.google.android.deskclock:id/navigation_bar_item_large_label_view",
+      "rect": {
+        "x": 224,
+        "y": 2304,
+        "width": 200,
+        "height": 40
+      },
+      "enabled": true,
+      "selected": true,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 10,
+      "parentIndex": 39,
+      "bundleId": "com.google.android.deskclock",
+      "ref": "e42"
+    },
+    {
+      "index": 42,
+      "type": "android.widget.FrameLayout",
+      "kind": "group",
+      "label": "Timers",
+      "identifier": "com.google.android.deskclock:id/tab_menu_timer",
+      "rect": {
+        "x": 432,
+        "y": 2193,
+        "width": 216,
+        "height": 168
+      },
+      "enabled": true,
+      "selected": false,
+      "roleDescription": "Tab",
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "hittable": true,
+      "depth": 9,
+      "parentIndex": 35,
+      "bundleId": "com.google.android.deskclock",
+      "ref": "e43"
+    },
+    {
+      "index": 43,
+      "type": "android.widget.ImageView",
+      "kind": "image",
+      "identifier": "com.google.android.deskclock:id/navigation_bar_item_icon_view",
+      "rect": {
+        "x": 508,
+        "y": 2219,
+        "width": 63,
+        "height": 63
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 10,
+      "parentIndex": 42,
+      "bundleId": "com.google.android.deskclock",
+      "ref": "e44"
+    },
+    {
+      "index": 44,
+      "type": "android.widget.TextView",
+      "kind": "text",
+      "label": "Timers",
+      "identifier": "com.google.android.deskclock:id/navigation_bar_item_small_label_view",
+      "rect": {
+        "x": 484,
+        "y": 2304,
+        "width": 110,
+        "height": 40
+      },
+      "enabled": true,
+      "selected": false,
+      "editable": false,
+      "password": false,
+      "visibleToUser": true,
+      "depth": 10,
+      "parentIndex": 42,
+      "bundleId": "com.google.android.deskclock",
+      "ref": "e45"
+    },
+    {
+      "index": 45,
       "type": "android.widget.FrameLayout",
       "kind": "group",
       "label": "Stopwatch",
       "identifier": "com.google.android.deskclock:id/tab_menu_stopwatch",
       "rect": {
         "x": 648,
-        "y": 2191,
+        "y": 2193,
         "width": 216,
-        "height": 170
+        "height": 168
       },
       "enabled": true,
       "selected": false,
@@ -840,18 +979,18 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 9,
-      "parentIndex": 28,
+      "parentIndex": 35,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e39"
+      "ref": "e46"
     },
     {
-      "index": 39,
+      "index": 46,
       "type": "android.widget.ImageView",
       "kind": "image",
       "identifier": "com.google.android.deskclock:id/navigation_bar_item_icon_view",
       "rect": {
         "x": 724,
-        "y": 2217,
+        "y": 2219,
         "width": 63,
         "height": 63
       },
@@ -861,22 +1000,21 @@
       "password": false,
       "visibleToUser": true,
       "depth": 10,
-      "parentIndex": 38,
+      "parentIndex": 45,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e40"
+      "ref": "e47"
     },
     {
-      "index": 40,
+      "index": 47,
       "type": "android.widget.TextView",
       "kind": "text",
       "label": "Stopwatch",
-      "value": "Stopwatch",
       "identifier": "com.google.android.deskclock:id/navigation_bar_item_small_label_view",
       "rect": {
-        "x": 662,
-        "y": 2302,
-        "width": 188,
-        "height": 43
+        "x": 668,
+        "y": 2304,
+        "width": 176,
+        "height": 40
       },
       "enabled": true,
       "selected": false,
@@ -884,21 +1022,21 @@
       "password": false,
       "visibleToUser": true,
       "depth": 10,
-      "parentIndex": 38,
+      "parentIndex": 45,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e41"
+      "ref": "e48"
     },
     {
-      "index": 41,
+      "index": 48,
       "type": "android.widget.FrameLayout",
       "kind": "group",
       "label": "Bedtime",
       "identifier": "com.google.android.deskclock:id/tab_menu_bedtime",
       "rect": {
         "x": 864,
-        "y": 2191,
+        "y": 2193,
         "width": 216,
-        "height": 170
+        "height": 168
       },
       "enabled": true,
       "selected": false,
@@ -908,18 +1046,18 @@
       "visibleToUser": true,
       "hittable": true,
       "depth": 9,
-      "parentIndex": 28,
+      "parentIndex": 35,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e42"
+      "ref": "e49"
     },
     {
-      "index": 42,
+      "index": 49,
       "type": "android.widget.ImageView",
       "kind": "image",
       "identifier": "com.google.android.deskclock:id/navigation_bar_item_icon_view",
       "rect": {
         "x": 940,
-        "y": 2217,
+        "y": 2219,
         "width": 63,
         "height": 63
       },
@@ -929,22 +1067,21 @@
       "password": false,
       "visibleToUser": true,
       "depth": 10,
-      "parentIndex": 41,
+      "parentIndex": 48,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e43"
+      "ref": "e50"
     },
     {
-      "index": 43,
+      "index": 50,
       "type": "android.widget.TextView",
       "kind": "text",
       "label": "Bedtime",
-      "value": "Bedtime",
       "identifier": "com.google.android.deskclock:id/navigation_bar_item_small_label_view",
       "rect": {
-        "x": 898,
-        "y": 2302,
-        "width": 146,
-        "height": 43
+        "x": 902,
+        "y": 2304,
+        "width": 138,
+        "height": 40
       },
       "enabled": true,
       "selected": false,
@@ -952,9 +1089,9 @@
       "password": false,
       "visibleToUser": true,
       "depth": 10,
-      "parentIndex": 41,
+      "parentIndex": 48,
       "bundleId": "com.google.android.deskclock",
-      "ref": "e44"
+      "ref": "e51"
     }
   ],
   "platform": "android",

@@ -1,7 +1,46 @@
 {
-  "checkedAt": "2026-10-29",
-  "issue": 567,
+  "checkedAt": "2026-11-21",
+  "issue": 674,
   "adr": "0067",
+  "releases": {
+    "agentDevice": "0.21.41",
+    "agentDeviceCommit": "38579db5455e8b7db1faa1faff901d3e11301ad2",
+    "androidHelper": {
+      "api": "2",
+      "packageName": "com.callstack.agentdevice.snapshothelper",
+      "sha256": "c45471e02f0bf6af287467cbb6746f71934fdcc64d0f43cf1d9bd4a2e14d2a3c",
+      "signingCertificateSha256": "f5dc3a7bf83a1b17312c222cd89a2f781230f34a7a407e6033fa28adf0b3cf48",
+      "statusProtocol": "android-snapshot-helper-v1",
+      "version": "0.21.41",
+      "versionCode": 21041
+    },
+    "expoDeviceHub": "0.26.1",
+    "expoDeviceHubCommit": "11778f3bbf50f3dced744ecb5089879f8d375b6d",
+    "scrcpy": "4.0"
+  },
+  "helperUpgradeProof": {
+    "device": {
+      "api": 36,
+      "avd": "Pixel_9",
+      "fingerprint": "google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.D1/13818094:user/release-keys",
+      "host": "local",
+      "serial": "emulator-5580"
+    },
+    "grantOperation": "replace",
+    "before": {
+      "version": "0.21.25",
+      "versionCode": 21025,
+      "sha256": "79175080eb71f444224c844a599e75e839d6456790eb96d175fc887f85237a12"
+    },
+    "after": {
+      "version": "0.21.41",
+      "versionCode": 21041,
+      "sha256": "c45471e02f0bf6af287467cbb6746f71934fdcc64d0f43cf1d9bd4a2e14d2a3c"
+    },
+    "proof": "packages/cli/scripts/verify-android-runtime.ts",
+    "ordinaryTextObserved": true,
+    "cleanupPhase": "closed"
+  },
   "proof": ".cursor/skills/verify-contingency/bin/android-support-matrix-proof.mjs",
   "cells": {
     "pixel9-api36": {
@@ -10,15 +49,23 @@
         "avd": "Pixel_9",
         "fingerprint": "google/sdk_gphone64_arm64/emu64a:16/BE2A.250530.026.D1/13818094:user/release-keys",
         "host": "local",
-        "serial": "emulator-5554",
+        "serial": "emulator-5580",
         "release": "16"
       },
-      "sourceRevision": "45d156c449273f54231c1546dcffb0a9286baf76",
-      "fixtureSha256": "1329824a21e367dff9b806b2400878a9347868781414d3969dd439cf351046fc",
-      "finishedAt": "2026-10-29T02:33:34.972Z",
+      "sourceRevision": "9c3c7e4bc0f4e066e4c5556a456da843477b7722",
+      "fixtureSha256": "a1e94a268491080203189cdf954e79b3382d49a0b127031c9b2eaacd66c4327f",
+      "finishedAt": "2026-11-21T15:04:45.740Z",
       "artifacts": ".cursor/skills/verify-contingency/artifacts/android-support-matrix/pixel9-api36",
       "teaching": {
-        "actionKinds": ["fill", "variable", "activate", "activate", "back"],
+        "actionKinds": [
+          "activate",
+          "fill",
+          "activate",
+          "variable",
+          "activate",
+          "activate",
+          "back"
+        ],
         "variableFill": "ordinary",
         "inputConfirmation": "unconfirmed"
       },
@@ -44,11 +91,15 @@
           "refusal": "Physical Android devices are unsupported. Select an emulator.",
           "noDeviceCommands": true
         },
-        "sameDeviceBound": "Android session <session> is already bound to emulator-5554. Close it before starting another session.",
-        "multipleBoundDevices": "Android binds one device at a time, and session <session> is bound to emulator-5554. Multiple bound devices are unsupported; close that session first.",
+        "sameDeviceBound": "Android session <session> is already bound to emulator-5580. Close it before starting another session.",
+        "multipleBoundDevices": "Android binds one device at a time, and session <session> is bound to emulator-5580. Multiple bound devices are unsupported; close that session first.",
         "rawCoordinates": {
-          "mcp": "Invalid parameters: action must be activate, fill, variable, or back",
-          "workspace": "Nothing to activate there. No input was sent."
+          "mcp": "Invalid parameters for tool 'agent_device_workspace': Expected { readonly \"_tag\": \"activate\", ... } | { readonly \"_tag\": \"fill\", ... } | { readonly \"_tag\": \"variable\", ... } | { readonly \"_tag\": \"back\", ... } | { readonly \"_tag\": \"home\", ... } | { readonly \"_tag\": \"app-switcher\", ... }",
+          "workspace": {
+            "fx": 0.5,
+            "fy": 0.8,
+            "forwarded": true
+          }
         },
         "systemDialog": {
           "phase": "running",
@@ -90,7 +141,7 @@
         }
       },
       "variableEvidence": {
-        "inspectedFiles": 58,
+        "inspectedFiles": 76,
         "literalValueObserved": true,
         "logcatChecked": true
       },
@@ -100,10 +151,7 @@
         "packagesRestored": true,
         "runtimeDirectoriesClean": true
       },
-      "blockers": [],
-      "evidenceLimitations": [
-        "Pending-Confirmation screenshots show Device stream lost. Decision controls and descriptions are visible; fresh MCP observations verify fixture and Settings transitions."
-      ]
+      "blockers": []
     },
     "pixel9-api30": {
       "device": {
@@ -111,15 +159,23 @@
         "avd": "Pixel_9_API_30",
         "fingerprint": "google/sdk_gphone_arm64/emulator_arm64:11/RSR1.240422.006/12134477:userdebug/dev-keys",
         "host": "local",
-        "serial": "emulator-5554",
+        "serial": "emulator-5582",
         "release": "11"
       },
-      "sourceRevision": "45d156c449273f54231c1546dcffb0a9286baf76",
-      "fixtureSha256": "1329824a21e367dff9b806b2400878a9347868781414d3969dd439cf351046fc",
-      "finishedAt": "2026-10-29T02:27:46.950Z",
+      "sourceRevision": "9c3c7e4bc0f4e066e4c5556a456da843477b7722",
+      "fixtureSha256": "a1e94a268491080203189cdf954e79b3382d49a0b127031c9b2eaacd66c4327f",
+      "finishedAt": "2026-11-21T15:07:55.159Z",
       "artifacts": ".cursor/skills/verify-contingency/artifacts/android-support-matrix/pixel9-api30",
       "teaching": {
-        "actionKinds": ["fill", "variable", "activate", "activate", "back"],
+        "actionKinds": [
+          "activate",
+          "fill",
+          "activate",
+          "variable",
+          "activate",
+          "activate",
+          "back"
+        ],
         "variableFill": "ordinary",
         "inputConfirmation": "unconfirmed"
       },
@@ -145,11 +201,15 @@
           "refusal": "Physical Android devices are unsupported. Select an emulator.",
           "noDeviceCommands": true
         },
-        "sameDeviceBound": "Android session <session> is already bound to emulator-5554. Close it before starting another session.",
-        "multipleBoundDevices": "Android binds one device at a time, and session <session> is bound to emulator-5554. Multiple bound devices are unsupported; close that session first.",
+        "sameDeviceBound": "Android session <session> is already bound to emulator-5582. Close it before starting another session.",
+        "multipleBoundDevices": "Android binds one device at a time, and session <session> is bound to emulator-5582. Multiple bound devices are unsupported; close that session first.",
         "rawCoordinates": {
-          "mcp": "Invalid parameters: action must be activate, fill, variable, or back",
-          "workspace": "Nothing to activate there. No input was sent."
+          "mcp": "Invalid parameters for tool 'agent_device_workspace': Expected { readonly \"_tag\": \"activate\", ... } | { readonly \"_tag\": \"fill\", ... } | { readonly \"_tag\": \"variable\", ... } | { readonly \"_tag\": \"back\", ... } | { readonly \"_tag\": \"home\", ... } | { readonly \"_tag\": \"app-switcher\", ... }",
+          "workspace": {
+            "fx": 0.5,
+            "fy": 0.8,
+            "forwarded": true
+          }
         },
         "systemDialog": {
           "phase": "running",
@@ -191,7 +251,7 @@
         }
       },
       "variableEvidence": {
-        "inspectedFiles": 97,
+        "inspectedFiles": 75,
         "literalValueObserved": true,
         "logcatChecked": true
       },

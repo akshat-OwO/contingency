@@ -603,14 +603,18 @@ const startIosRuntime = (
             return yield* Effect.fail(iosRuntimeError("observation_stale"));
           }
           yield* Ref.set(window, viewport);
-          const target = (ref: string) =>
-            `@${ref.replace(/^@/u, "")}~s${snapshot.refsGeneration}`;
+          const target = (ref: string | undefined) =>
+            ref === undefined
+              ? ""
+              : `@${ref.replace(/^@/u, "")}~s${snapshot.refsGeneration}`;
           yield* Ref.set(
             activationPoints,
             new Map(
               snapshot.nodes.flatMap((node) => {
-                const point = iosActivationPoint(snapshot.nodes, node);
-                return point === null ? [] : [[target(node.ref), point]];
+                const ref = target(node.ref);
+                const point =
+                  ref === "" ? null : iosActivationPoint(snapshot.nodes, node);
+                return point === null ? [] : [[ref, point]];
               })
             )
           );
@@ -625,12 +629,15 @@ const startIosRuntime = (
             generation: snapshot.refsGeneration,
             id,
             nodes: snapshot.nodes.map((node, index) => {
+              const ref = target(node.ref);
               const interaction = iosNodeInteraction(node);
               const observed: IosObservation["nodes"][number] = {
                 ...interaction,
+                editable: ref !== "" && interaction.editable,
+                hittable: ref !== "" && interaction.hittable,
                 name: iosNodeName(snapshot.nodes, index),
                 packageName: node.bundleId ?? snapshot.appBundleId ?? null,
-                target: target(node.ref),
+                target: ref,
               };
               return node.rect === undefined
                 ? observed

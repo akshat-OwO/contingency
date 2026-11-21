@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 
 import { Effect, Schema } from "effect";
 
+import { androidHelperRelease } from "./android-runtime-contract.ts";
 import { iosError } from "./ios-contract.ts";
 import { decodeIosJson } from "./ios-simctl.ts";
 
@@ -93,7 +94,7 @@ export const openIosRunner = (
       try: () => readFile(path.join(packageRoot, "package.json"), "utf-8"),
     });
     yield* decodeIosJson(
-      Schema.Struct({ version: Schema.Literal("0.21.25") }),
+      Schema.Struct({ version: Schema.Literal(androidHelperRelease.version) }),
       manifest
     );
     // Scoped release closes this runner and leaves the selected simulator running.

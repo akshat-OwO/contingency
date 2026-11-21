@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-11-09T17:31:12.764Z",
+  "capturedAt": "2026-11-21T14:32:44.890Z",
   "nodes": [
     {
       "index": 0,
@@ -1019,6 +1019,8 @@
         "height": 38
       },
       "enabled": true,
+      "editable": true,
+      "password": false,
       "placeholder": "Search",
       "hittable": true,
       "depth": 1,

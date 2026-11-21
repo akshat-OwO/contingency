@@ -1,6 +1,6 @@
 # Android display transport
 
-Workspace uses the scrcpy transport packaged in `expo-device-hub` 0.15.3, source `42918bc8e66021da5a983aaa09b43365e58c3dce`. Packaging copies only the scrcpy and emulator gRPC stream modules, the stream recorder (`screen-recording.js` and `recording-file-target.js`), what they import, and the upstream MIT and Apache-2.0 licenses. It loads no hub dashboard, HTTP server, input router, or session recorder. The native WebRTC dependencies are not used or shipped. The recorder's MP4 muxer, mediabunny 1.55.3 (MPL-2.0), ships unmodified as its own package.
+Workspace uses the scrcpy transport packaged in `expo-device-hub` 0.26.1, source `11778f3bbf50f3dced744ecb5089879f8d375b6d`. Packaging copies only the scrcpy and emulator gRPC stream modules, the stream recorder (`screen-recording.js`, `recording-canvas.js`, `recording-file-target.js`, and `grpc-recording-encoder.js`), what they import, and the upstream MIT and Apache-2.0 licenses. It loads no hub dashboard, HTTP server, input router, or session recorder. The native WebRTC dependencies are not used or shipped. The recorder's MP4 muxer, mediabunny 1.55.3 (MPL-2.0), ships unmodified as its own package.
 
 `scrcpy-server-v4.0` comes from the Genymobile scrcpy v4.0 release: https://github.com/Genymobile/scrcpy/releases/download/v4.0/scrcpy-server-v4.0
 

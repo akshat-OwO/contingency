@@ -1,16 +1,17 @@
 {
-  "capturedAt": "2026-11-09T17:27:18.393Z",
+  "capturedAt": "2026-11-21T14:32:01.812Z",
   "nodes": [
     {
       "index": 0,
       "type": "Application",
+      "role": "UIApplication",
       "kind": "application",
       "label": "Contingency Widgets",
       "rect": {
-        "height": 874,
-        "width": 402,
+        "x": 0,
         "y": 0,
-        "x": 0
+        "width": 402,
+        "height": 874
       },
       "enabled": true,
       "hittable": false,
@@ -19,14 +20,15 @@
     },
     {
       "index": 1,
-      "type": "Element(7)",
-      "kind": "element(7)",
-      "label": "Remove item?",
+      "type": "NavigationBar",
+      "role": "UINavigationBar",
+      "kind": "navigation-bar",
+      "identifier": "Controls",
       "rect": {
-        "height": 152,
-        "width": 320,
-        "y": 375,
-        "x": 41
+        "x": 0,
+        "y": 62,
+        "width": 402,
+        "height": 54
       },
       "enabled": true,
       "hittable": true,
@@ -36,13 +38,15 @@
     },
     {
       "index": 2,
-      "type": "ScrollView",
-      "kind": "scroll-area",
+      "type": "StaticText",
+      "role": "UILabel",
+      "kind": "text",
+      "label": "Controls",
       "rect": {
-        "height": 72,
-        "width": 320,
-        "y": 375,
-        "x": 41
+        "x": 167,
+        "y": 73.66666666666666,
+        "width": 68,
+        "height": 20.66666666666667
       },
       "enabled": true,
       "hittable": true,
@@ -52,136 +56,141 @@
     },
     {
       "index": 3,
-      "type": "StaticText",
-      "kind": "text",
-      "label": "Remove item?",
+      "type": "ScrollView",
+      "role": "UIScrollView",
+      "kind": "scroll-area",
       "rect": {
-        "height": 20.333333333333314,
-        "width": 260,
-        "y": 397,
-        "x": 71
+        "x": 0,
+        "y": 116,
+        "width": 402,
+        "height": 675
       },
       "enabled": true,
-      "hittable": true,
-      "depth": 3,
-      "parentIndex": 2,
+      "hittable": false,
+      "depth": 1,
+      "parentIndex": 0,
+      "interactionBlocked": "covered",
       "ref": "e4"
     },
     {
       "index": 4,
       "type": "StaticText",
+      "role": "UILabel",
       "kind": "text",
-      "label": "This removes the item from the cart.",
+      "label": "Last action: none",
       "rect": {
-        "height": 18,
-        "width": 260,
-        "y": 424.6666666666667,
-        "x": 71
-      },
-      "enabled": true,
-      "hittable": true,
-      "depth": 3,
-      "parentIndex": 2,
-      "ref": "e5"
-    },
-    {
-      "index": 5,
-      "type": "Other",
-      "kind": "other",
-      "label": "Vertical scroll bar, 2 pages",
-      "value": "0%",
-      "rect": {
-        "height": 72,
-        "width": 30,
-        "y": 375,
-        "x": 328
-      },
-      "enabled": true,
-      "hittable": true,
-      "depth": 3,
-      "parentIndex": 2,
-      "ref": "e6"
-    },
-    {
-      "index": 6,
-      "type": "Other",
-      "kind": "other",
-      "label": "Horizontal scroll bar, 1 page",
-      "value": "0%",
-      "rect": {
-        "height": 30,
-        "width": 320,
-        "y": 414,
-        "x": 41
-      },
-      "enabled": true,
-      "hittable": true,
-      "depth": 3,
-      "parentIndex": 2,
-      "ref": "e7"
-    },
-    {
-      "index": 7,
-      "type": "Other",
-      "kind": "other",
-      "label": "Vertical scroll bar, 2 pages",
-      "value": "0%",
-      "rect": {
-        "height": 72,
-        "width": 30,
-        "y": 375,
-        "x": 328
-      },
-      "enabled": true,
-      "hittable": true,
-      "depth": 3,
-      "parentIndex": 2,
-      "ref": "e8"
-    },
-    {
-      "index": 8,
-      "type": "Other",
-      "kind": "other",
-      "label": "Horizontal scroll bar, 1 page",
-      "value": "0%",
-      "rect": {
-        "height": 30,
-        "width": 320,
-        "y": 414,
-        "x": 41
-      },
-      "enabled": true,
-      "hittable": true,
-      "depth": 3,
-      "parentIndex": 2,
-      "ref": "e9"
-    },
-    {
-      "index": 9,
-      "type": "ScrollView",
-      "kind": "scroll-area",
-      "rect": {
-        "height": 80,
-        "width": 320,
-        "y": 447,
-        "x": 41
+        "x": 20,
+        "y": 132,
+        "width": 362,
+        "height": 20.333333333333343
       },
       "enabled": true,
       "hittable": true,
       "depth": 2,
-      "parentIndex": 1,
+      "parentIndex": 3,
+      "ref": "e5"
+    },
+    {
+      "index": 5,
+      "type": "Button",
+      "role": "UIButton",
+      "kind": "button",
+      "label": "Show alert",
+      "rect": {
+        "x": 20,
+        "y": 168.33333333333334,
+        "width": 362,
+        "height": 30
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 3,
+      "ref": "e6"
+    },
+    {
+      "index": 6,
+      "type": "StaticText",
+      "role": "UIButtonLabel",
+      "kind": "text",
+      "label": "Show alert",
+      "rect": {
+        "x": 164.66666666666666,
+        "y": 174.33333333333334,
+        "width": 73,
+        "height": 18
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 5,
+      "ref": "e7"
+    },
+    {
+      "index": 7,
+      "type": "Button",
+      "role": "UIButton",
+      "kind": "button",
+      "label": "Show action sheet",
+      "rect": {
+        "x": 20,
+        "y": 214.33333333333334,
+        "width": 362,
+        "height": 30
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 3,
+      "ref": "e8"
+    },
+    {
+      "index": 8,
+      "type": "StaticText",
+      "role": "UIButtonLabel",
+      "kind": "text",
+      "label": "Show action sheet",
+      "rect": {
+        "x": 138,
+        "y": 220.33333333333334,
+        "width": 126,
+        "height": 18
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 7,
+      "ref": "e9"
+    },
+    {
+      "index": 9,
+      "type": "Button",
+      "role": "UIButton",
+      "kind": "button",
+      "label": "Show promo",
+      "rect": {
+        "x": 20,
+        "y": 260.3333333333333,
+        "width": 362,
+        "height": 30
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 3,
       "ref": "e10"
     },
     {
       "index": 10,
-      "type": "Button",
-      "kind": "button",
-      "label": "Cancel",
+      "type": "StaticText",
+      "role": "UIButtonLabel",
+      "kind": "text",
+      "label": "Show promo",
       "rect": {
-        "height": 48,
-        "width": 140,
-        "y": 463,
-        "x": 57
+        "x": 158,
+        "y": 266.3333333333333,
+        "width": 86,
+        "height": 18
       },
       "enabled": true,
       "hittable": true,
@@ -191,92 +200,849 @@
     },
     {
       "index": 11,
-      "type": "Button",
-      "kind": "button",
-      "label": "Remove",
+      "type": "Switch",
+      "role": "UISwitch",
+      "kind": "switch",
+      "label": "Notifications",
+      "value": "0",
       "rect": {
-        "height": 48,
-        "width": 140,
-        "y": 463,
-        "x": 205
+        "x": 20,
+        "y": 306.3333333333333,
+        "width": 364,
+        "height": 28
       },
       "enabled": true,
+      "checked": false,
       "hittable": true,
-      "depth": 3,
-      "parentIndex": 9,
+      "depth": 2,
+      "parentIndex": 3,
       "ref": "e12"
     },
     {
       "index": 12,
-      "type": "Other",
-      "kind": "other",
-      "label": "Vertical scroll bar, 1 page",
-      "value": "0%",
+      "type": "SegmentedControl",
+      "role": "UISegmentedControl",
+      "kind": "segmented-control",
+      "label": "Size",
       "rect": {
-        "height": 80,
-        "width": 30,
-        "y": 447,
-        "x": 328
+        "x": 20,
+        "y": 350.3333333333333,
+        "width": 362,
+        "height": 32
       },
       "enabled": true,
       "hittable": true,
-      "depth": 3,
-      "parentIndex": 9,
+      "depth": 2,
+      "parentIndex": 3,
       "ref": "e13"
     },
     {
       "index": 13,
-      "type": "Other",
-      "kind": "other",
-      "label": "Horizontal scroll bar, 1 page",
-      "value": "0%",
+      "type": "Button",
+      "role": "UISegment",
+      "kind": "button",
+      "label": "Small",
       "rect": {
-        "height": 30,
-        "width": 320,
-        "y": 494,
-        "x": 41
+        "x": 20,
+        "y": 350.3333333333333,
+        "width": 120,
+        "height": 32
       },
       "enabled": true,
       "hittable": true,
       "depth": 3,
-      "parentIndex": 9,
+      "parentIndex": 12,
       "ref": "e14"
     },
     {
       "index": 14,
-      "type": "Other",
-      "kind": "other",
-      "label": "Vertical scroll bar, 1 page",
-      "value": "0%",
+      "type": "Button",
+      "role": "UISegment",
+      "kind": "button",
+      "label": "Medium",
       "rect": {
-        "y": 447,
-        "width": 30,
-        "x": 328,
-        "height": 80
+        "x": 140,
+        "y": 350.3333333333333,
+        "width": 121,
+        "height": 32
       },
       "enabled": true,
       "hittable": true,
       "depth": 3,
-      "parentIndex": 9,
+      "parentIndex": 12,
       "ref": "e15"
     },
     {
       "index": 15,
+      "type": "Button",
+      "role": "UISegment",
+      "kind": "button",
+      "label": "Large",
+      "rect": {
+        "x": 261,
+        "y": 350.3333333333333,
+        "width": 121,
+        "height": 32
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 12,
+      "ref": "e16"
+    },
+    {
+      "index": 16,
+      "type": "Slider",
+      "role": "UISlider",
+      "kind": "slider",
+      "label": "Volume",
+      "value": "50%",
+      "rect": {
+        "x": 20,
+        "y": 397.3333333333333,
+        "width": 362,
+        "height": 34
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 2,
+      "parentIndex": 3,
+      "interactionBlocked": "covered",
+      "ref": "e17"
+    },
+    {
+      "index": 17,
+      "type": "Stepper",
+      "role": "UIStepper",
+      "kind": "stepper",
+      "label": "Quantity",
+      "rect": {
+        "x": 20,
+        "y": 447.3333333333333,
+        "width": 362,
+        "height": 32
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 2,
+      "parentIndex": 3,
+      "interactionBlocked": "covered",
+      "ref": "e18"
+    },
+    {
+      "index": 18,
+      "type": "Button",
+      "role": "UIAccessibilityElement",
+      "kind": "button",
+      "label": "Quantity, Decrement",
+      "identifier": "Decrement",
+      "rect": {
+        "x": 20,
+        "y": 447.3333333333333,
+        "width": 181,
+        "height": 32
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 3,
+      "parentIndex": 17,
+      "interactionBlocked": "covered",
+      "ref": "e19"
+    },
+    {
+      "index": 19,
+      "type": "Button",
+      "role": "UIAccessibilityElement",
+      "kind": "button",
+      "label": "Quantity, Increment",
+      "identifier": "Increment",
+      "rect": {
+        "x": 201,
+        "y": 447.3333333333333,
+        "width": 181,
+        "height": 32
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 3,
+      "parentIndex": 17,
+      "interactionBlocked": "covered",
+      "ref": "e20"
+    },
+    {
+      "index": 20,
+      "type": "Button",
+      "role": "UIButton",
+      "kind": "button",
+      "label": "Favorite",
+      "rect": {
+        "x": 20,
+        "y": 495.3333333333333,
+        "width": 362,
+        "height": 23.666666666666686
+      },
+      "enabled": true,
+      "hittable": false,
+      "depth": 2,
+      "parentIndex": 3,
+      "interactionBlocked": "covered",
+      "ref": "e21"
+    },
+    {
+      "index": 21,
+      "type": "Button",
+      "role": "UIButton",
+      "kind": "button",
+      "label": "Continue",
+      "rect": {
+        "x": 20,
+        "y": 535,
+        "width": 362,
+        "height": 34.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 3,
+      "ref": "e22"
+    },
+    {
+      "index": 22,
+      "type": "StaticText",
+      "role": "UILabel",
+      "kind": "text",
+      "label": "Continue",
+      "rect": {
+        "x": 166.66666666666666,
+        "y": 542,
+        "width": 68.66666666666666,
+        "height": 20.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 21,
+      "ref": "e23"
+    },
+    {
+      "index": 23,
+      "type": "Button",
+      "role": "UIButton",
+      "kind": "button",
+      "label": "Unavailable",
+      "rect": {
+        "x": 20,
+        "y": 585.3333333333334,
+        "width": 362,
+        "height": 30
+      },
+      "enabled": false,
+      "hittable": false,
+      "depth": 2,
+      "parentIndex": 3,
+      "ref": "e24"
+    },
+    {
+      "index": 24,
+      "type": "StaticText",
+      "role": "UIButtonLabel",
+      "kind": "text",
+      "label": "Unavailable",
+      "rect": {
+        "x": 161.66666666666666,
+        "y": 591.3333333333334,
+        "width": 79,
+        "height": 18
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 23,
+      "ref": "e25"
+    },
+    {
+      "index": 25,
+      "type": "DatePicker",
+      "role": "UIDatePicker",
+      "kind": "datepicker",
+      "label": "Delivery date",
+      "rect": {
+        "x": 20,
+        "y": 631.3333333333333,
+        "width": 362,
+        "height": 34.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 3,
+      "ref": "e26"
+    },
+    {
+      "index": 26,
+      "type": "Button",
+      "role": "_UIDatePickerIOSCompactView",
+      "kind": "button",
+      "label": "Date Picker",
+      "value": "21 Nov 2026",
+      "rect": {
+        "x": 20,
+        "y": 631.3333333333333,
+        "width": 362,
+        "height": 34.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 25,
+      "ref": "e27"
+    },
+    {
+      "index": 27,
+      "type": "TextField",
+      "role": "UITextField",
+      "kind": "text-field",
+      "label": "Email",
+      "value": "Email",
+      "rect": {
+        "x": 20,
+        "y": 681.6666666666666,
+        "width": 362,
+        "height": 34
+      },
+      "enabled": true,
+      "editable": true,
+      "password": false,
+      "placeholder": "Email",
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 3,
+      "ref": "e28"
+    },
+    {
+      "index": 28,
+      "type": "TextField",
+      "role": "UITextField",
+      "kind": "text-field",
+      "label": "Postal code",
+      "value": "Postal code",
+      "rect": {
+        "x": 20,
+        "y": 731.6666666666666,
+        "width": 362,
+        "height": 34
+      },
+      "enabled": true,
+      "editable": true,
+      "password": false,
+      "placeholder": "Postal code",
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 3,
+      "ref": "e29"
+    },
+    {
+      "index": 29,
+      "type": "SecureTextField",
+      "role": "UITextField",
+      "kind": "securetextfield",
+      "label": "Card PIN",
+      "rect": {
+        "x": 20,
+        "y": 781.6666666666666,
+        "width": 362,
+        "height": 9.333333333333371
+      },
+      "enabled": true,
+      "editable": true,
+      "password": true,
+      "placeholder": "Card PIN",
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 3,
+      "ref": "e30"
+    },
+    {
+      "index": 30,
       "type": "Other",
+      "role": "_UIScrollViewScrollIndicator",
+      "kind": "other",
+      "label": "Vertical scroll bar, 2 pages",
+      "value": "0%",
+      "rect": {
+        "x": 369,
+        "y": 116,
+        "width": 30,
+        "height": 675
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 3,
+      "ref": "e31"
+    },
+    {
+      "index": 31,
+      "type": "Other",
+      "role": "_UIScrollViewScrollIndicator",
       "kind": "other",
       "label": "Horizontal scroll bar, 1 page",
       "value": "0%",
       "rect": {
-        "width": 320,
+        "x": 0,
+        "y": 758,
+        "width": 402,
+        "height": 30
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 3,
+      "ref": "e32"
+    },
+    {
+      "index": 32,
+      "type": "Other",
+      "role": "_UIScrollViewScrollIndicator",
+      "kind": "other",
+      "label": "Vertical scroll bar, 2 pages",
+      "value": "0%",
+      "rect": {
+        "x": 369,
+        "y": 116,
+        "width": 30,
+        "height": 675
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 3,
+      "ref": "e33"
+    },
+    {
+      "index": 33,
+      "type": "Other",
+      "role": "_UIScrollViewScrollIndicator",
+      "kind": "other",
+      "label": "Horizontal scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "x": 0,
+        "y": 758,
+        "width": 402,
+        "height": 30
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 3,
+      "ref": "e34"
+    },
+    {
+      "index": 34,
+      "type": "TabBar",
+      "role": "UITabBar",
+      "kind": "tab-bar",
+      "label": "Tab Bar",
+      "rect": {
+        "x": 0,
+        "y": 791,
+        "width": 402,
+        "height": 83
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e35"
+    },
+    {
+      "index": 35,
+      "type": "Button",
+      "role": "_UITabButton",
+      "kind": "button",
+      "label": "Controls",
+      "rect": {
+        "x": 68,
+        "y": 795,
+        "width": 94,
+        "height": 54
+      },
+      "enabled": true,
+      "selected": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 34,
+      "ref": "e36"
+    },
+    {
+      "index": 36,
+      "type": "Image",
+      "role": "UIImageView",
+      "kind": "image",
+      "label": "edit",
+      "identifier": "slider.horizontal.3",
+      "rect": {
+        "x": 100,
+        "y": 802.6666666666666,
+        "width": 29.333333333333343,
+        "height": 24
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 35,
+      "ref": "e37"
+    },
+    {
+      "index": 37,
+      "type": "Button",
+      "role": "_UITabButton",
+      "kind": "button",
+      "label": "List",
+      "rect": {
+        "x": 154,
+        "y": 795,
+        "width": 94,
+        "height": 54
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 34,
+      "ref": "e38"
+    },
+    {
+      "index": 38,
+      "type": "Image",
+      "role": "UIImageView",
+      "kind": "image",
+      "label": "List",
+      "identifier": "list.bullet",
+      "rect": {
+        "x": 186,
+        "y": 804.3333333333334,
+        "width": 29.333333333333343,
+        "height": 21
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 37,
+      "ref": "e39"
+    },
+    {
+      "index": 39,
+      "type": "Button",
+      "role": "_UITabButton",
+      "kind": "button",
+      "label": "Web",
+      "rect": {
+        "x": 240,
+        "y": 795,
+        "width": 94,
+        "height": 54
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 34,
+      "ref": "e40"
+    },
+    {
+      "index": 40,
+      "type": "Image",
+      "role": "UIImageView",
+      "kind": "image",
+      "label": "Globe",
+      "identifier": "globe",
+      "rect": {
+        "x": 273,
+        "y": 801.3333333333334,
+        "width": 27.333333333333314,
+        "height": 27.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 39,
+      "ref": "e41"
+    },
+    {
+      "index": 41,
+      "type": "Group",
+      "role": "_UIAlertControllerPhoneTVMacView",
+      "kind": "group",
+      "label": "Remove item?",
+      "rect": {
         "x": 41,
-        "y": 494,
+        "y": 375,
+        "width": 320,
+        "height": 152
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 1,
+      "parentIndex": 0,
+      "ref": "e42"
+    },
+    {
+      "index": 42,
+      "type": "ScrollView",
+      "role": "_UIInterfaceActionGroupHeaderScrollView",
+      "kind": "scroll-area",
+      "rect": {
+        "x": 41,
+        "y": 375,
+        "width": 320,
+        "height": 72
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 41,
+      "ref": "e43"
+    },
+    {
+      "index": 43,
+      "type": "StaticText",
+      "role": "UILabel",
+      "kind": "text",
+      "label": "Remove item?",
+      "rect": {
+        "x": 71,
+        "y": 397,
+        "width": 260,
+        "height": 20.333333333333314
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 42,
+      "ref": "e44"
+    },
+    {
+      "index": 44,
+      "type": "StaticText",
+      "role": "UILabel",
+      "kind": "text",
+      "label": "This removes the item from the cart.",
+      "rect": {
+        "x": 71,
+        "y": 424.6666666666667,
+        "width": 260,
+        "height": 18
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 42,
+      "ref": "e45"
+    },
+    {
+      "index": 45,
+      "type": "Other",
+      "role": "_UIScrollViewScrollIndicator",
+      "kind": "other",
+      "label": "Vertical scroll bar, 2 pages",
+      "value": "0%",
+      "rect": {
+        "x": 328,
+        "y": 375,
+        "width": 30,
+        "height": 72
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 42,
+      "ref": "e46"
+    },
+    {
+      "index": 46,
+      "type": "Other",
+      "role": "_UIScrollViewScrollIndicator",
+      "kind": "other",
+      "label": "Horizontal scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "x": 41,
+        "y": 414,
+        "width": 320,
         "height": 30
       },
       "enabled": true,
       "hittable": true,
       "depth": 3,
-      "parentIndex": 9,
-      "ref": "e16"
+      "parentIndex": 42,
+      "ref": "e47"
+    },
+    {
+      "index": 47,
+      "type": "Other",
+      "role": "_UIScrollViewScrollIndicator",
+      "kind": "other",
+      "label": "Vertical scroll bar, 2 pages",
+      "value": "0%",
+      "rect": {
+        "x": 328,
+        "y": 375,
+        "width": 30,
+        "height": 72
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 42,
+      "ref": "e48"
+    },
+    {
+      "index": 48,
+      "type": "Other",
+      "role": "_UIScrollViewScrollIndicator",
+      "kind": "other",
+      "label": "Horizontal scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "x": 41,
+        "y": 414,
+        "width": 320,
+        "height": 30
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 42,
+      "ref": "e49"
+    },
+    {
+      "index": 49,
+      "type": "ScrollView",
+      "role": "_UIInterfaceActionRepresentationsSequenceView",
+      "kind": "scroll-area",
+      "rect": {
+        "x": 41,
+        "y": 447,
+        "width": 320,
+        "height": 80
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 41,
+      "ref": "e50"
+    },
+    {
+      "index": 50,
+      "type": "Button",
+      "role": "_UIInterfaceActionCustomViewRepresentationView",
+      "kind": "button",
+      "label": "Cancel",
+      "rect": {
+        "x": 57,
+        "y": 463,
+        "width": 140,
+        "height": 48
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 49,
+      "ref": "e51"
+    },
+    {
+      "index": 51,
+      "type": "Button",
+      "role": "_UIInterfaceActionCustomViewRepresentationView",
+      "kind": "button",
+      "label": "Remove",
+      "rect": {
+        "x": 205,
+        "y": 463,
+        "width": 140,
+        "height": 48
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 49,
+      "ref": "e52"
+    },
+    {
+      "index": 52,
+      "type": "Other",
+      "role": "_UIScrollViewScrollIndicator",
+      "kind": "other",
+      "label": "Vertical scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "x": 328,
+        "y": 447,
+        "width": 30,
+        "height": 80
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 49,
+      "ref": "e53"
+    },
+    {
+      "index": 53,
+      "type": "Other",
+      "role": "_UIScrollViewScrollIndicator",
+      "kind": "other",
+      "label": "Horizontal scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "x": 41,
+        "y": 494,
+        "width": 320,
+        "height": 30
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 49,
+      "ref": "e54"
+    },
+    {
+      "index": 54,
+      "type": "Other",
+      "role": "_UIScrollViewScrollIndicator",
+      "kind": "other",
+      "label": "Vertical scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "x": 328,
+        "y": 447,
+        "width": 30,
+        "height": 80
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 49,
+      "ref": "e55"
+    },
+    {
+      "index": 55,
+      "type": "Other",
+      "role": "_UIScrollViewScrollIndicator",
+      "kind": "other",
+      "label": "Horizontal scroll bar, 1 page",
+      "value": "0%",
+      "rect": {
+        "x": 41,
+        "y": 494,
+        "width": 320,
+        "height": 30
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 49,
+      "ref": "e56"
     }
   ],
   "platform": "ios",

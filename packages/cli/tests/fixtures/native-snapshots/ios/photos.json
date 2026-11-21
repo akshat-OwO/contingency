@@ -1,16 +1,18 @@
 {
-  "capturedAt": "2026-11-09T17:34:16.455Z",
+  "capturedAt": "2026-11-21T14:35:14.154Z",
   "nodes": [
     {
       "index": 0,
-      "type": "Application",
-      "kind": "application",
+      "type": "Other",
+      "role": "PhotosApplication",
+      "subrole": "UIApplication",
+      "kind": "other",
       "label": "Photos",
       "rect": {
         "x": 0,
-        "height": 874,
         "y": 0,
-        "width": 402
+        "width": 402,
+        "height": 874
       },
       "enabled": true,
       "hittable": false,
@@ -19,14 +21,16 @@
     },
     {
       "index": 1,
-      "type": "Other",
-      "kind": "other",
-      "label": "Vertical scroll bar, 1 page",
+      "type": "NavigationBar",
+      "role": "PXNavigationBarAllowingUnclippedSubviewHitTest",
+      "subrole": "UINavigationBar",
+      "kind": "navigation-bar",
+      "identifier": "PXCuratedLibraryUIView",
       "rect": {
         "x": 0,
-        "height": 812,
         "y": 62,
-        "width": 402
+        "width": 402,
+        "height": 54
       },
       "enabled": true,
       "hittable": true,
@@ -36,14 +40,15 @@
     },
     {
       "index": 2,
-      "type": "Other",
-      "kind": "other",
-      "label": "What’s New in Photos",
+      "type": "StaticText",
+      "role": "UILabel",
+      "kind": "text",
+      "label": "Library",
       "rect": {
-        "x": 0,
-        "height": 812,
-        "y": 62,
-        "width": 402
+        "x": 16.000000000000007,
+        "y": 63.666666666666664,
+        "width": 111.66666666666669,
+        "height": 40.666666666666664
       },
       "enabled": true,
       "hittable": true,
@@ -53,277 +58,287 @@
     },
     {
       "index": 3,
-      "type": "ScrollView",
-      "kind": "scroll-area",
-      "label": "What’s New in Photos",
+      "type": "StaticText",
+      "role": "_TtCC12PhotosUICore29LemonadeRootTitleSubtitleViewP33_5C469E53BEB58F25AAF0461687BE66D120ExpandedHitAreaLabel",
+      "subrole": "UILabel",
+      "kind": "text",
+      "label": "6 Photos",
       "rect": {
-        "x": 0,
-        "height": 812,
-        "y": 62,
-        "width": 402
+        "x": 16.000000000000007,
+        "y": 104.33333333333333,
+        "width": 65.33333333333334,
+        "height": 18
       },
       "enabled": true,
       "hittable": true,
-      "depth": 3,
-      "parentIndex": 2,
+      "depth": 2,
+      "parentIndex": 1,
       "ref": "e4"
     },
     {
       "index": 4,
-      "type": "Other",
-      "kind": "other",
-      "label": "What’s New in Photos",
+      "type": "Button",
+      "role": "_UIButtonBarButton",
+      "kind": "button",
+      "label": "Sort and Filter",
+      "identifier": "sortFilterButton",
       "rect": {
-        "x": 0,
-        "height": 484,
-        "y": 62,
-        "width": 402
+        "x": 252.66666666666663,
+        "y": 66,
+        "width": 36,
+        "height": 36
       },
       "enabled": true,
       "hittable": true,
-      "depth": 4,
-      "parentIndex": 3,
+      "depth": 2,
+      "parentIndex": 1,
       "ref": "e5"
     },
     {
       "index": 5,
-      "type": "Other",
-      "kind": "other",
-      "label": "What’s New in Photos",
+      "type": "Button",
+      "role": "_UIButtonBarButton",
+      "kind": "button",
+      "label": "Select",
       "rect": {
-        "x": 38,
-        "height": 26.333333333333343,
-        "y": 140.66666666666669,
-        "width": 326
+        "x": 308.66666666666663,
+        "y": 66,
+        "width": 73.33333333333331,
+        "height": 36
       },
       "enabled": true,
       "hittable": true,
-      "depth": 5,
-      "parentIndex": 4,
+      "depth": 2,
+      "parentIndex": 1,
       "ref": "e6"
     },
     {
       "index": 6,
-      "type": "StaticText",
-      "kind": "text",
-      "label": "What’s New in Photos",
+      "type": "ScrollView",
+      "role": "_PXUIScrollView",
+      "subrole": "UIScrollView",
+      "kind": "scroll-area",
+      "identifier": "content_scroll_view",
       "rect": {
-        "x": 38,
-        "height": 26.333333333333343,
-        "y": 140.66666666666669,
-        "width": 326
+        "x": 0,
+        "y": 0,
+        "width": 402,
+        "height": 874
       },
       "enabled": true,
       "hittable": true,
-      "depth": 6,
-      "parentIndex": 5,
+      "depth": 1,
+      "parentIndex": 0,
       "ref": "e7"
     },
     {
       "index": 7,
       "type": "Other",
+      "role": "_UIScrollViewScrollIndicator",
       "kind": "other",
-      "label": "Updated Navigation, Switch between Library and Collection views, along with quick access to search.",
+      "label": "Vertical scroll bar, 1 page",
+      "value": "0%",
       "rect": {
-        "height": 353,
-        "y": 193,
-        "x": 38,
-        "width": 326
+        "x": 369,
+        "y": 136,
+        "width": 30,
+        "height": 655
       },
       "enabled": true,
       "hittable": true,
-      "depth": 5,
-      "parentIndex": 4,
+      "depth": 2,
+      "parentIndex": 6,
       "ref": "e8"
     },
     {
       "index": 8,
       "type": "Other",
+      "role": "_UIScrollViewScrollIndicator",
       "kind": "other",
-      "label": "Updated Navigation, Switch between Library and Collection views, along with quick access to search.",
+      "label": "Horizontal scroll bar, 1 page",
+      "value": "0%",
       "rect": {
-        "y": 193,
-        "height": 86.33333333333331,
-        "x": 38,
-        "width": 326
+        "x": 62,
+        "y": 758,
+        "width": 278,
+        "height": 30
       },
       "enabled": true,
       "hittable": true,
-      "depth": 6,
-      "parentIndex": 7,
+      "depth": 2,
+      "parentIndex": 6,
       "ref": "e9"
     },
     {
       "index": 9,
       "type": "Other",
+      "role": "_UIScrollViewScrollIndicator",
       "kind": "other",
-      "label": "More Customization for Collections, Adjust the layout, in addition to reordering Collections and items that appear in Pinned.",
+      "label": "Vertical scroll bar, 1 page",
+      "value": "0%",
       "rect": {
-        "y": 295.33333333333337,
-        "x": 38,
-        "height": 108.33333333333331,
-        "width": 326
+        "x": 369,
+        "y": 136,
+        "width": 30,
+        "height": 655
       },
       "enabled": true,
       "hittable": true,
-      "depth": 6,
-      "parentIndex": 7,
+      "depth": 2,
+      "parentIndex": 6,
       "ref": "e10"
     },
     {
       "index": 10,
       "type": "Other",
+      "role": "_UIScrollViewScrollIndicator",
       "kind": "other",
-      "label": "Improved Landmark Search, Enhanced Visual Search privately matches landmarks in your photos with an online Apple index so you can search for them.",
+      "label": "Horizontal scroll bar, 1 page",
+      "value": "0%",
       "rect": {
-        "y": 419.66666666666674,
-        "x": 38,
-        "height": 126.33333333333337,
-        "width": 326
+        "x": 62,
+        "y": 758,
+        "width": 278,
+        "height": 30
       },
       "enabled": true,
       "hittable": true,
-      "depth": 6,
-      "parentIndex": 7,
+      "depth": 2,
+      "parentIndex": 6,
       "ref": "e11"
     },
     {
       "index": 11,
-      "type": "Button",
-      "kind": "button",
-      "label": "Learn More",
+      "type": "TabBar",
+      "role": "UITabBar",
+      "kind": "tab-bar",
+      "label": "Tab Bar",
       "rect": {
-        "y": 528,
-        "x": 96,
-        "height": 18,
-        "width": 264
+        "x": 0,
+        "y": 791,
+        "width": 402,
+        "height": 83
       },
       "enabled": true,
       "hittable": true,
-      "depth": 7,
-      "parentIndex": 10,
+      "depth": 1,
+      "parentIndex": 0,
       "ref": "e12"
     },
     {
       "index": 12,
-      "type": "StaticText",
-      "kind": "text",
-      "label": "Learn More",
+      "type": "Button",
+      "role": "_UITabButton",
+      "kind": "button",
+      "label": "Library",
+      "identifier": "LibraryTab",
       "rect": {
-        "height": 18,
-        "width": 77.66666666666669,
-        "y": 528,
-        "x": 96
+        "x": 25,
+        "y": 795,
+        "width": 95.66666666666666,
+        "height": 54
       },
       "enabled": true,
+      "selected": true,
       "hittable": true,
-      "depth": 8,
+      "depth": 2,
       "parentIndex": 11,
       "ref": "e13"
     },
     {
       "index": 13,
-      "type": "Other",
-      "kind": "other",
-      "label": "Vertical scroll bar, 1 page",
-      "value": "0%",
+      "type": "Image",
+      "role": "UIImageView",
+      "kind": "image",
+      "label": "photo.fill.on.rectangle.fill",
+      "identifier": "photo.fill.on.rectangle.fill",
       "rect": {
-        "height": 660,
-        "width": 30,
-        "y": 100,
-        "x": 369
-      },
-      "enabled": true,
-      "hittable": true,
-      "depth": 4,
-      "parentIndex": 3,
-      "ref": "e14"
-    },
-    {
-      "index": 14,
-      "type": "Other",
-      "kind": "other",
-      "label": "Horizontal scroll bar, 1 page",
-      "value": "0%",
-      "rect": {
-        "height": 30,
-        "width": 278,
-        "y": 727,
-        "x": 62
-      },
-      "enabled": true,
-      "hittable": true,
-      "depth": 4,
-      "parentIndex": 3,
-      "ref": "e15"
-    },
-    {
-      "index": 15,
-      "type": "Other",
-      "kind": "other",
-      "label": "Continue",
-      "rect": {
-        "width": 402,
-        "height": 114,
-        "x": 0,
-        "y": 760
+        "x": 56,
+        "y": 801.3333333333334,
+        "width": 34.33333333333334,
+        "height": 28.66666666666663
       },
       "enabled": true,
       "hittable": true,
       "depth": 3,
-      "parentIndex": 2,
+      "parentIndex": 12,
+      "ref": "e14"
+    },
+    {
+      "index": 14,
+      "type": "Button",
+      "role": "_UITabButton",
+      "kind": "button",
+      "label": "Collections",
+      "identifier": "CollectionsTab",
+      "rect": {
+        "x": 112.66666666666667,
+        "y": 795,
+        "width": 95.66666666666664,
+        "height": 54
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 2,
+      "parentIndex": 11,
+      "ref": "e15"
+    },
+    {
+      "index": 15,
+      "type": "Image",
+      "role": "UIImageView",
+      "kind": "image",
+      "label": "Album",
+      "identifier": "rectangle.stack.fill",
+      "rect": {
+        "x": 145.66666666666669,
+        "y": 800,
+        "width": 30,
+        "height": 31.33333333333337
+      },
+      "enabled": true,
+      "hittable": true,
+      "depth": 3,
+      "parentIndex": 14,
       "ref": "e16"
     },
     {
       "index": 16,
-      "type": "Other",
-      "kind": "other",
-      "label": "Continue",
+      "type": "Button",
+      "role": "_UITabButton",
+      "kind": "button",
+      "label": "Search",
+      "identifier": "SearchTab",
       "rect": {
-        "y": 784,
-        "x": 38,
-        "height": 52,
-        "width": 326
+        "x": 319,
+        "y": 791,
+        "width": 62,
+        "height": 62
       },
       "enabled": true,
       "hittable": true,
-      "depth": 4,
-      "parentIndex": 15,
+      "depth": 2,
+      "parentIndex": 11,
       "ref": "e17"
     },
     {
       "index": 17,
-      "type": "Button",
-      "kind": "button",
-      "label": "Continue",
+      "type": "Image",
+      "role": "UIImageView",
+      "kind": "image",
+      "label": "Search",
+      "identifier": "magnifyingglass",
       "rect": {
-        "width": 326,
-        "height": 52,
-        "x": 38,
-        "y": 784
+        "x": 336,
+        "y": 808.6666666666666,
+        "width": 28,
+        "height": 26.66666666666663
       },
       "enabled": true,
       "hittable": true,
-      "depth": 5,
+      "depth": 3,
       "parentIndex": 16,
       "ref": "e18"
-    },
-    {
-      "index": 18,
-      "type": "StaticText",
-      "kind": "text",
-      "label": "Continue",
-      "rect": {
-        "width": 72,
-        "height": 20.33333333333337,
-        "x": 165,
-        "y": 799.6666666666666
-      },
-      "enabled": true,
-      "hittable": true,
-      "depth": 6,
-      "parentIndex": 17,
-      "ref": "e19"
     }
   ],
   "platform": "ios",

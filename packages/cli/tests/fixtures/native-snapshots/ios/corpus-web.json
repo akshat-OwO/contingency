@@ -1,5 +1,5 @@
 {
-  "capturedAt": "2026-11-09T17:31:00.632Z",
+  "capturedAt": "2026-11-21T14:32:30.653Z",
   "nodes": [
     {
       "index": 0,
@@ -7,10 +7,10 @@
       "kind": "application",
       "label": "Contingency Widgets",
       "rect": {
-        "x": 0,
+        "height": 874,
         "width": 402,
-        "y": 0,
-        "height": 874
+        "x": 0,
+        "y": 0
       },
       "enabled": true,
       "hittable": false,
@@ -23,10 +23,10 @@
       "kind": "other",
       "label": "Tab Bar",
       "rect": {
-        "x": 0,
+        "height": 874,
         "width": 402,
-        "y": 0,
-        "height": 874
+        "x": 0,
+        "y": 0
       },
       "enabled": true,
       "hittable": true,
@@ -40,10 +40,10 @@
       "kind": "other",
       "label": "Web",
       "rect": {
-        "x": 0,
+        "height": 874,
         "width": 402,
-        "y": 0,
-        "height": 874
+        "x": 0,
+        "y": 0
       },
       "enabled": true,
       "hittable": true,
@@ -58,10 +58,10 @@
       "label": "Web",
       "identifier": "Web",
       "rect": {
-        "x": 0,
+        "height": 54,
         "width": 402,
-        "y": 62,
-        "height": 54
+        "x": 0,
+        "y": 62
       },
       "enabled": true,
       "hittable": true,
@@ -75,10 +75,10 @@
       "kind": "text",
       "label": "Web",
       "rect": {
-        "x": 183,
+        "height": 20.66666666666667,
         "width": 35.66666666666666,
-        "y": 73.66666666666666,
-        "height": 20.66666666666667
+        "x": 183,
+        "y": 73.66666666666666
       },
       "enabled": true,
       "hittable": true,
@@ -92,10 +92,10 @@
       "kind": "other",
       "label": "Vertical scroll bar, 1 page",
       "rect": {
-        "x": 0,
+        "height": 874,
         "width": 402,
-        "y": 0,
-        "height": 874
+        "x": 0,
+        "y": 0
       },
       "enabled": true,
       "hittable": true,
@@ -109,10 +109,10 @@
       "kind": "webview",
       "label": "Vertical scroll bar, 1 page",
       "rect": {
-        "x": 0,
+        "height": 874,
         "width": 402,
-        "y": 0,
-        "height": 874
+        "x": 0,
+        "y": 0
       },
       "enabled": true,
       "hittable": true,
@@ -125,10 +125,10 @@
       "type": "WebView",
       "kind": "webview",
       "rect": {
-        "x": 0,
+        "height": 874,
         "width": 402,
-        "y": 0,
-        "height": 874
+        "x": 0,
+        "y": 0
       },
       "enabled": true,
       "hittable": true,
@@ -142,10 +142,10 @@
       "kind": "other",
       "label": "Embedded help",
       "rect": {
-        "x": 0,
+        "height": 874,
         "width": 402,
-        "y": 0,
-        "height": 874
+        "x": 0,
+        "y": 0
       },
       "enabled": true,
       "hittable": true,
@@ -159,10 +159,10 @@
       "kind": "other",
       "label": "Embedded help",
       "rect": {
-        "x": 0,
+        "height": 758,
         "width": 402,
-        "y": 116,
-        "height": 758
+        "x": 0,
+        "y": 116
       },
       "enabled": true,
       "hittable": true,
@@ -176,10 +176,10 @@
       "kind": "other",
       "label": "Embedded help",
       "rect": {
-        "x": 0,
+        "height": 675,
         "width": 402,
-        "y": 116,
-        "height": 675
+        "x": 0,
+        "y": 116
       },
       "enabled": true,
       "focused": true,
@@ -195,10 +195,10 @@
       "label": "Embedded help",
       "value": "1",
       "rect": {
-        "x": 24,
+        "height": 49,
         "width": 354,
-        "y": 140,
-        "height": 49
+        "x": 24,
+        "y": 140
       },
       "enabled": true,
       "focused": true,
@@ -214,10 +214,10 @@
       "label": "Embedded help",
       "value": "Embedded help",
       "rect": {
-        "x": 24,
+        "height": 49,
         "width": 289,
-        "y": 140,
-        "height": 49
+        "x": 24,
+        "y": 140
       },
       "enabled": true,
       "focused": true,
@@ -232,10 +232,10 @@
       "kind": "link",
       "label": "Shipping FAQ",
       "rect": {
-        "x": 24,
+        "height": 26,
         "width": 119,
-        "y": 215,
-        "height": 26
+        "x": 24,
+        "y": 215
       },
       "enabled": true,
       "focused": true,
@@ -252,9 +252,9 @@
       "value": "Shipping FAQ",
       "rect": {
         "height": 26,
+        "width": 119,
         "x": 24,
-        "y": 215,
-        "width": 119
+        "y": 215
       },
       "enabled": true,
       "focused": true,
@@ -287,10 +287,10 @@
       "kind": "other",
       "label": "Coupon",
       "rect": {
-        "y": 260,
-        "x": 24,
+        "height": 27,
         "width": 228,
-        "height": 27
+        "x": 24,
+        "y": 260
       },
       "enabled": true,
       "focused": true,
@@ -306,10 +306,10 @@
       "label": "Coupon",
       "value": "Coupon",
       "rect": {
-        "y": 260,
-        "x": 24,
+        "height": 26,
         "width": 75,
-        "height": 26
+        "x": 24,
+        "y": 260
       },
       "enabled": true,
       "focused": true,
@@ -324,13 +324,15 @@
       "kind": "text-field",
       "label": "Coupon",
       "rect": {
-        "y": 266,
-        "x": 98,
+        "height": 21,
         "width": 155,
-        "height": 21
+        "x": 98,
+        "y": 266
       },
       "enabled": true,
       "focused": true,
+      "editable": true,
+      "password": false,
       "hittable": true,
       "depth": 11,
       "parentIndex": 16,
@@ -342,10 +344,10 @@
       "kind": "button",
       "label": "Apply coupon",
       "rect": {
-        "y": 306,
-        "x": 24,
+        "height": 21,
         "width": 97,
-        "height": 21
+        "x": 24,
+        "y": 306
       },
       "enabled": true,
       "focused": true,
@@ -360,10 +362,10 @@
       "kind": "other",
       "label": "Web idle",
       "rect": {
-        "y": 346,
-        "x": 24,
+        "height": 26,
         "width": 354,
-        "height": 26
+        "x": 24,
+        "y": 346
       },
       "enabled": true,
       "focused": true,
@@ -379,10 +381,10 @@
       "label": "Web idle",
       "value": "Web idle",
       "rect": {
-        "y": 346,
-        "x": 24,
+        "height": 26,
         "width": 76,
-        "height": 26
+        "x": 24,
+        "y": 346
       },
       "enabled": true,
       "focused": true,
@@ -398,10 +400,10 @@
       "label": "Vertical scroll bar, 1 page",
       "value": "0%",
       "rect": {
-        "y": 116,
-        "x": 369,
+        "height": 675,
         "width": 30,
-        "height": 675
+        "x": 369,
+        "y": 116
       },
       "enabled": true,
       "hittable": true,
@@ -416,10 +418,10 @@
       "label": "Horizontal scroll bar, 1 page",
       "value": "0%",
       "rect": {
-        "y": 758,
-        "x": 62,
+        "height": 30,
         "width": 278,
-        "height": 30
+        "x": 62,
+        "y": 758
       },
       "enabled": true,
       "hittable": true,
@@ -433,10 +435,10 @@
       "kind": "other",
       "label": "Tab Bar",
       "rect": {
-        "y": 791,
-        "x": 0,
+        "height": 83,
         "width": 402,
-        "height": 83
+        "x": 0,
+        "y": 791
       },
       "enabled": true,
       "hittable": true,
@@ -451,8 +453,8 @@
       "label": "Tab Bar",
       "rect": {
         "y": 791,
-        "x": 0,
         "width": 402,
+        "x": 0,
         "height": 83
       },
       "enabled": true,
@@ -468,9 +470,9 @@
       "label": "Controls",
       "rect": {
         "y": 791,
-        "x": 64,
         "width": 274,
-        "height": 62
+        "height": 62,
+        "x": 64
       },
       "enabled": true,
       "hittable": true,
@@ -484,10 +486,10 @@
       "kind": "button",
       "label": "Controls",
       "rect": {
-        "y": 795,
-        "x": 68,
         "width": 94,
-        "height": 54
+        "x": 68,
+        "height": 54,
+        "y": 795
       },
       "enabled": true,
       "hittable": true,
@@ -502,10 +504,10 @@
       "label": "edit",
       "identifier": "slider.horizontal.3",
       "rect": {
-        "y": 802.6666666666666,
-        "x": 100,
         "width": 29.333333333333343,
-        "height": 24
+        "x": 100,
+        "height": 24,
+        "y": 802.6666666666666
       },
       "enabled": true,
       "hittable": true,
@@ -519,10 +521,10 @@
       "kind": "button",
       "label": "List",
       "rect": {
-        "y": 795,
-        "x": 154,
         "width": 94,
-        "height": 54
+        "x": 154,
+        "height": 54,
+        "y": 795
       },
       "enabled": true,
       "hittable": true,
@@ -537,10 +539,10 @@
       "label": "List",
       "identifier": "list.bullet",
       "rect": {
-        "y": 804.3333333333334,
-        "x": 186,
         "width": 29.333333333333343,
-        "height": 21
+        "x": 186,
+        "height": 21,
+        "y": 804.3333333333334
       },
       "enabled": true,
       "hittable": true,
@@ -554,10 +556,10 @@
       "kind": "button",
       "label": "Web",
       "rect": {
+        "width": 94,
         "x": 240,
         "height": 54,
-        "y": 795,
-        "width": 94
+        "y": 795
       },
       "enabled": true,
       "selected": true,
@@ -573,10 +575,10 @@
       "label": "Globe",
       "identifier": "globe",
       "rect": {
+        "width": 27.333333333333314,
         "x": 273,
-        "y": 801.3333333333334,
         "height": 27.33333333333337,
-        "width": 27.333333333333314
+        "y": 801.3333333333334
       },
       "enabled": true,
       "hittable": true,

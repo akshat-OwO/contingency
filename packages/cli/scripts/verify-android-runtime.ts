@@ -184,7 +184,7 @@ Effect.scoped(
             const pausedState = runtime.state();
             const apk = path.resolve(
               path.dirname(fileURLToPath(import.meta.resolve("agent-device"))),
-              "../../android/snapshot-helper/dist/agent-device-android-snapshot-helper-0.21.25.apk"
+              `../../android/snapshot-helper/dist/agent-device-android-snapshot-helper-${androidHelperRelease.version}.apk`
             );
             yield* Effect.tryPromise(() =>
               execute("adb", ["-s", serial, "install", apk])
