@@ -275,14 +275,14 @@ export const dismissDeviceErase = (id: string) =>
       return yield* client("device.erase.dismiss", { id });
     })
   ).pipe(Effect.provide(RpcProtocolLive));
-/** Launchable apps on one identified device, read without installing. */
+/** Launchable apps on one identified device, streamed with progressive labels. */
 export const listAndroidApps = (device: AndroidWorkspaceSelection["device"]) =>
-  Effect.scoped(
+  Stream.unwrap(
     Effect.gen(function* androidApps() {
       const client = yield* RpcClient.make(ContingencyRpcs, { flatten: true });
-      return yield* client("android.apps.list", { device });
+      return client("android.apps.list", { device });
     })
-  ).pipe(Effect.provide(RpcProtocolLive));
+  ).pipe(Stream.provide(RpcProtocolLive));
 export const androidStreamAccess = (sessionId: AgentSessionId) =>
   Effect.scoped(
     Effect.gen(function* streamAccess() {

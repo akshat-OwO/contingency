@@ -26,7 +26,7 @@ import {
   AgentSetupVariableAnswer,
 } from "./agent-session.ts";
 import {
-  AndroidDiscoveredApp,
+  AndroidDiscoveredAppsEvent,
   AndroidDiscoveredDevice,
   AndroidWorkspaceSelection,
   AndroidWorkspaceCommand,
@@ -1193,7 +1193,8 @@ export class ContingencyRpcs extends RpcGroup.make(
   Rpc.make("android.apps.list", {
     error: BrowserRpcError,
     payload: Schema.Struct({ device: AndroidWorkspaceSelection.fields.device }),
-    success: Schema.Array(AndroidDiscoveredApp),
+    stream: true,
+    success: AndroidDiscoveredAppsEvent,
   }),
   Rpc.make("android.workspace.command", {
     error: BrowserRpcError,

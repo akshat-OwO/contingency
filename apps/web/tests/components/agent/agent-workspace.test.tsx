@@ -19,7 +19,7 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Cause, Deferred, Effect, Exit, Schema, Scope } from "effect";
+import { Cause, Deferred, Effect, Exit, Schema, Scope, Stream } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
 import { TestClock } from "effect/testing";
 import type { ReactNode } from "react";
@@ -328,15 +328,18 @@ const rpcOverrides = {
     return { _tag: "Success", value: rpc.iosSessionsResult, waiting: false };
   }),
   listAndroidApps: () =>
-    Effect.succeed([
-      {
-        label: "Shop",
-        launchActivity: "dev.shop/.Main",
-        package: "dev.shop",
-        versionCode: "1",
-        versionName: "1",
-      },
-    ]),
+    Stream.make({
+      _tag: "snapshot" as const,
+      apps: [
+        {
+          label: "Shop",
+          launchActivity: "dev.shop/.Main",
+          package: "dev.shop",
+          versionCode: "1",
+          versionName: "1",
+        },
+      ],
+    }),
   listAndroidDevices: Effect.succeed([
     {
       api: 36,

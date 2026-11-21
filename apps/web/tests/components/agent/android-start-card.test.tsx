@@ -1,4 +1,8 @@
-import type { AndroidWorkspaceSelection } from "@contingency/protocol";
+import type {
+  AndroidDiscoveredApp,
+  AndroidDiscoveredAppsEvent,
+  AndroidWorkspaceSelection,
+} from "@contingency/protocol";
 import {
   cleanup,
   fireEvent,
@@ -7,24 +11,23 @@ import {
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { Deferred, Effect } from "effect";
+import { Deferred, Effect, Stream } from "effect";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { AndroidStartCard } from "@/components/agent/android-start-card";
 import type { AndroidSetupDiscovery } from "@/components/agent/android-start-card";
 
-const discovery = {
-  apps: () =>
-    Effect.succeed([
-      {
-        label: "Shop",
-        launchActivity: "dev.shop/.Main",
-        package: "dev.shop",
-        versionCode: "1",
-        versionName: "1",
-      },
-    ]),
+const shopApp: AndroidDiscoveredApp = {
+  label: "Shop",
+  launchActivity: "dev.shop/.Main",
+  package: "dev.shop",
+  versionCode: "1",
+  versionName: "1",
+};
+
+const discovery: AndroidSetupDiscovery = {
+  apps: () => Stream.make({ _tag: "snapshot", apps: [shopApp] }),
   boot: () => Effect.void,
   devices: Effect.succeed([
     {
@@ -305,10 +308,21 @@ test("offers the .apk upload before a device is chosen", async () => {
 
 test("keeps the Target App field in place while the apps load", async () => {
   const user = userEvent.setup();
-  const [shop] = await Effect.runPromise(discovery.apps());
-  const listed = Effect.runSync(Deferred.make<readonly (typeof shop)[]>());
+  const listed = Effect.runSync(
+    Deferred.make<readonly AndroidDiscoveredApp[]>()
+  );
   render(
-    <Card discovery={{ ...discovery, apps: () => Deferred.await(listed) }} />
+    <Card
+      discovery={{
+        ...discovery,
+        apps: () =>
+          Stream.fromEffect(
+            Deferred.await(listed).pipe(
+              Effect.map((apps) => ({ _tag: "snapshot" as const, apps }))
+            )
+          ),
+      }}
+    />
   );
   // The one field says it is reading, so nothing below it moves.
   expect(
@@ -317,9 +331,96 @@ test("keeps the Target App field in place while the apps load", async () => {
   expect(targetApp()).toBeDisabled();
   expect(targetApp()).toHaveAttribute("placeholder", "Reading installed apps…");
   expect(targetApp()).toHaveAccessibleDescription("Reading installed apps…");
-  Effect.runSync(Deferred.succeed(listed, [shop]));
+  Effect.runSync(Deferred.succeed(listed, [shopApp]));
   await chooseShop(user);
   expect(targetApp()).toHaveValue("Shop");
+});
+
+test("enriches labels progressively without reordering rows or resetting selection", async () => {
+  const user = userEvent.setup();
+  const zetaResolved = Effect.runSync(
+    Deferred.make<AndroidDiscoveredAppsEvent>()
+  );
+  const alphaResolved = Effect.runSync(
+    Deferred.make<AndroidDiscoveredAppsEvent>()
+  );
+  render(
+    <Card
+      discovery={{
+        ...discovery,
+        apps: () =>
+          Stream.make<AndroidDiscoveredAppsEvent>({
+            _tag: "snapshot",
+            apps: [
+              {
+                label: "dev.zeta",
+                launchActivity: "dev.zeta/.Main",
+                package: "dev.zeta",
+                versionCode: "10",
+                versionName: "",
+              },
+              {
+                label: "dev.alpha",
+                launchActivity: "dev.alpha/.Main",
+                package: "dev.alpha",
+                versionCode: "2",
+                versionName: "",
+              },
+            ],
+          }).pipe(
+            Stream.concat(Stream.fromEffect(Deferred.await(zetaResolved))),
+            Stream.concat(Stream.fromEffect(Deferred.await(alphaResolved)))
+          ),
+      }}
+    />
+  );
+
+  // Picker is enabled immediately with fallback package labels.
+  await vi.waitFor(() => expect(targetApp()).toBeEnabled());
+  await user.click(targetApp());
+  await user.click(
+    await screen.findByRole("option", { name: "dev.zeta dev.zeta · build 10" })
+  );
+  expect(targetApp()).toHaveValue("dev.zeta");
+
+  // Fill a setup field before labels arrive to prove enrichment preserves form state.
+  await openSetup(user);
+  const startField = screen.getByRole("textbox", {
+    name: "Starting screen element",
+  });
+  await user.type(startField, "Welcome");
+  expect(startField).toHaveValue("Welcome");
+
+  // Resolve labels out of alphabetical order; row order and form state stay intact.
+  Effect.runSync(
+    Deferred.succeed(zetaResolved, {
+      _tag: "metadata",
+      label: "Zeta App",
+      package: "dev.zeta",
+      versionCode: "10",
+      versionName: "1.0",
+    })
+  );
+  Effect.runSync(
+    Deferred.succeed(alphaResolved, {
+      _tag: "metadata",
+      label: "Alpha App",
+      package: "dev.alpha",
+      versionCode: "2",
+      versionName: "0.2",
+    })
+  );
+
+  await vi.waitFor(() => expect(targetApp()).toHaveValue("Zeta App"));
+  expect(startField).toHaveValue("Welcome");
+
+  // Reopen the list and verify stable order (Zeta App remains before Alpha App).
+  await user.clear(targetApp());
+  const options = await screen.findAllByRole("option");
+  expect(options.map((option) => option.textContent)).toEqual([
+    "Zeta App dev.zeta · build 10",
+    "Alpha App dev.alpha · build 2",
+  ]);
 });
 
 test("searches installed apps by name or package and says when none match", async () => {
@@ -329,22 +430,25 @@ test("searches installed apps by name or package and says when none match", asyn
       discovery={{
         ...discovery,
         apps: () =>
-          Effect.succeed([
-            {
-              label: "Shop",
-              launchActivity: "dev.shop/.Main",
-              package: "dev.shop",
-              versionCode: "1",
-              versionName: "1",
-            },
-            {
-              label: "Fixture Shop",
-              launchActivity: "dev.contingency.checkout/.Main",
-              package: "dev.contingency.checkout",
-              versionCode: "1",
-              versionName: "1",
-            },
-          ]),
+          Stream.make({
+            _tag: "snapshot" as const,
+            apps: [
+              {
+                label: "Shop",
+                launchActivity: "dev.shop/.Main",
+                package: "dev.shop",
+                versionCode: "1",
+                versionName: "1",
+              },
+              {
+                label: "Fixture Shop",
+                launchActivity: "dev.contingency.checkout/.Main",
+                package: "dev.contingency.checkout",
+                versionCode: "1",
+                versionName: "1",
+              },
+            ],
+          }),
       }}
     />
   );
