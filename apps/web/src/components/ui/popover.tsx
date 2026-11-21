@@ -65,8 +65,10 @@ function PopoverContent({
       anchor={anchorOf(anchor)}
       side={side}
       sideOffset={sideOffset}
+      // Every Workspace popover is an island (#744): opaque, on the island's
+      // edge, shadow and 22px radius. More contrast gives it a defined edge.
       className={cn(
-        "bg-popover text-popover-foreground ring-foreground/10 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 m-0 flex w-72 origin-(--transform-origin) flex-col gap-2.5 rounded-lg border-0 p-2.5 text-sm shadow-md ring-1 outline-hidden duration-100",
+        "bg-island-solid text-popover-foreground border-island-border shadow-island contrast-more:border-foreground data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-ending-style:animate-out data-ending-style:fade-out-0 data-ending-style:zoom-out-95 m-0 flex w-72 origin-(--transform-origin) flex-col gap-2.5 rounded-(--island-radius) border p-2.5 text-sm outline-hidden duration-100",
         positionerClassName,
         className
       )}

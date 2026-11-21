@@ -131,8 +131,10 @@ test("a Run waiting on the person asks for attention", () => {
   ).toBe("attention");
 });
 
-test("a driven Run is live, and starting or reconnecting is busy", () => {
-  expect(runDockPresentation(runSession({}), true).tone).toBe("live");
+test("the user driving is live; the agent driving, starting or reconnecting is busy", () => {
+  // The agent driving reads as running work, so the pointer mark stays the
+  // user's own (#753).
+  expect(runDockPresentation(runSession({}), true).tone).toBe("busy");
   expect(
     runDockPresentation(
       runSession({ controller: "user", phase: "takeover" }),
@@ -145,13 +147,17 @@ test("a driven Run is live, and starting or reconnecting is busy", () => {
   ).toBe("busy");
 });
 
-test("an ended Run stays neutral unless it failed", () => {
-  expect(runDockPresentation(runSession({ phase: "closed" }), true).tone).toBe(
-    "default"
+test("an ended Run reads Ended unless it failed", () => {
+  const closed = runDockPresentation(runSession({ phase: "closed" }), true);
+  expect(closed.tone).toBe("ended");
+  expect(closed.badge).toBe("Ended");
+  // Nothing here drives the browser any more (#757).
+  expect(closed.nextStep).toBe(
+    "This browser session ended. Its Run is read-only."
   );
   expect(
     runDockPresentation(runSession({ phase: "completed" }), true).tone
-  ).toBe("default");
+  ).toBe("ended");
   expect(
     runDockPresentation(runSession({ phase: "interrupted" }), true).tone
   ).toBe("failed");
@@ -162,6 +168,63 @@ test("the badge says who drives and what waits on the person", () => {
   expect(driving.badge).toBe("Agent driving");
   // The badge already names the holder, so the sentence does not repeat it.
   expect(driving.nextStep).not.toContain("The agent has control");
+  const boundary = runDockPresentation(
+    runSession({
+      boundary: {
+        action: { ref: "e1", type: "click" },
+        description: "Place the order",
+        id: "boundary-1",
+        operationId: "op-1",
+        reason: "confirmation",
+        requested: "Click Place order",
+      },
+    }),
+    true
+  );
+  expect(boundary.badge).toBe("Needs you");
+  // The status line is a sentence, never an empty button (#753).
+  expect(boundary.nextStep).toBe(
+    "The agent is waiting on you. Answer the request to let it continue; nothing runs until you do."
+  );
+});
+
+test("any open request turns the chip to Needs you", () => {
+  const variable = runDockPresentation(
+    runSession({
+      pendingDecisions: [
+        {
+          createdAt: at,
+          kind: "supply_variable",
+          pendingDecisionId: "pending-decision-1",
+          scopeSummary: "Supply PROMO_CODE",
+          sessionId: "agent-one",
+          variable: { name: "PROMO_CODE", secret: false },
+        },
+      ],
+    }),
+    true
+  );
+  expect(variable.badge).toBe("Needs you");
+  expect(variable.tone).toBe("attention");
+  // Over a Takeover too: the request is what the person does next.
+  expect(
+    runDockPresentation(
+      runSession({
+        controller: "user",
+        dryRun: {
+          flowName: "checkout",
+          recordingId: "recording-checkout",
+          startedAt: at,
+          variables: [
+            { name: "PASSWORD", runtime: false, secret: true, supplied: false },
+          ],
+        },
+        phase: "takeover",
+      }),
+      true
+    ).badge
+  ).toBe("Needs you");
+  // An ended Run waits on nobody.
   expect(
     runDockPresentation(
       runSession({
@@ -173,8 +236,9 @@ test("the badge says who drives and what waits on the person", () => {
           reason: "confirmation",
           requested: "Click Place order",
         },
+        phase: "closed",
       }),
       true
     ).badge
-  ).toBe("Waiting for you");
+  ).toBe("Ended");
 });

@@ -266,6 +266,83 @@ export const agentControlPresentation = (
   };
 };
 
+export const hasExecutionBoundaryNotice = (session: AgentSessionSnapshot) =>
+  session.boundary !== null && session.boundary !== undefined;
+
+/** The status sentence while the agent waits on an answer from the user. */
+export const WAITING_ON_YOU_SENTENCE =
+  "The agent is waiting on you. Answer the request to let it continue; nothing runs until you do.";
+
+/** Whether a Guided recording still has a question nobody has answered. */
+const hasOpenGuidedQuestion = (session: AgentSessionSnapshot): boolean => {
+  if (
+    session.activity !== "teaching" ||
+    session.origin !== "guided-run" ||
+    session.captureState._tag !== "recording"
+  ) {
+    return false;
+  }
+  const { instructions } = session.teaching;
+  const answered = new Set(
+    instructions.flatMap((item) =>
+      item.dialogue?._tag === "answer" ? [item.dialogue.questionId] : []
+    )
+  );
+  return instructions.some(
+    (item) => item.dialogue?._tag === "question" && !answered.has(item.id)
+  );
+};
+
+/**
+ * Whether the agent is waiting on an answer only the user can give: an open
+ * Execution Boundary, any Variable request (Setup, runtime, Prerequisite,
+ * Example or Dry Run), or an unanswered Guided Run question. The status chip
+ * then reads `Needs you`, whatever the session was doing (#753). A Takeover
+ * Variable is not here: it is the user's own tool while they drive, and the
+ * agent waits on nothing through it.
+ */
+export const waitsOnUser = (session: AgentSessionSnapshot): boolean => {
+  if (!isLiveAgentSessionPhase(session.phase)) {
+    return false;
+  }
+  if (
+    hasExecutionBoundaryNotice(session) ||
+    (session.pendingDecisions ?? []).some(
+      ({ kind }) => kind === "supply_variable"
+    )
+  ) {
+    return true;
+  }
+  if (session.activity === "run") {
+    return (session.dryRun?.variables ?? []).some(({ supplied }) => !supplied);
+  }
+  return (
+    (session.controller === "agent" &&
+      session.captureState._tag === "setup" &&
+      (session.setupVariables ?? []).some(
+        ({ status }) => status === "requested"
+      )) ||
+    hasOpenGuidedQuestion(session)
+  );
+};
+
+/**
+ * Whether the held session waits on the user, for the status chip. A
+ * boolean, so the chip re-renders only when the answer changes, not on every
+ * frame or pointer update the view state carries.
+ */
+export const sessionWaitsOnUserAtom = agentViewStateAtom.pipe(
+  Atom.map(({ session }) => session !== undefined && waitsOnUser(session))
+);
+
+/**
+ * Whether the comment card is open, for the Comment button's
+ * `aria-expanded`. A boolean for the same reason as above.
+ */
+export const commentComposerOpenAtom = agentViewStateAtom.pipe(
+  Atom.map(({ inspect }) => inspect.composing)
+);
+
 /**
  * A Guided recording's status sentence. The badge already names who holds
  * the browser, so the sentence says what comes next, or why the agent asked.
@@ -274,6 +351,9 @@ export const guidedControlSentence = (
   session: AgentSessionSnapshot
 ): string => {
   const { action, reason } = agentControlPresentation(session);
+  if (waitsOnUser(session)) {
+    return WAITING_ON_YOU_SENTENCE;
+  }
   if (session.controller === "user") {
     return (
       reason ??
@@ -283,16 +363,10 @@ export const guidedControlSentence = (
   if (action === "Take over") {
     return reason ?? "The agent is asking you to take over.";
   }
-  if (session.boundary !== undefined && session.boundary !== null) {
-    return "The agent is waiting for confirmation.";
-  }
   return (
     reason ?? "The agent is following the document. Take control at any time."
   );
 };
-
-export const hasExecutionBoundaryNotice = (session: AgentSessionSnapshot) =>
-  session.boundary !== null && session.boundary !== undefined;
 
 export const agentStatusLabel = (
   session: AgentSessionSnapshot | undefined,
@@ -301,19 +375,18 @@ export const agentStatusLabel = (
   if (session === undefined) {
     return "No session selected";
   }
+  // Any open request outranks who holds the browser: it is what the person
+  // has to do next (#753).
+  if (waitsOnUser(session)) {
+    return "Needs you";
+  }
   if (session.phase === "takeover") {
     return session.controller === "agent"
       ? "Takeover requested"
       : "You have control";
   }
-  if (session.boundary !== undefined && session.boundary !== null) {
-    return "Waiting for you";
-  }
   if (session.phase === "starting") {
     return "Starting";
-  }
-  if (session.phase === "completed") {
-    return "Completed";
   }
   if (session.phase === "failed") {
     return "Failed";
@@ -321,8 +394,10 @@ export const agentStatusLabel = (
   if (session.phase === "interrupted") {
     return "Interrupted";
   }
-  if (session.phase === "closed") {
-    return "Closed";
+  // A Run that ended without failing reads `Ended`; its verdict is the Run
+  // Summary's, not the chip's (#757).
+  if (session.phase === "completed" || session.phase === "closed") {
+    return "Ended";
   }
   if (!streamConnected) {
     return "Connecting";

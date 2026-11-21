@@ -206,17 +206,6 @@ export const visibleWebStorageEntries = (
     .filter(([key, value]) => storageSearchMatchesEntry(key, value, query))
     .toSorted(([left], [right]) => left.localeCompare(right));
 
-export const storageEntryCount = (
-  snapshots: StorageSnapshots,
-  kind: StorageKind
-): number => {
-  if (kind === "cookies") {
-    return snapshots.cookies.length;
-  }
-  return Object.keys(kind === "local" ? snapshots.local : snapshots.session)
-    .length;
-};
-
 export const selectedStorageRowExists = (
   selection: StorageSelection | undefined,
   snapshots: StorageSnapshots

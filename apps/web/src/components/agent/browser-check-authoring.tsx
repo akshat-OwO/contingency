@@ -4,13 +4,7 @@ import type {
   BrowserPredicate,
 } from "@contingency/protocol";
 import { Schema } from "effect";
-import {
-  ActivityIcon,
-  ChevronRightIcon,
-  DatabaseIcon,
-  Trash2Icon,
-  XIcon,
-} from "lucide-react";
+import { ActivityIcon, DatabaseIcon, Trash2Icon, XIcon } from "lucide-react";
 import type { ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -98,7 +92,7 @@ const pathValue = (
   }
 };
 
-const inputClassName = "h-8 rounded-[10px] px-2.5 font-mono text-xs md:text-xs";
+const inputClassName = "h-8 rounded-[10px] px-2.5 font-mono text-xs";
 
 const fieldClassName =
   "text-muted-foreground grid min-w-0 gap-1 text-xs font-medium";
@@ -287,7 +281,8 @@ const BrowserSourceEditor = ({
       <SectionHeading>
         {check.kind === "cookie" ? "Cookie" : "Storage"}
       </SectionHeading>
-      <div className="grid grid-cols-2 gap-2">
+      {/* State is wide enough for its longest choice, so none clips. */}
+      <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,13rem)] gap-2">
         <Field label="Name">
           <Input
             aria-label="Storage check name"
@@ -401,18 +396,14 @@ export const BrowserAttachmentChip = ({
         </span>
         <span
           className={cn(
-            "rounded-md px-1.5 py-px text-xs",
+            "rounded-md px-1.5 py-px text-[11px]",
             required
-              ? "bg-brand/18 text-foreground"
+              ? "bg-brand/18 text-brand-ink"
               : "bg-island-hover text-muted-foreground"
           )}
         >
           {required ? "Must happen" : "Context"}
         </span>
-        <ChevronRightIcon
-          aria-hidden="true"
-          className="text-muted-foreground size-3 shrink-0"
-        />
       </button>
       <Button
         aria-label={`Remove ${attachment.label}`}
@@ -688,7 +679,7 @@ export const BrowserAttachmentEditor = ({
                 "rounded-[10px] px-2.5 py-2 text-xs",
                 check.demonstrated
                   ? "bg-status-ready/12 text-status-ready"
-                  : "bg-brand/12 text-foreground"
+                  : "bg-brand/12 text-brand-ink"
               )}
             >
               {check.demonstrated
@@ -702,7 +693,7 @@ export const BrowserAttachmentEditor = ({
         <Button
           className="hover:bg-destructive/10 hover:text-destructive"
           onClick={onRemove}
-          size="sm"
+          size="island"
           type="button"
           variant="island"
         >

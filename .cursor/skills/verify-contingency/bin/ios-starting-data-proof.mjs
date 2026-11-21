@@ -136,6 +136,17 @@ const openSetup = async () => {
     await setup.click();
   }
 };
+const simulatorField = page.getByRole("combobox", {
+  exact: true,
+  name: "Simulator",
+});
+/** Opens the Simulator field and picks the option whose name matches. */
+const pickSimulator = async (pattern, timeout = 60_000) => {
+  await simulatorField.click({ timeout });
+  await page.getByRole("option", { name: pattern }).click({ timeout });
+};
+/** The hint row under the Simulator field, for the simulator it shows. */
+const hint = (name) => page.getByRole("group", { exact: true, name });
 let flowName;
 const session = async () => {
   const listed = await iosRpc(instance.mcpUrl, "ios.workspace.list", {});
@@ -168,17 +179,13 @@ const teach = async (startingData) => {
   await page
     .getByRole("textbox", { exact: true, name: "Flow name" })
     .fill(flowName);
-  const card = page.getByRole("button", {
-    name: new RegExp(`^Simulator ${name} `, "u"),
-  });
-  await card.waitFor({ timeout: 60_000 });
+  // A booted simulator's option reads its runtime after its name.
+  await pickSimulator(new RegExp(`^${name} iOS `, "u"));
   // The operator booted this simulator, so this process may not erase it.
-  assert.equal(
-    await card.evaluate((node) => node.nextElementSibling?.textContent ?? ""),
-    "Stop this device to erase it."
-  );
+  await hint(name)
+    .getByText("Stop this device to erase it.", { exact: true })
+    .waitFor({ timeout: 60_000 });
   receipt.unownedRefusesErase = true;
-  await card.click();
   await page
     .getByRole("button", { name: new RegExp(`${bundleId} build`, "u") })
     .click({ timeout: 90_000 });
@@ -305,11 +312,10 @@ try {
       .getByRole("button", { exact: true, name: "Erase device" })
       .click();
     // Contingency erased and booted it, so it owns it and still offers Erase.
-    await page
-      .getByRole("button", { name: new RegExp(`^Simulator ${name} `, "u") })
-      .and(page.locator(":not([disabled])"))
+    await pickSimulator(new RegExp(`^${name} iOS `, "u"), 300_000);
+    await hint(name)
+      .getByRole("button", { exact: true, name: `Erase ${name}` })
       .waitFor({ timeout: 300_000 });
-    await button(`Erase ${name}`).waitFor({ timeout: 300_000 });
     assert.equal(await banner.count(), 0);
     const after = await deviceName();
     assert.equal(after.state, "Booted");

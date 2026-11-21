@@ -5,7 +5,7 @@ import { LoaderCircleIcon, PackageIcon, UploadIcon, XIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
   FileInput,
   FileInputDropzone,
@@ -64,7 +64,11 @@ export const useBuildUpload = <Input, Uploaded>(
   return { reset, start, state };
 };
 
-/** What the upload is doing, said under its picker and read with it. */
+/**
+ * What the upload is doing, read with its picker. The idle note is for
+ * assistive technology only; once uploaded, the build's own line says that
+ * installing it asks for consent.
+ */
 const BuildUploadStatus = ({
   id,
   state,
@@ -76,7 +80,8 @@ const BuildUploadStatus = ({
     aria-live="polite"
     className={cn(
       "text-xs text-pretty",
-      state._tag === "failed" ? "text-destructive" : "text-muted-foreground"
+      state._tag === "failed" ? "text-destructive" : "text-muted-foreground",
+      state._tag === "idle" && "sr-only"
     )}
     id={id}
   >
@@ -88,8 +93,23 @@ const BuildUploadStatus = ({
   </p>
 );
 
-const FolderPickerRow = ({ children }: { readonly children: ReactNode }) => (
-  <div className="border-island-border flex flex-wrap items-center justify-center gap-x-1.5 gap-y-1 rounded-xl border border-dashed px-3 py-3 text-[13px]">
+/** The compact dashed zone of the #744 card: one line, a 1.5px dash. */
+const zoneClassName =
+  "text-muted-foreground gap-x-1.5 border-[1.5px] px-3.5 py-2.5 text-[13px]";
+
+const FolderPickerRow = ({
+  children,
+  className,
+}: {
+  readonly children: ReactNode;
+  readonly className: string;
+}) => (
+  <div
+    className={cn(
+      "border-island-border flex flex-wrap items-center justify-center gap-y-1 rounded-xl border border-dashed",
+      className
+    )}
+  >
     {children}
   </div>
 );
@@ -100,16 +120,16 @@ export interface ChosenFile extends AppBundleFile {
 }
 
 /**
- * A drop zone for one build file, such as an Android `.apk`, with the button
- * that opens the file picker inside it. With `directory` it picks a whole
- * folder, such as an iOS simulator `.app`, through the picker only. Each choice uploads at once; the zone keeps
- * no file of its own, so choosing the same build again uploads it again.
+ * A compact drop zone for one build file, such as an Android `.apk`, with a
+ * link-style button that opens the file picker inside it. With `directory` it
+ * picks a whole folder, such as an iOS simulator `.app`, through the picker
+ * only. Each choice uploads at once; the zone keeps no file of its own, so
+ * choosing the same build again uploads it again.
  */
 export const BuildDropzone = ({
   accept,
   describedBy,
   directory = false,
-  kind,
   label,
   onFiles,
   state,
@@ -118,8 +138,7 @@ export const BuildDropzone = ({
   readonly describedBy: string;
   /** Picks and accepts a folder, every file inside it, rather than one file. */
   readonly directory?: boolean;
-  /** The build's kind, as the zone names it: `.apk` or `.app`. */
-  readonly kind: string;
+  /** The picker button's text and name, such as `Upload an .apk`. */
   readonly label: string;
   /**
    * The chosen build: one file, or a folder's files with paths that start at
@@ -156,29 +175,24 @@ export const BuildDropzone = ({
         }}
         value={[]}
       >
-        <Zone>
+        <Zone className={zoneClassName}>
           {uploading ? (
             <LoaderCircleIcon
               aria-hidden="true"
-              className="text-muted-foreground size-4 animate-spin"
+              className="size-4 animate-spin motion-reduce:animate-none"
             />
           ) : (
-            <UploadIcon
-              aria-hidden="true"
-              className="text-muted-foreground size-4"
-            />
+            <UploadIcon aria-hidden="true" className="size-4" />
           )}
-          <span className="text-muted-foreground">
-            {directory ? "Choose the " : "Drop an "}
-            <span className="font-mono">{kind}</span>
-            {directory ? " folder:" : " here, or"}
-          </span>
           <FileInputTrigger
             aria-describedby={describedBy}
-            className={buttonVariants({ size: "xs", variant: "outline" })}
+            className="text-foreground focus-visible:ring-ring rounded-sm font-medium underline underline-offset-[3px] outline-none hover:decoration-2 focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-50"
           >
             {label}
           </FileInputTrigger>
+          <span>
+            {directory ? "by choosing its folder" : "or drop it here"}
+          </span>
         </Zone>
       </FileInput>
       <BuildUploadStatus id={describedBy} state={state} />

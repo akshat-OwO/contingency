@@ -122,6 +122,38 @@ const openSetup = async () => {
 };
 const nodes = (session) =>
   session.observation?.nodes.map((node) => node.name) ?? [];
+const deviceField = page.getByRole("combobox", {
+  exact: true,
+  name: "Device",
+});
+/**
+ * Opens the Device field and picks the option whose name matches. When no
+ * such device is listed in time, it closes the field and answers false.
+ */
+const pickDevice = async (pattern, timeout = 60_000) => {
+  const shown = await deviceField.waitFor({ timeout }).then(
+    () => true,
+    () => false
+  );
+  if (!shown) {
+    return false;
+  }
+  await deviceField.click();
+  const option = page.getByRole("option", { name: pattern });
+  if (
+    await option.waitFor({ timeout }).then(
+      () => true,
+      () => false
+    )
+  ) {
+    await option.click();
+    return true;
+  }
+  await page.keyboard.press("Escape");
+  return false;
+};
+/** The hint row under the Device field, for the device it shows. */
+const hint = (name) => page.getByRole("group", { exact: true, name });
 let flowName;
 const teach = async (startingData) => {
   const serial = await serialOf(avd);
@@ -140,23 +172,15 @@ const teach = async (startingData) => {
   const unread = page.getByText(
     /Could not read APK metadata|discovery failed/u
   );
+  const option = new RegExp(serial, "u");
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const card = page.getByRole("button", { name: new RegExp(serial, "u") });
-    await card
-      .or(unread)
-      .first()
-      .waitFor({ timeout: 20_000 })
-      .catch(() => null);
-    for (
-      let refresh = 0;
-      refresh < 12 && (await card.count()) === 0;
-      refresh += 1
-    ) {
+    let picked = await pickDevice(option, 20_000);
+    for (let refresh = 0; refresh < 12 && !picked; refresh += 1) {
       receipt.listingRetries = (receipt.listingRetries ?? 0) + 1;
       await click("Refresh devices");
-      await card.waitFor({ timeout: 20_000 }).catch(() => null);
+      picked = await pickDevice(option, 20_000);
     }
-    await card.click();
+    assert.ok(picked, `The Device field does not list ${serial}.`);
     await listed.or(unread).first().waitFor({ timeout: 120_000 });
     if ((await listed.count()) > 0) {
       break;
@@ -215,26 +239,34 @@ const close = async () => {
 try {
   if (phase === "boot") {
     await openCard();
-    const foreignCard = page.getByRole("button", {
-      name: new RegExp(`^Emulator ${foreign} `, "u"),
-    });
-    await foreignCard.waitFor({ timeout: 60_000 });
-    // The refusal note follows the running card it describes.
-    assert.equal(
-      await foreignCard.evaluate(
-        (node) => node.nextElementSibling?.textContent ?? ""
-      ),
-      "Stop this device to erase it."
+    assert.ok(
+      await pickDevice(new RegExp(`^${foreign} `, "u")),
+      `The Device field does not list ${foreign}.`
     );
+    // The hint row of the device it shows carries the refusal note.
+    await hint(foreign)
+      .getByText("Stop this device to erase it.", { exact: true })
+      .waitFor({ timeout: 60_000 });
     assert.equal(
       await page.getByRole("button", { name: `Erase ${foreign}` }).count(),
       0
     );
     receipt.foreignRefusesErase = true;
     await capture("boot-card");
-    await page.getByText(/stopped or unavailable/u).click();
-    await click(`Start ${avd}`);
-    await page
+    assert.ok(
+      await pickDevice(new RegExp(`^${avd} `, "u")),
+      `The Device field does not list ${avd}.`
+    );
+    await hint(avd)
+      .getByRole("button", { exact: true, name: `Start ${avd}` })
+      .click();
+    // Once booted it is listed under its serial, and the stopped pick goes.
+    await hint(avd).waitFor({ state: "detached", timeout: 240_000 });
+    assert.ok(
+      await pickDevice(new RegExp(`^${avd} emulator-`, "u")),
+      `The Device field does not list the booted ${avd}.`
+    );
+    await hint(avd)
       .getByRole("button", { exact: true, name: `Erase ${avd}` })
       .waitFor({ timeout: 240_000 });
     receipt.serial = await serialOf(avd);
@@ -344,6 +376,11 @@ try {
       new RegExp(`package:${appId}`, "u")
     );
     await openCard();
+    // Show the proof AVD, so its hint row reports the erase.
+    assert.ok(
+      await pickDevice(new RegExp(`^${avd} emulator-`, "u")),
+      `The Device field does not list ${avd}.`
+    );
     const banner = page.getByRole("region", {
       exact: true,
       name: "Device Erase request",
@@ -360,8 +397,15 @@ try {
     await confirm
       .getByRole("button", { exact: true, name: "Erase device" })
       .click();
-    await page.getByText("Erasing…").waitFor({ timeout: 30_000 });
-    await page
+    const erasing = hint(avd).getByText("Erasing…");
+    await erasing.waitFor({ timeout: 30_000 });
+    await erasing.waitFor({ state: "detached", timeout: 300_000 });
+    // It may start again under another serial, which drops the pick.
+    assert.ok(
+      await pickDevice(new RegExp(`^${avd} emulator-`, "u"), 120_000),
+      `The Device field does not list the erased ${avd}.`
+    );
+    await hint(avd)
       .getByRole("button", { exact: true, name: `Erase ${avd}` })
       .waitFor({ timeout: 300_000 });
     assert.equal(await banner.count(), 0);
@@ -393,9 +437,9 @@ try {
       `${JSON.stringify(journal, null, 2)}\n`
     );
     if (receipt.ok !== true) {
-      const more = page.getByText(/stopped or unavailable/u);
-      if ((await more.count()) > 0) {
-        await more.click();
+      // Open the Device field, so the capture lists every device.
+      if ((await deviceField.count()) > 0) {
+        await deviceField.click().catch(() => null);
       }
       await capture(`${phase}-failure`);
     }

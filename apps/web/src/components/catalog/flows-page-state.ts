@@ -158,6 +158,27 @@ export const runsForFlow = (
 ): readonly CatalogRunEntry[] =>
   root.runs.filter((run) => run.ownerFlow === name);
 
+/** The platform a Flow runs on, as its icon and chip name it. */
+export type FlowPlatform = "android" | "ios" | "web";
+
+/**
+ * A Flow's platform, as far as the catalog tells: a native Run of it names
+ * its device platform, and stamped hosts mean the browser. A Flow with
+ * neither, such as a native draft with no Run yet, has none to show.
+ */
+export const flowPlatform = (
+  root: CatalogRootView,
+  flow: Pick<CatalogFlowEntry, "hosts" | "name">
+): FlowPlatform | undefined => {
+  const native = runsForFlow(root, flow.name).find(
+    (run) => run.native !== undefined
+  )?.native;
+  if (native !== undefined) {
+    return native.platform;
+  }
+  return flow.hosts.length > 0 ? "web" : undefined;
+};
+
 export const recordingsForFlow = (
   root: CatalogRootView,
   name: string

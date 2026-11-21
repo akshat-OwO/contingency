@@ -13,8 +13,10 @@ const alertVariants = cva(
     variants: {
       variant: {
         default: "bg-card text-card-foreground",
+        // The tinted ground and the icon carry the tone (#744); the title
+        // and body stay neutral, so the message reads calmly.
         destructive:
-          "bg-card text-destructive *:data-[slot=alert-description]:text-destructive/90 *:[svg]:text-current",
+          "border-destructive/20 bg-destructive/8 text-card-foreground *:[svg]:text-destructive",
       },
     },
   }

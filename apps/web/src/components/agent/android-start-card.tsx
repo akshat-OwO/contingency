@@ -13,7 +13,7 @@ import type {
 import { useAtom } from "@effect/atom-react";
 import { Effect, Fiber, Option, Schema } from "effect";
 import { Atom } from "effect/reactivity";
-import { LoaderCircleIcon, RefreshCwIcon, SearchIcon } from "lucide-react";
+import { LoaderCircleIcon, SearchIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -46,7 +46,11 @@ import {
 } from "./android-setup-state";
 import type { AndroidCondition } from "./android-setup-state";
 import type { DeviceStart } from "./device-choice-state";
-import { DeviceChoices, useDeviceStarts } from "./device-choices";
+import {
+  DeviceChoices,
+  RefreshDevicesButton,
+  useDeviceStarts,
+} from "./device-choices";
 import { useDeviceErase } from "./device-erase";
 import type { DeviceEraseControls } from "./device-erase-state";
 import { ConditionInput, Part } from "./native-setup-fields";
@@ -162,42 +166,41 @@ const DeviceStep = ({
   readonly onStart: (avd: string) => void;
   readonly selected: string | null;
   readonly starts: Readonly<Record<string, DeviceStart>>;
-}) => (
-  <div className="space-y-2">
-    {devices._tag === "loading" ? (
-      <p className="text-muted-foreground flex items-center gap-2 text-xs">
-        <LoaderCircleIcon
-          aria-hidden="true"
-          className="size-3.5 animate-spin"
-        />
-        Asking ADB for devices…
-      </p>
-    ) : null}
-    {devices._tag === "failed" ? (
-      <p className="text-destructive text-xs">{devices.message}</p>
-    ) : null}
-    {devices._tag === "loaded" && devices.value.length === 0 ? (
-      <p className="text-muted-foreground text-xs">
-        No devices found. Create an emulator in Android Studio.
-      </p>
-    ) : null}
-    {devices._tag === "loaded" && devices.value.length > 0 ? (
-      <DeviceChoices
-        devices={devices.value.map(androidDeviceChoice)}
-        emptyMessage="No emulator is running. Create one in Android Studio, then refresh."
-        erase={erase}
-        onSelect={onSelect}
-        onStart={onStart}
-        selected={selected}
-        starts={starts}
-      />
-    ) : null}
-    <Button onClick={onRefresh} size="xs" variant="ghost">
-      <RefreshCwIcon />
-      Refresh devices
-    </Button>
-  </div>
-);
+}) =>
+  devices._tag === "loaded" && devices.value.length > 0 ? (
+    <DeviceChoices
+      devices={devices.value.map(androidDeviceChoice)}
+      emptyMessage="No emulator is running. Create one in Android Studio, then refresh."
+      erase={erase}
+      label="Device"
+      onRefresh={onRefresh}
+      onSelect={onSelect}
+      onStart={onStart}
+      selected={selected}
+      starts={starts}
+    />
+  ) : (
+    <div className="flex min-h-7 items-center justify-between gap-3">
+      {devices._tag === "loading" ? (
+        <p className="text-muted-foreground flex items-center gap-2 text-xs">
+          <LoaderCircleIcon
+            aria-hidden="true"
+            className="size-3.5 animate-spin motion-reduce:animate-none"
+          />
+          Asking ADB for devices…
+        </p>
+      ) : null}
+      {devices._tag === "failed" ? (
+        <p className="text-destructive text-xs">{devices.message}</p>
+      ) : null}
+      {devices._tag === "loaded" ? (
+        <p className="text-muted-foreground text-xs">
+          No devices found. Create an emulator in Android Studio.
+        </p>
+      ) : null}
+      <RefreshDevicesButton onRefresh={onRefresh} />
+    </div>
+  );
 
 /** The uploaded `.apk`, and whether installing it replaces a build. */
 const UploadedApk = ({
@@ -247,6 +250,39 @@ const installedAppsNotice = (
   return null;
 };
 
+/** The installed-app search; it waits, disabled, until a device is chosen. */
+const AppSearch = ({
+  describedBy,
+  disabled = false,
+  onQuery,
+  placeholder = "Search installed apps",
+  query,
+}: {
+  readonly describedBy?: string;
+  readonly disabled?: boolean;
+  readonly onQuery: (query: string) => void;
+  /** Says why the field is off while no device is chosen. */
+  readonly placeholder?: string;
+  readonly query: string;
+}) => (
+  <div className="relative">
+    <SearchIcon
+      aria-hidden="true"
+      className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2"
+    />
+    <Input
+      aria-describedby={describedBy}
+      aria-label="Search installed apps"
+      className="pl-9"
+      disabled={disabled}
+      onChange={(event) => onQuery(event.currentTarget.value)}
+      placeholder={placeholder}
+      value={query}
+      variant="island"
+    />
+  </div>
+);
+
 const InstalledApps = ({
   apps,
   matches,
@@ -263,20 +299,7 @@ const InstalledApps = ({
   readonly selected: string | null;
 }) => (
   <div className="space-y-1.5">
-    <div className="relative">
-      <SearchIcon
-        aria-hidden="true"
-        className="text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2"
-      />
-      <Input
-        aria-label="Search installed apps"
-        className="pl-9"
-        onChange={(event) => onQuery(event.currentTarget.value)}
-        placeholder="Search installed apps"
-        value={query}
-        variant="island"
-      />
-    </div>
+    <AppSearch onQuery={onQuery} query={query} />
     <InstalledAppsFrame notice={installedAppsNotice(apps, matches)}>
       {matches.map((app) => (
         <li key={app.package}>
@@ -327,30 +350,42 @@ const AppStep = ({
   readonly uploadState: BuildUploadState;
 }) => {
   const ids = useId();
-  if (apps === null) {
-    return (
-      <p className="text-muted-foreground text-xs">
-        Choose a device to list its apps.
-      </p>
-    );
-  }
   const needle = query.trim().toLowerCase();
   const matches =
-    apps._tag === "loaded"
+    apps?._tag === "loaded"
       ? apps.value.filter((app) =>
           `${app.label} ${app.package}`.toLowerCase().includes(needle)
         )
       : [];
   return (
-    <div className="grid gap-3">
-      <InstalledApps
-        apps={apps}
-        matches={matches}
-        onQuery={onQuery}
-        onSelect={onSelect}
-        query={query}
-        selected={upload === null ? selected : null}
-      />
+    <div className="grid gap-2.5">
+      {apps === null ? (
+        // Uploading needs no device, so the .apk is offered before one is.
+        // The off field says why in its placeholder, which keeps the card
+        // short enough for the platform pills under it; the same words stay
+        // its description for assistive technology.
+        <div>
+          <AppSearch
+            describedBy={`${ids}-apps-hint`}
+            disabled
+            onQuery={onQuery}
+            placeholder="Choose a device to list its apps"
+            query={query}
+          />
+          <p className="sr-only" id={`${ids}-apps-hint`}>
+            Choose a device to list its apps.
+          </p>
+        </div>
+      ) : (
+        <InstalledApps
+          apps={apps}
+          matches={matches}
+          onQuery={onQuery}
+          onSelect={onSelect}
+          query={query}
+          selected={upload === null ? selected : null}
+        />
+      )}
       <div
         aria-hidden="true"
         className="text-muted-foreground before:bg-island-border after:bg-island-border flex items-center gap-3 text-xs before:h-px before:flex-1 after:h-px after:flex-1"
@@ -361,7 +396,6 @@ const AppStep = ({
         <BuildDropzone
           accept=".apk,application/vnd.android.package-archive"
           describedBy={`${ids}-apk-status`}
-          kind=".apk"
           label="Upload an .apk"
           onFiles={([first]) => {
             if (first !== undefined) {
@@ -724,7 +758,12 @@ export const AndroidStartCard = ({
     setRefresh((value) => value + 1)
   );
   const listed = devices._tag === "loaded" ? devices.value : [];
-  const chosen = chosenSerial(listed, form.device);
+  // A stopped emulator's entry goes once it boots under a new serial, so a
+  // pick that is no longer listed chooses as if nothing were picked.
+  const picked = listed.some((entry) => entry.serial === form.device)
+    ? form.device
+    : null;
+  const chosen = chosenSerial(listed, picked);
   const discovered = listed.find((entry) => entry.serial === chosen);
   const device = discovered === undefined ? null : selectable(discovered);
   const release = deviceRelease(discovered);
@@ -873,7 +912,7 @@ export const AndroidStartCard = ({
       </StartSection>
 
       <StartSection label="Target App" number={2}>
-        <Part disabled={device === null} title="Target App">
+        <Part title="Target App">
           <AppStep
             apps={apps}
             onQuery={(query) => setForm((current) => ({ ...current, query }))}

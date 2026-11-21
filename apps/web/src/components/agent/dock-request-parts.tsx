@@ -50,7 +50,7 @@ export const RequestHeader = ({
     </span>
     <div className="grid min-w-0 gap-px">
       {badge === undefined ? null : (
-        <span className="text-xs font-semibold tracking-[0.02em] text-(--status-needs-you) [&_*]:text-inherit">
+        <span className="text-xs font-semibold tracking-[0.02em] text-(--status-needs-you)">
           {badge}
         </span>
       )}

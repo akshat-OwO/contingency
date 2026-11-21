@@ -6,10 +6,10 @@ import {
   CheckIcon,
   ChevronsUpDownIcon,
   CircleAlertIcon,
-  CircleCheckIcon,
   GlobeIcon,
-  LoaderCircleIcon,
+  HandIcon,
   MessageSquareTextIcon,
+  MousePointer2Icon,
   PlusIcon,
   Trash2Icon,
 } from "lucide-react";
@@ -318,7 +318,7 @@ export const DockShell = ({
               rather than clipping.
             */}
             <div
-              className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5 empty:hidden *:data-[slot=button]:h-8 *:data-[slot=button]:rounded-[10px] *:data-[slot=button]:px-3 *:data-[slot=button]:text-[13px] *:data-[slot=button]:not-[.bg-primary]:bg-transparent dark:*:data-[slot=button]:not-[.bg-primary]:bg-transparent"
+              className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5 empty:hidden *:data-[slot=button]:h-8 *:data-[slot=button]:rounded-[10px] *:data-[slot=button]:px-3 *:data-[slot=button]:text-[13px] *:data-[slot=button]:not-[.bg-primary,.bg-status-recording]:bg-transparent dark:*:data-[slot=button]:not-[.bg-primary,.bg-status-recording]:bg-transparent"
               data-slot="dock-controls"
             >
               <RunSummaryPill />
@@ -429,14 +429,16 @@ export const DockNotices = ({
 
 /**
  * How a dock state reads. Work in progress is `busy`, anything waiting on the
- * person is `attention`, a session someone is driving is `live`, and a good
- * outcome is `success`, so a resting dock and a dock that needs you never
- * look alike.
+ * person is `attention`, a session the user is driving is `live`, a good
+ * outcome or a state ready for the next step is `success`, and a session with
+ * nothing left to drive is `ended`, so a resting dock and a dock that needs
+ * you never look alike.
  */
 export type DockStateTone =
   | "attention"
   | "busy"
   | "default"
+  | "ended"
   | "failed"
   | "live"
   | "recording"
@@ -453,6 +455,7 @@ const dockStateChip: Record<
   attention: { status: "needs-you" },
   busy: { status: "running" },
   default: { className: "[--status-tone:var(--muted-foreground)]" },
+  ended: { className: "[--status-tone:var(--muted-foreground)]" },
   failed: { className: "[--status-tone:var(--destructive)]" },
   live: { className: "[--status-tone:var(--foreground)]" },
   recording: { status: "recording" },
@@ -460,8 +463,36 @@ const dockStateChip: Record<
 };
 
 /**
- * The tone's mark. Work in progress spins; the alert icon means "it is
- * waiting on you" or "it failed". Recording is a ringed dot that holds still.
+ * Work in progress as a still progress ring, a quarter full: like the
+ * prototype's Running mark, it never spins.
+ */
+const BusyRing = () => {
+  const circumference = 2 * Math.PI * 6;
+  return (
+    <svg
+      aria-hidden="true"
+      className="size-3.5 shrink-0 -rotate-90 fill-none stroke-[2.25]"
+      viewBox="0 0 16 16"
+    >
+      <circle className="stroke-current/20" cx="8" cy="8" r="6" />
+      <circle
+        className="stroke-current"
+        cx="8"
+        cy="8"
+        r="6"
+        strokeDasharray={`${circumference / 4} ${circumference}`}
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+};
+
+/**
+ * The tone's mark, as the prototype's status chips draw them (#753). None of
+ * them move: work in progress is a still ring, waiting on you is a hand, the
+ * user driving is a pointer, a good or ready state is a check, an ended
+ * session is a stop square, and a failure is the alert icon. Recording is a
+ * ringed dot.
  */
 const DockStateMark = ({ tone }: { readonly tone: DockStateTone }) => {
   switch (tone) {
@@ -474,22 +505,30 @@ const DockStateMark = ({ tone }: { readonly tone: DockStateTone }) => {
       );
     }
     case "busy": {
+      return <BusyRing />;
+    }
+    case "attention": {
+      return <HandIcon aria-hidden="true" className="size-3.5 shrink-0" />;
+    }
+    case "live": {
       return (
-        <LoaderCircleIcon
-          aria-hidden="true"
-          className="size-3.5 shrink-0 animate-spin motion-reduce:animate-none"
-        />
+        <MousePointer2Icon aria-hidden="true" className="size-3.5 shrink-0" />
       );
     }
-    case "attention":
     case "failed": {
       return (
         <CircleAlertIcon aria-hidden="true" className="size-3.5 shrink-0" />
       );
     }
     case "success": {
+      return <CheckIcon aria-hidden="true" className="size-3.5 shrink-0" />;
+    }
+    case "ended": {
       return (
-        <CircleCheckIcon aria-hidden="true" className="size-3.5 shrink-0" />
+        <span
+          aria-hidden="true"
+          className="size-2.5 shrink-0 rounded-[2px] bg-current"
+        />
       );
     }
     default: {

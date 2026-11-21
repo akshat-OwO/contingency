@@ -828,9 +828,13 @@ const runPageAction = async (page, appUrl, action, flags) => {
         if (typeof flags.role !== "string") {
           throw new Error("browser wait --has-text needs --role.");
         }
-        target = page
-          .getByRole(flags.role)
-          .filter({ hasText: flags["has-text"] });
+        // A name narrows the role first, so the text filter cannot match an
+        // enclosing region that merely contains the named one.
+        target = (
+          typeof flags.name === "string" && flags.name !== ""
+            ? locator(page, flags)
+            : page.getByRole(flags.role)
+        ).filter({ hasText: flags["has-text"] });
       } else {
         target = locator(page, flags);
       }

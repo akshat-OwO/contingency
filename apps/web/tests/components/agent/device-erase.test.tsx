@@ -44,30 +44,42 @@ const controls = (
   ...overrides,
 });
 
-const choices = (erase: DeviceEraseControls, devices: DeviceChoice[]) =>
+const choices = (
+  erase: DeviceEraseControls,
+  devices: DeviceChoice[],
+  selected: string | null = null
+) =>
   render(
     <DeviceChoices
       devices={devices}
       emptyMessage="No emulator."
       erase={erase}
+      label="Device"
       onSelect={vi.fn()}
       onStart={vi.fn()}
-      selected={null}
+      selected={selected}
       starts={{}}
     />
   );
 
-test("offers Erase on a stopped device and on one this process started", () => {
-  const erase = controls({ owned: ["Pixel_9"] });
-  choices(erase, [stopped, running("Pixel_9")]);
-  fireEvent.click(screen.getByRole("button", { name: "Erase Pixel_8" }));
+test("offers Erase on a stopped device", () => {
+  const erase = controls();
+  choices(erase, [stopped]);
+  const erasing = screen.getByRole("button", { name: "Erase Pixel_8" });
+  expect(erasing).toHaveTextContent("Erase");
+  fireEvent.click(erasing);
   expect(erase.confirm).toHaveBeenCalledWith("Pixel_8", "Pixel_8");
+});
+
+test("offers Erase on a running device this process started", () => {
+  const erase = controls({ owned: ["Pixel_9"] });
+  choices(erase, [stopped, running("Pixel_9")], "serial-Pixel_9");
   fireEvent.click(screen.getByRole("button", { name: "Erase Pixel_9" }));
   expect(erase.confirm).toHaveBeenCalledWith("Pixel_9", "Pixel_9");
 });
 
 test("asks the user to stop a running device it did not start", () => {
-  choices(controls(), [running("Pixel_7")]);
+  choices(controls(), [running("Pixel_7")], "serial-Pixel_7");
   expect(screen.queryByRole("button", { name: "Erase Pixel_7" })).toBeNull();
   expect(screen.getByText("Stop this device to erase it.")).toBeTruthy();
 });

@@ -856,3 +856,78 @@ test("a `/?run=` link to a missing Run lands on the page and says so", async () 
   });
   expect(screen.queryByRole("region", { name: "Run Summary" })).toBeNull();
 });
+
+test("leads each Run with its outcome and ends on its length as a clock", () => {
+  rpc.browse = browse([local]);
+  rpc.flow = { _tag: "Initial", waiting: true };
+  renderPage();
+  const row = within(screen.getByRole("region", { name: "Runs" })).getByRole(
+    "button",
+    { name: /Sign in with a fresh SMS code/u }
+  );
+  // 16:13:28 to 16:16:40 is three minutes and twelve seconds.
+  expect(row).toHaveTextContent(
+    /^Working\s*Sign in with a fresh SMS code\s*Interactive Run · .+3:12$/u
+  );
+});
+
+test("names a Flow's platform in its header, apart from the Global root", async () => {
+  rpc.browse = browse([local, global]);
+  rpc.flow = { _tag: "Initial", waiting: true };
+  renderPage({
+    initial: { kind: "flow", name: "1mg mobile login", scope: "local" },
+  });
+  expect(
+    screen.getByRole("region", { name: "1mg mobile login" })
+  ).toHaveTextContent(/^VerifiedWeb/u);
+  await userEvent.click(screen.getByRole("button", { name: "Global" }));
+  await userEvent.click(
+    screen.getByRole("treeitem", { name: /Staging SSO login/u })
+  );
+  expect(
+    screen.getByRole("region", { name: "Staging SSO login" })
+  ).toHaveTextContent(/^VerifiedWebGlobal/u);
+});
+
+test("lists a recording by where it stands, never by its id", async () => {
+  rpc.browse = browse([
+    decodeRoot({
+      ...retained,
+      recordings: [
+        recording,
+        {
+          ...recording,
+          cleanup: "purged",
+          phase: "verified",
+          recordingId: "recording-cleaned",
+        },
+        { ...recording, phase: "recording", recordingId: "recording-live" },
+      ],
+    }),
+  ]);
+  renderPage({ initial: { kind: "root", scope: "local" } });
+  const list = screen.getByRole("list", { name: "Runs and recordings" });
+  // The chip names the entry's kind, so the title never repeats it.
+  expect(
+    within(list).getByRole("button", { name: /Capturing/u })
+  ).toHaveTextContent(/^Recording\s*Capturing\s*Teaching · /u);
+  expect(
+    within(list).getByRole("button", { name: /Learned, Dry Run next/u })
+  ).toHaveTextContent(/^Recording\s*Learned, Dry Run next\s*Teaching · /u);
+  expect(
+    within(list).getByRole("button", { name: /Cleaned up/u })
+  ).toBeVisible();
+  expect(within(list).queryByText(/recording-retained/u)).toBeNull();
+  await userEvent.click(
+    within(list).getByRole("button", { name: /Learned, Dry Run next/u })
+  );
+  const summary = screen.getByRole("article", { name: "Teaching Recording" });
+  expect(
+    within(summary).getByRole("heading", { name: "1mg mobile login" })
+  ).toBeVisible();
+  expect(
+    within(summary).getByRole("button", {
+      name: "Copy Recording ID recording-retained",
+    })
+  ).toBeVisible();
+});

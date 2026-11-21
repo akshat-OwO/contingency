@@ -8,6 +8,7 @@ import { Atom } from "effect/reactivity";
 import { XIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { devtoolsFieldClassName } from "@/components/browser/devtools-field";
 import type { EmulationPatch } from "@/components/browser/emulation-patch";
 import { LocationFields } from "@/components/browser/location-fields";
 import { SegmentedControl } from "@/components/browser/segmented-control";
@@ -29,6 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 
 /**
  * The website permissions the Workspace can decide by name. Geolocation leads
@@ -83,10 +85,11 @@ const colorSchemeOptions: readonly SegmentedOption<ColorSchemeChoice>[] = [
   { label: "Dark", value: "dark" },
 ];
 
+/** A section of the card, under the card's own `h2` title. */
 const SectionLabel = ({ children }: { readonly children: string }) => (
-  <h2 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+  <h3 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
     {children}
-  </h2>
+  </h3>
 );
 
 interface PendingLocation {
@@ -410,7 +413,10 @@ const PermissionControls = ({
           }}
           value={choice}
         >
-          <SelectTrigger aria-label="Permission" className="flex-1" size="sm">
+          <SelectTrigger
+            aria-label="Permission"
+            className={cn(devtoolsFieldClassName, "flex-1")}
+          >
             <SelectValue />
           </SelectTrigger>
           <SelectContent align="start">
@@ -492,6 +498,7 @@ const ScaleControlContent = ({
       <div className="flex gap-1.5">
         <Input
           aria-label={label}
+          className={cn(devtoolsFieldClassName, "font-mono")}
           type="number"
           min={minimum}
           max={maximum}
@@ -680,6 +687,7 @@ const EmulationPanelContent = ({
               <span>Locale</span>
               <Input
                 aria-label="Locale"
+                className={cn(devtoolsFieldClassName, "font-mono")}
                 disabled={disabled}
                 onBlur={applyLocale}
                 onChange={(event) => setLocale(event.target.value)}
@@ -696,6 +704,7 @@ const EmulationPanelContent = ({
               <span>Time zone</span>
               <Input
                 aria-label="Time zone"
+                className={cn(devtoolsFieldClassName, "font-mono")}
                 disabled={disabled}
                 onBlur={applyTimezone}
                 onChange={(event) => setTimezoneId(event.target.value)}

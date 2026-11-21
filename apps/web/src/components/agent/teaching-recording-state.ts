@@ -120,7 +120,7 @@ const dryRunMissBadge = (
   isTaskDryRunSummary(summary) &&
   dryRunMissedOnlyQualifiers(summary)
     ? { badge: "Did not pass", tone: "attention" }
-    : { badge: "Dry run failed", tone: "failed" };
+    : { badge: "Dry Run failed", tone: "failed" };
 
 /** Historical passes keep their original meaning; task reports require a complete outcome. */
 const canVerifyDryRun = (summary: AgentRunSummary | undefined): boolean =>
@@ -162,15 +162,16 @@ const setupPresentation = (
       tone: "busy",
     };
   }
+  // Handed to the user and ready to record: the prototype's Ready chip.
   return {
     action: START,
-    badge: "Not recording",
+    badge: "Ready",
     nextStep:
       "Sign in, pick emulation, and edit storage. Nothing is captured until you start recording.",
     secondaries: ["rename-flow"],
     showsElapsed: false,
     showsInspect: false,
-    tone: "default",
+    tone: "success",
   };
 };
 
@@ -255,7 +256,7 @@ export const teachingRecordingPresentation = (
     case "dry-running": {
       return {
         action: action("stop-dry-run", "Stop dry run"),
-        badge: "Dry run",
+        badge: "Dry Run",
         nextStep: "The Flow is running in a fresh browser.",
         secondaries: [],
         showsElapsed: false,
@@ -292,7 +293,7 @@ export const teachingRecordingPresentation = (
       }
       return {
         action: action("verify-flow", "Verify flow"),
-        badge: "Dry run passed",
+        badge: "Dry Run passed",
         nextStep:
           "Verify the flow to keep it and delete the recording. Reject to keep the recording.",
         secondaries: ["reject-flow"],
@@ -360,30 +361,24 @@ const MILLISECONDS_PER_SECOND = 1000;
 const pad = (value: number): string => String(value).padStart(2, "0");
 
 /**
- * The elapsed recording time, derived from the `startedAt` the session pushed
- * rather than from a counter the Workspace keeps: a reconnecting Workspace
- * then shows the recording's real age instead of restarting at zero.
+ * A Teaching elapsed time as a clock, `mm:ss`, or `h:mm:ss` past an hour:
+ * the Recording chip, each comment and the comment dialog read the same way
+ * (#753). It derives from the `startedAt` the session pushed rather than a
+ * counter the Workspace keeps, so a reconnecting Workspace shows the
+ * recording's real age instead of restarting at zero.
  */
-export const elapsedLabel = (startedAt: string, now: number): string => {
+export const elapsedClock = (startedAt: string, now: number): string => {
   const started = Date.parse(startedAt);
-  if (Number.isNaN(started)) {
-    return "0:00";
-  }
-  const total = Math.max(
-    0,
-    Math.floor((now - started) / MILLISECONDS_PER_SECOND)
-  );
+  const total = Number.isNaN(started)
+    ? 0
+    : Math.max(0, Math.floor((now - started) / MILLISECONDS_PER_SECOND));
   const hours = Math.floor(total / SECONDS_PER_HOUR);
   const minutes = Math.floor((total % SECONDS_PER_HOUR) / SECONDS_PER_MINUTE);
   const seconds = total % SECONDS_PER_MINUTE;
   return hours > 0
     ? `${hours}:${pad(minutes)}:${pad(seconds)}`
-    : `${minutes}:${pad(seconds)}`;
+    : `${pad(minutes)}:${pad(seconds)}`;
 };
-
-/** The same duration, spoken rather than shown, for the timer's label. */
-export const elapsedSpokenLabel = (startedAt: string, now: number): string =>
-  `Elapsed recording time ${elapsedLabel(startedAt, now)}`;
 
 /** What each gesture is called when a sentence has to name the one that failed. */
 const GESTURE_NAME: Record<TeachingRecordingGesture, string> = {

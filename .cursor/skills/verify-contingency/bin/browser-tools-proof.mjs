@@ -296,8 +296,28 @@ await Effect.runPromise(
     assert.ok(
       traceData.traceEvents.every((event) => event.name !== "Screenshot")
     );
-    yield* command("browser", "wait", "--text", "2 uploads · clipboard");
+    // A Run's status island carries no modification summary; Task details
+    // lists both uploads and the clipboard write.
+    yield* command(
+      "browser",
+      "click",
+      "--role",
+      "button",
+      "--name",
+      "Task details"
+    );
+    yield* command(
+      "browser",
+      "wait",
+      "--role",
+      "region",
+      "--name",
+      "Browser Modifications",
+      "--has-text",
+      "3 active"
+    );
     yield* capture("active");
+    yield* command("browser", "press", "--key", "Escape");
 
     const summary = yield* program(
       "complete",
@@ -312,6 +332,8 @@ await Effect.runPromise(
     );
     assert.deepEqual(kinds.toSorted(), ["clipboard", "upload", "upload"]);
     yield* command("browser", "goto", "--url", reopened.viewUrl);
+    // The Run Summary lists Browser Modifications on its Task tab.
+    yield* command("browser", "click", "--role", "tab", "--name", "Task");
     yield* command(
       "browser",
       "wait",

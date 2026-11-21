@@ -188,7 +188,17 @@ export const openAndroidStartCard = async (
     "Teach on Android"
   );
   await fill("Flow name", flowName);
-  await click(selection.device.serial, true);
+  // Each device is an option of the Device field, named with its serial.
+  await control("browser", "click", "--role", "combobox", "--name", "Device");
+  await control(
+    "browser",
+    "click",
+    "--role",
+    "option",
+    "--name",
+    selection.device.serial,
+    "--partial"
+  );
   await fill("Search installed apps", selection.environment.appId);
   // Reading installed apps pulls each APK's label; a freshly booted device is slow.
   await control(

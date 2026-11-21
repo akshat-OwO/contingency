@@ -1,4 +1,4 @@
-import { CircleQuestionMarkIcon } from "lucide-react";
+import { BookIcon } from "lucide-react";
 
 import { buttonVariants } from "@/components/ui/button";
 
@@ -16,7 +16,7 @@ const DocsLink = ({ className }: { readonly className?: string }) => (
     target="_blank"
     title="Docs"
   >
-    <CircleQuestionMarkIcon aria-hidden="true" />
+    <BookIcon aria-hidden="true" />
   </a>
 );
 

@@ -9,11 +9,10 @@ import type {
 import { useAtom, useAtomRefresh, useAtomValue } from "@effect/atom-react";
 import { Effect, Fiber, Schema } from "effect";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { LoaderCircleIcon, RefreshCwIcon } from "lucide-react";
+import { LoaderCircleIcon } from "lucide-react";
 import { useEffect, useId, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import type { RpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
@@ -117,15 +116,8 @@ const useInstalledIosApps = (
 };
 
 const installedAppsNotice = (
-  apps: InstalledApps
+  apps: Exclude<InstalledApps, { readonly _tag: "idle" }>
 ): InstalledAppsNotice | null => {
-  if (apps._tag === "idle") {
-    return {
-      _tag: "message",
-      text: "Pick a running simulator to list its apps.",
-      tone: "muted",
-    };
-  }
   if (apps._tag === "loading") {
     return { _tag: "loading" };
   }
@@ -194,40 +186,46 @@ const InstalledIosApps = ({
   readonly apps: InstalledApps;
   readonly onSelect: (app: IosInstalledApp) => void;
   readonly target: IosTarget | null;
-}) => (
-  <InstalledAppsFrame notice={installedAppsNotice(apps)}>
-    {apps._tag === "loaded"
-      ? apps.apps.map((app) => {
-          const selected =
-            target?._tag === "installed" &&
-            target.app.bundleId === app.bundleId;
-          return (
-            <li key={app.bundleId}>
-              <button
-                aria-pressed={selected}
-                className={cn(
-                  "hover:bg-island-hover flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm",
-                  selected && "bg-island-hover"
-                )}
-                onClick={() => onSelect(app)}
-                type="button"
-              >
-                <span className="min-w-0 flex-1 truncate">
-                  {app.label || app.bundleId}
-                  {app.label === app.bundleId ? null : (
-                    <span className="text-muted-foreground ml-2 font-mono text-xs">
-                      {app.bundleId}
-                    </span>
+}) =>
+  apps._tag === "idle" ? (
+    // Nothing to list yet, so one line rather than an empty frame.
+    <p className="text-muted-foreground text-xs">
+      Pick a running simulator to list its apps.
+    </p>
+  ) : (
+    <InstalledAppsFrame notice={installedAppsNotice(apps)}>
+      {apps._tag === "loaded"
+        ? apps.apps.map((app) => {
+            const selected =
+              target?._tag === "installed" &&
+              target.app.bundleId === app.bundleId;
+            return (
+              <li key={app.bundleId}>
+                <button
+                  aria-pressed={selected}
+                  className={cn(
+                    "hover:bg-island-hover flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm",
+                    selected && "bg-island-hover"
                   )}
-                </span>
-                <Badge variant="outline">build {app.build}</Badge>
-              </button>
-            </li>
-          );
-        })
-      : null}
-  </InstalledAppsFrame>
-);
+                  onClick={() => onSelect(app)}
+                  type="button"
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    {app.label || app.bundleId}
+                    {app.label === app.bundleId ? null : (
+                      <span className="text-muted-foreground ml-2 font-mono text-xs">
+                        {app.bundleId}
+                      </span>
+                    )}
+                  </span>
+                  <Badge variant="outline">build {app.build}</Badge>
+                </button>
+              </li>
+            );
+          })
+        : null}
+    </InstalledAppsFrame>
+  );
 
 /** Section 3: what restarting the app applies before Teaching and every Run. */
 const IosSetupChoices = ({
@@ -412,27 +410,23 @@ export const IosStartCard = ({
           problem={describeFlowName(name)}
         />
         <Part title="Simulator">
-          <div className="space-y-2">
-            <DeviceChoices
-              devices={listed.map(iosDeviceChoice)}
-              emptyMessage="No iPhone simulator on iOS 26 through 27 exists. Add one in Xcode, then refresh."
-              erase={erase.controls}
-              onSelect={(udid) => {
-                setForm((current) => ({ ...current, picked: udid }));
-                // An installed app belongs to the simulator it is on.
-                if (target?._tag === "installed") {
-                  choose(null);
-                }
-              }}
-              onStart={startDevice}
-              selected={chosen}
-              starts={starts}
-            />
-            <Button onClick={refresh} size="xs" type="button" variant="ghost">
-              <RefreshCwIcon />
-              Refresh devices
-            </Button>
-          </div>
+          <DeviceChoices
+            devices={listed.map(iosDeviceChoice)}
+            emptyMessage="No iPhone simulator on iOS 26 through 27 exists. Add one in Xcode, then refresh."
+            erase={erase.controls}
+            label="Simulator"
+            onRefresh={refresh}
+            onSelect={(udid) => {
+              setForm((current) => ({ ...current, picked: udid }));
+              // An installed app belongs to the simulator it is on.
+              if (target?._tag === "installed") {
+                choose(null);
+              }
+            }}
+            onStart={startDevice}
+            selected={chosen}
+            starts={starts}
+          />
         </Part>
       </StartSection>
 
@@ -450,7 +444,6 @@ export const IosStartCard = ({
               <BuildDropzone
                 describedBy={uploadStatusId}
                 directory
-                kind=".app"
                 label="Upload a simulator .app"
                 onFiles={(files, folder) => upload.start(files, folder)}
                 state={upload.state}

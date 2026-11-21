@@ -8,10 +8,10 @@ import type {
 import { useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
-  AccessibilityIcon,
-  CookieIcon,
-  GaugeIcon,
+  ActivityIcon,
+  DatabaseIcon,
   MousePointer2Icon,
+  SparklesIcon,
   SquareIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -23,7 +23,7 @@ import type {
 } from "@/components/agent/teaching-comment-shortcuts";
 import { shortcutKeys } from "@/components/agent/teaching-comment-shortcuts";
 import type { InspectState } from "@/components/agent/teaching-inspect-state";
-import { elapsedLabel } from "@/components/agent/teaching-recording-state";
+import { elapsedClock } from "@/components/agent/teaching-recording-state";
 import { Button } from "@/components/ui/button";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 import {
@@ -99,7 +99,7 @@ const ScanTools = ({
           />
         }
       >
-        <GaugeIcon aria-hidden="true" />
+        <ActivityIcon aria-hidden="true" />
       </PopoverTrigger>
       <PopoverContent
         align="start"
@@ -145,7 +145,7 @@ const ScanTools = ({
       type="button"
       variant="island"
     >
-      <AccessibilityIcon aria-hidden="true" />
+      <SparklesIcon aria-hidden="true" />
     </Button>
   </>
 );
@@ -319,7 +319,7 @@ export const CommentComposer = ({
           {state.scan === undefined ? null : (
             <CommentChip
               disabled={pending}
-              icon={<GaugeIcon aria-hidden="true" />}
+              icon={<ActivityIcon aria-hidden="true" />}
               onRemove={removeThen(() => onScanChange())}
               removeLabel="Remove scan"
               tone="scan"
@@ -352,7 +352,7 @@ export const CommentComposer = ({
         pinned: pinned.has(position + 1),
         target: instruction.target ?? undefined,
         text: instruction.text,
-        time: elapsedLabel(startedAt, Date.parse(instruction.at)),
+        time: elapsedClock(startedAt, Date.parse(instruction.at)),
       }))}
       editingId={state.editingInstructionId}
       error={state.error}
@@ -426,7 +426,7 @@ export const CommentComposer = ({
             type="button"
             variant="island"
           >
-            <CookieIcon aria-hidden="true" />
+            <DatabaseIcon aria-hidden="true" />
           </Button>
         </>
       }

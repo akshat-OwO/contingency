@@ -769,6 +769,16 @@ test("offers one tile per platform and no shelf without sessions", async () => {
     "Start a Web session",
     "Start an Android session",
   ]);
+  expect(
+    startTiles().map((tile) => tile.getAttribute("aria-keyshortcuts"))
+  ).toEqual(["1", "2"]);
+  // The wordmark is the way home, named as on every other page.
+  expect(
+    within(screen.getByRole("navigation", { name: "Workspace" })).getByRole(
+      "link",
+      { name: "Contingency home" }
+    )
+  ).toBeVisible();
   expect(screen.queryByRole("region", { name: "In progress" })).toBeNull();
   // The empty dock and its invitation are gone; the home owns the start.
   expect(screen.queryByRole("region", { name: "Session status" })).toBeNull();
@@ -860,6 +870,27 @@ test("sends the starting page and a phone's Emulation from the start card", asyn
   });
 });
 
+test("opens a tile's start card with its digit key", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([]));
+  await screen.findByRole("list", { name: "Start a session" });
+  // A key with a modifier, or one no tile has, opens nothing.
+  await user.keyboard("{Control>}1{/Control}3");
+  expect(screen.getByRole("list", { name: "Start a session" })).toBeVisible();
+  await user.keyboard("1");
+  const name = screen.getByRole("textbox", { name: "Flow name" });
+  expect(screen.getByRole("form", { name: "Teach on Web" })).toBeVisible();
+  // Typed into a field, a digit is text, not a shortcut.
+  await user.clear(name);
+  await user.type(name, "flow-2{Escape}");
+  expect(screen.queryByRole("form", { name: "Teach on Web" })).toBeNull();
+  await user.keyboard("2");
+  expect(screen.getByRole("form", { name: "Teach on Android" })).toBeVisible();
+  expect(screen.getByRole("textbox", { name: "Flow name" })).toHaveValue(
+    "flow-2"
+  );
+});
+
 test("closes the start card with Escape and keeps the Flow name", async () => {
   const user = userEvent.setup();
   renderWorkspace(resultFor([]));
@@ -903,6 +934,10 @@ test("shows the home, not a session, while sessions run", async () => {
   ).toBeVisible();
   expect(screen.queryByRole("region", { name: "Session status" })).toBeNull();
   const shelf = screen.getByRole("region", { name: "In progress" });
+  // The heading reads the count it shows.
+  expect(
+    within(shelf).getByRole("heading", { name: "In progress 4" })
+  ).toBeVisible();
   const cards = within(shelf).getAllByRole("button");
   // Each card is named like the dock switcher's option for it.
   expect(cards.map((card) => card.getAttribute("aria-label"))).toEqual([
@@ -914,6 +949,10 @@ test("shows the home, not a session, while sessions run", async () => {
   expect(cards[0]).toHaveTextContent(/Recording\s*\d+:\d\d/u);
   expect(cards[1]).toHaveTextContent("Running2/2");
   expect(cards[2]).toHaveTextContent("Running");
+  // Running keeps its ring when the step is not known; it does not move.
+  expect(
+    cards[2]?.querySelector('[data-status="running"] svg[aria-hidden="true"]')
+  ).not.toBeNull();
   expect(cards[3]).toHaveTextContent("Needs you");
 });
 
@@ -1060,8 +1099,11 @@ test("opens the Android start card from its tile without leaving the home", asyn
   );
   expect(within(card).getByRole("group", { name: "Device" })).toBeVisible();
   expect(
-    await within(card).findByRole("button", { name: /Pixel_9/u, pressed: true })
-  ).toBeEnabled();
+    await within(card).findByRole("group", { name: "Pixel_9" })
+  ).toHaveTextContent("Running");
+  expect(
+    within(card).getByRole("combobox", { name: "Device" })
+  ).toHaveTextContent("Pixel_9");
   expect(
     within(card).getByRole("button", { name: "Upload an .apk" })
   ).toBeVisible();
@@ -1295,11 +1337,11 @@ test("offers iOS only where this process enables it", async () => {
   );
   expect(within(card).getByRole("group", { name: "Simulator" })).toBeVisible();
   expect(
-    await within(card).findByRole("button", {
-      name: /iPhone 17/u,
-      pressed: true,
-    })
-  ).toBeEnabled();
+    await within(card).findByRole("group", { name: "iPhone 17" })
+  ).toHaveTextContent("Running");
+  expect(
+    within(card).getByRole("combobox", { name: "Simulator" })
+  ).toHaveTextContent("iPhone 17");
   expect(
     within(card).getByRole("button", { name: "Upload a simulator .app" })
   ).toBeVisible();
@@ -1868,13 +1910,17 @@ test("offers no control exchange during a user-led Demonstration", async () => {
   expect(screen.queryByRole("button", { name: "Return control" })).toBeNull();
 });
 
-test("names who held the browser when a Run ended, without a control", async () => {
+test("says an ended Run is read-only, without a control", async () => {
   renderWorkspace(
     resultFor([{ ...session, controller: "user", phase: "closed" }]),
     session.id
   );
   const dock = await screen.findByRole("region", { name: "Session status" });
-  expect(dock).toHaveTextContent("You had control.");
+  // The prototype's ended island (#757): the chip and one sentence.
+  expect(dock).toHaveTextContent("Ended");
+  expect(dock).toHaveTextContent(
+    "This browser session ended. Its Run is read-only."
+  );
   expect(screen.queryByRole("button", { name: "Take control" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Return control" })).toBeNull();
 });
@@ -1894,7 +1940,9 @@ test("starts and stops Teaching recording from the privacy dock", async () => {
     teaching: { actionCount: 0, instructionCount: 0, instructions: [] },
   } satisfies unknown;
   renderWorkspace(resultFor([setup]), session.id);
-  expect(await screen.findByText("Not recording")).toBeVisible();
+  const status = await screen.findByRole("region", { name: "Session status" });
+  // Handed to the user and ready to record (#753).
+  expect(await within(status).findByText("Ready")).toBeVisible();
   await user.click(screen.getByRole("button", { name: "Start recording" }));
   await waitFor(() => {
     expect(rpc.startRecordingCalls).toHaveLength(1);
@@ -2245,7 +2293,7 @@ test("composes the Teaching dock with distinct accessible names", async () => {
   ).toBeNull();
   // Later-state actions have no RPC yet, so they are absent, not disabled.
   expect(screen.queryByRole("button", { name: "Learn flow" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Dry run" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Dry Run" })).toBeNull();
 });
 
 test.each(["confirm", "reject"] as const)(
@@ -2622,6 +2670,17 @@ test("Escape still closes the composer after its chip is removed", async () => {
   });
 });
 
+test("the comment card's heading reads its recording time", async () => {
+  const user = userEvent.setup();
+  renderWorkspace(resultFor([teachingRecording]), session.id);
+  await user.click(await screen.findByRole("button", { name: "Comment" }));
+  // The dialog keeps its short name; the visible heading is the timed one.
+  const composer = await screen.findByRole("dialog", { name: "Comment" });
+  expect(
+    within(composer).getByRole("heading", { level: 2 })
+  ).toHaveAccessibleName(/^Comment at (?:\d+:)?\d{2}:\d{2}$/u);
+});
+
 test("attaches an inspected element to a comment", async () => {
   const user = userEvent.setup();
   renderWorkspace(resultFor([teachingRecording]), session.id);
@@ -2771,9 +2830,11 @@ test("keeps single-key shortcuts for the Page while the browser holds focus", as
   renderWorkspace(resultFor([teachingRecording]), session.id);
   const dock = await screen.findByRole("region", { name: "Session status" });
   const trigger = within(dock).getByRole("button", { name: "Comment" });
-  // The chord hint stays the same as focus moves into and out of the Page.
-  expect(trigger).toHaveTextContent("CtrlShiftK");
+  // The island shows no keycaps (#753); the shortcuts are announced instead,
+  // and the chord is in the tooltip.
+  expect(trigger).not.toHaveTextContent("Ctrl");
   expect(trigger).toHaveAttribute("aria-keyshortcuts", "/ Control+Shift+K");
+  expect(trigger).toHaveAttribute("aria-expanded", "false");
 
   const canvas = screen.getByLabelText("Live browser viewport");
   await waitFor(() => {
@@ -2781,11 +2842,6 @@ test("keeps single-key shortcuts for the Page while the browser holds focus", as
   });
   act(() => canvas.focus());
   expect(canvas).toHaveFocus();
-  expect(trigger).toHaveTextContent("CtrlShiftK");
-  act(() => trigger.focus());
-  expect(trigger).toHaveFocus();
-  expect(trigger).toHaveTextContent("CtrlShiftK");
-  act(() => canvas.focus());
   rpc.inputCalls.length = 0;
   await user.keyboard("/");
   await waitFor(() => {
@@ -2797,6 +2853,8 @@ test("keeps single-key shortcuts for the Page while the browser holds focus", as
   rpc.inputCalls.length = 0;
   await user.keyboard("{Control>}{Shift>}K{/Shift}{/Control}");
   expect(await screen.findByRole("dialog", { name: "Comment" })).toBeVisible();
+  // The trigger says the card it opens is open.
+  expect(trigger).toHaveAttribute("aria-expanded", "true");
   const forwarded = JSON.stringify(rpc.inputCalls);
   expect(forwarded).not.toContain('"key":"K"');
   expect(forwarded).not.toContain('"key":"k"');
@@ -2901,7 +2959,7 @@ test("reads earlier comments back in the composer", async () => {
   const items = within(list).getAllByRole("listitem");
   // Newest first: the instruction just attached is the one being checked.
   expect(items[0]).toHaveTextContent("Stop once the receipt shows.");
-  expect(items[0]).toHaveTextContent("0:02");
+  expect(items[0]).toHaveTextContent("00:02");
   expect(items[0]).toHaveTextContent("Page");
   expect(items[1]).toHaveTextContent("Use the express checkout here.");
   expect(items[1]).toHaveTextContent("button: Place order");
@@ -3026,7 +3084,7 @@ test("leaves the hand-off to an agent to the user's own prompt", async () => {
   expect(screen.queryByRole("button", { name: /^Copy/u })).toBeNull();
   // A button reading "Dry run" started nothing, which read as a broken
   // build (#210).
-  expect(screen.queryByRole("button", { name: "Dry run" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Dry Run" })).toBeNull();
 });
 
 const dryRunPassedSession = {
@@ -3075,7 +3133,7 @@ test("reads a failed Dry Run's explanation in the dock's status line", async () 
   // The status line is clamped to one row and expands in place, so the
   // explanation sits beside the state instead of behind a button (#297).
   const dock = await screen.findByRole("region", { name: "Session status" });
-  expect(await within(dock).findByText("Dry run failed")).toBeVisible();
+  expect(await within(dock).findByText("Dry Run failed")).toBeVisible();
   expect(within(dock).getByRole("status")).toHaveTextContent(explanation);
 });
 
@@ -3413,7 +3471,7 @@ test("keeps an Interactive Run on screen with its Run Summary once it ends", asy
   ).toBeVisible();
   expect(rpc.endedRunSummaryCalls).toContain("agentrun-task");
   expect(dock).toHaveTextContent(
-    "The Run has ended. Its Run Summary is beside the browser."
+    "This browser session ended. Its Run is read-only."
   );
   expect(screen.getByLabelText("Live browser viewport")).toBeInTheDocument();
   expect(

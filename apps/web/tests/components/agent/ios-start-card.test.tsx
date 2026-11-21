@@ -115,11 +115,11 @@ test("uploads a simulator .app folder and starts with its temporary copy", async
   const card = screen.getByRole("form", { name: "Teach on iOS" });
   // The one booted simulator is chosen, as there is nothing to pick between.
   expect(
-    await within(card).findByRole("button", {
-      name: /iPhone 17/u,
-      pressed: true,
-    })
-  ).toBeVisible();
+    await within(card).findByRole("group", { name: "iPhone 17" })
+  ).toHaveTextContent("Running");
+  expect(
+    within(card).getByRole("combobox", { name: "Simulator" })
+  ).toHaveTextContent("iPhone 17");
   expect(
     within(card).getByRole("button", { name: "Upload a simulator .app" })
   ).toBeVisible();
@@ -236,7 +236,8 @@ test("Start teaching waits for a valid Flow name, a running simulator and a Targ
   expect(start).toHaveAccessibleDescription(
     "Choose a running simulator to continue."
   );
-  await user.click(within(card).getByRole("button", { name: /iPhone 16e/u }));
+  await user.click(within(card).getByRole("combobox", { name: "Simulator" }));
+  await user.click(await screen.findByRole("option", { name: /iPhone 16e/u }));
   expect(start).toHaveAccessibleDescription(
     "Choose the Target App to continue."
   );
@@ -256,6 +257,12 @@ test("asks for a simulator to be started when none is running", () => {
   expect(
     screen.getByRole("button", { name: "Start teaching" })
   ).toHaveAccessibleDescription("Start a simulator to continue.");
+  // The stopped simulator shows with Start, and no app list waits empty.
+  expect(screen.getByRole("button", { name: "Start iPhone 17" })).toBeVisible();
+  expect(
+    screen.getByText("Pick a running simulator to list its apps.")
+  ).toBeVisible();
+  expect(screen.queryByRole("list", { name: "Installed apps" })).toBeNull();
 });
 
 test("closing the card discards an upload no session claimed", async () => {

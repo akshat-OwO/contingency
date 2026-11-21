@@ -5,9 +5,9 @@ import {
   XIcon,
 } from "lucide-react";
 import type { ReactNode, RefObject } from "react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
-import { elapsedLabel } from "@/components/agent/teaching-recording-state";
+import { elapsedClock } from "@/components/agent/teaching-recording-state";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -34,7 +34,7 @@ const useElapsed = (startedAt: string | undefined) => {
     const interval = globalThis.setInterval(() => setNow(Date.now()), TICK_MS);
     return () => globalThis.clearInterval(interval);
   }, [startedAt]);
-  return startedAt === undefined ? undefined : elapsedLabel(startedAt, now);
+  return startedAt === undefined ? undefined : elapsedClock(startedAt, now);
 };
 
 /** Where the card sits, in pixels from the window's bottom right. */
@@ -376,6 +376,7 @@ export const CommentCard = ({
   const hasAside = aside !== undefined && aside !== null;
   const placed = useAsideFit(anchor, cardRef, asideRef, hasAside);
   const elapsed = useElapsed(open ? startedAt : undefined);
+  const nameId = useId();
   const { picking } = attach;
   return (
     <Dialog
@@ -404,6 +405,7 @@ export const CommentCard = ({
           outline of a comment's element stays legible behind the card.
         */}
       <DialogPopup
+        aria-labelledby={nameId}
         className="fixed top-auto left-auto z-50 m-0 flex w-[min(440px,calc(100vw-2rem))] max-w-none flex-col overflow-visible border-0 bg-transparent p-0 text-sm outline-none"
         initialFocus={() => fieldRef.current}
         onDragOver={onDragOver}
@@ -420,18 +422,24 @@ export const CommentCard = ({
           <header className="flex items-center gap-1.5 pt-2.5 pr-2 pl-4">
             {/*
               The dialog is named "Comment" in every mode, so it is found the
-              same way while editing; the visible heading adds the mode and
-              the recording time.
+              same way while editing. The visible heading adds the mode and
+              the recording time, and reads as it shows.
             */}
-            <DialogTitle className="sr-only">Comment</DialogTitle>
-            <p aria-hidden="true" className="flex-1 text-sm font-semibold">
+            <span hidden id={nameId}>
+              Comment
+            </span>
+            <DialogTitle className="flex-1 text-sm leading-normal font-semibold">
               {editingId === undefined ? "Comment" : "Edit comment"}
+              {/* A real space between, so the name reads "Comment at 00:42". */}
               {elapsed === undefined ? null : (
-                <span className="text-muted-foreground ml-1 font-mono text-xs font-medium tabular-nums">
-                  at {elapsed}
-                </span>
+                <>
+                  {" "}
+                  <span className="text-muted-foreground font-mono text-xs font-medium tabular-nums">
+                    at {elapsed}
+                  </span>
+                </>
               )}
-            </p>
+            </DialogTitle>
             <DialogDescription className="sr-only">
               Tell the agent something about this moment of the recording.
             </DialogDescription>

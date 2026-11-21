@@ -12,7 +12,7 @@ export const RuntimeVariables = ({
   collapse,
   session,
 }: {
-  /** The tier's collapse control, when this is its first request. */
+  /** The Requests island's collapse control. */
   readonly collapse?: React.ReactNode;
   readonly session: AgentSessionSnapshot;
 }) => {

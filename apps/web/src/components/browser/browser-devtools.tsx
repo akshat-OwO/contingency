@@ -57,6 +57,7 @@ import type {
   StorageSnapshots,
 } from "@/components/browser/browser-storage-state";
 import type { BrowserTooling } from "@/components/browser/browser-tooling";
+import { devtoolsFieldClassName } from "@/components/browser/devtools-field";
 import { HighlightedCode } from "@/components/browser/highlighted-code";
 import { SegmentedControl } from "@/components/browser/segmented-control";
 import { Button } from "@/components/ui/button";
@@ -91,6 +92,8 @@ export interface BrowserDevtoolsProps {
   readonly onClose: () => void;
   readonly onError: (message: string) => void;
   readonly onRefreshNetwork: () => void;
+  /** Switches the docked inspector to another panel from its header. */
+  readonly onSelectPanel: (panel: DevtoolsPanel) => void;
   readonly onToggleDockSide: () => void;
   readonly panel: DevtoolsPanel;
   readonly refreshingNetwork: boolean;
@@ -182,6 +185,25 @@ const timeFormatter = new Intl.DateTimeFormat(undefined, {
 
 const formatTime = (timestamp: number): string =>
   timeFormatter.format(timestamp);
+
+/** How long a request took, as a duration; a pending one has none yet. */
+const formatDuration = (durationMs: number | undefined): string => {
+  if (durationMs === undefined) {
+    return "…";
+  }
+  return durationMs < 1000
+    ? `${Math.round(durationMs)} ms`
+    : `${(durationMs / 1000).toFixed(2)} s`;
+};
+
+const requestCount = (count: number): string =>
+  count === 1 ? "1 request" : `${count} requests`;
+
+/** Path, Status, Type, Time, and the attach button when the card takes one. */
+const networkColumns = (attachable: boolean): string =>
+  attachable
+    ? "grid-cols-[minmax(8rem,1fr)_3rem_4.5rem_4rem_1.5rem]"
+    : "grid-cols-[minmax(8rem,1fr)_3rem_4.5rem_4rem]";
 
 const consoleMatchesFilter = (
   entry: BrowserConsoleEntry,
@@ -342,7 +364,7 @@ const SearchField = ({
     <SearchIcon className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2" />
     <Input
       aria-label={label}
-      className="bg-muted/40 h-7 border-transparent pl-7 text-xs shadow-none"
+      className={cn(devtoolsFieldClassName, "pl-7")}
       onChange={(event) => onChange(event.target.value)}
       placeholder={placeholder}
       value={value}
@@ -815,104 +837,151 @@ const DevtoolsNetworkPanel = ({
             />
           </div>
         </div>
-        <div className="text-muted-foreground grid shrink-0 grid-cols-[3.5rem_minmax(8rem,1fr)_4.5rem_4.5rem] gap-2 px-4 py-1 text-xs font-medium">
-          <span>Status</span>
-          <span>Name</span>
-          <span>Type</span>
-          <span className="text-right">Time</span>
-        </div>
         <div
-          className="min-h-0 flex-1 overflow-auto px-1.5"
-          ref={networkScrollRef}
+          aria-label="Network requests"
+          aria-rowcount={visibleRequests.length + 1}
+          className="flex min-h-0 flex-1 flex-col text-xs"
+          role="table"
         >
-          {visibleRequests.length === 0 ? (
-            <div className="text-muted-foreground grid h-24 place-items-center px-4 text-center text-xs">
-              {networkRequests.length === 0
-                ? "Network requests for this tab will appear here."
-                : "No requests match this filter."}
-            </div>
-          ) : (
+          <div role="rowgroup">
             <div
-              className="relative w-full text-xs"
-              style={{ height: networkVirtualizer.getTotalSize() }}
+              aria-rowindex={1}
+              className={cn(
+                "text-muted-foreground grid shrink-0 items-center gap-2 px-4 py-1.5 font-medium",
+                networkColumns(onAttach !== undefined)
+              )}
+              role="row"
             >
-              {networkVirtualizer.getVirtualItems().map((virtualRow) => {
-                const request = visibleRequests[virtualRow.index];
-                if (request === undefined) {
-                  return null;
-                }
-                const failedRequest =
-                  request.status !== undefined && request.status >= 400;
-                return (
-                  <div
-                    className={cn(
-                      "hover:bg-muted/60 absolute top-0 left-0 grid h-[30px] w-full items-center gap-2 rounded-md px-2.5 text-left",
-                      onAttach === undefined
-                        ? "grid-cols-[minmax(8rem,1fr)_4.5rem]"
-                        : "grid-cols-[minmax(8rem,1fr)_2rem]"
-                    )}
-                    key={virtualRow.key}
-                    style={{ transform: `translateY(${virtualRow.start}px)` }}
-                    draggable={onAttach !== undefined}
-                    onDragStart={(event) =>
-                      dragAttachment(
-                        event,
-                        requestAttachment(request, { purpose: "context" })
-                      )
-                    }
-                    title={request.url}
-                  >
-                    <button
-                      className="grid min-w-0 grid-cols-[3.5rem_minmax(8rem,1fr)_4.5rem] items-center gap-2 text-left"
-                      onClick={() => onSelectRequest(request)}
-                      type="button"
-                    >
-                      <span>
-                        <StatusPill status={request.status} />
-                      </span>
-                      <span className="truncate">
-                        <span className="text-muted-foreground mr-1.5 font-mono">
-                          {request.method}
-                        </span>
-                        <span
-                          className={cn(failedRequest && "text-destructive")}
-                        >
-                          {requestName(request.url)}
-                        </span>
-                      </span>
-                      <span className="text-muted-foreground truncate">
-                        {request.resourceType}
-                      </span>
-                    </button>
-                    {onAttach === undefined ? (
-                      <time className="text-muted-foreground tabular-nums">
-                        {formatTime(request.timestamp)}
-                      </time>
-                    ) : (
-                      <Button
-                        aria-label={`Attach ${request.method} ${requestName(request.url)}`}
-                        size="icon-xs"
-                        variant="ghost"
-                        onClick={() =>
-                          onAttach(
-                            requestAttachment(request, { purpose: "context" })
-                          )
-                        }
-                      >
-                        <PaperclipIcon />
-                      </Button>
-                    )}
-                  </div>
-                );
-              })}
+              <span role="columnheader">Path</span>{" "}
+              <span role="columnheader">Status</span>{" "}
+              <span role="columnheader">Type</span>{" "}
+              <span className="text-right" role="columnheader">
+                Time
+              </span>
+              {onAttach === undefined ? null : (
+                <span className="sr-only" role="columnheader">
+                  Attach
+                </span>
+              )}
             </div>
-          )}
+          </div>
+          <div
+            className="min-h-0 flex-1 overflow-auto px-1.5"
+            ref={networkScrollRef}
+          >
+            {visibleRequests.length === 0 ? (
+              <div role="rowgroup">
+                <div role="row">
+                  <div
+                    className="text-muted-foreground grid h-24 place-items-center px-4 text-center"
+                    role="cell"
+                  >
+                    {networkRequests.length === 0
+                      ? "Network requests for this tab will appear here."
+                      : "No requests match this filter."}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div
+                className="relative w-full"
+                role="rowgroup"
+                style={{ height: networkVirtualizer.getTotalSize() }}
+              >
+                {networkVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const request = visibleRequests[virtualRow.index];
+                  if (request === undefined) {
+                    return null;
+                  }
+                  const failedRequest =
+                    request.status !== undefined && request.status >= 400;
+                  const selected = request.requestId === selectedRequestId;
+                  return (
+                    <div
+                      aria-rowindex={virtualRow.index + 2}
+                      className={cn(
+                        "border-island-border absolute top-0 left-0 grid h-[30px] w-full items-center gap-2 border-t px-2.5 text-left",
+                        networkColumns(onAttach !== undefined),
+                        selected ? "bg-brand/12" : "hover:bg-island-hover",
+                        failedRequest && "text-destructive"
+                      )}
+                      draggable={onAttach !== undefined}
+                      key={virtualRow.key}
+                      onDragStart={(event) =>
+                        dragAttachment(
+                          event,
+                          requestAttachment(request, { purpose: "context" })
+                        )
+                      }
+                      role="row"
+                      style={{ transform: `translateY(${virtualRow.start}px)` }}
+                      title={request.url}
+                    >
+                      <div className="min-w-0" role="cell">
+                        <button
+                          aria-pressed={selected}
+                          className="focus-visible:ring-ring block w-full truncate rounded-sm text-left font-mono outline-none focus-visible:ring-2"
+                          onClick={() => onSelectRequest(request)}
+                          type="button"
+                        >
+                          <span
+                            className={cn(
+                              !failedRequest && "text-muted-foreground"
+                            )}
+                          >
+                            {request.method}
+                          </span>{" "}
+                          {requestName(request.url)}
+                        </button>
+                      </div>{" "}
+                      <div className="font-mono tabular-nums" role="cell">
+                        {request.status ?? "…"}
+                      </div>{" "}
+                      <div
+                        className={cn(
+                          "truncate",
+                          !failedRequest && "text-muted-foreground"
+                        )}
+                        role="cell"
+                      >
+                        {request.resourceType}
+                      </div>{" "}
+                      <div
+                        className="text-right font-mono tabular-nums"
+                        role="cell"
+                      >
+                        {formatDuration(request.durationMs)}
+                      </div>
+                      {onAttach === undefined ? null : (
+                        <div className="flex justify-end" role="cell">
+                          <Button
+                            aria-label={`Attach ${request.method} ${requestName(request.url)}`}
+                            onClick={() =>
+                              onAttach(
+                                requestAttachment(request, {
+                                  purpose: "context",
+                                })
+                              )
+                            }
+                            size="icon-xs"
+                            variant="ghost"
+                          >
+                            <PaperclipIcon />
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
         <footer className="text-muted-foreground flex shrink-0 gap-3 border-t px-3 py-1.5 text-xs tabular-nums">
           <span>
             {visibleRequests.length === networkRequests.length
-              ? `${networkRequests.length} requests`
-              : `${visibleRequests.length} of ${networkRequests.length} requests`}
+              ? requestCount(networkRequests.length)
+              : `${visibleRequests.length} of ${requestCount(networkRequests.length)}`}
           </span>
           {failed === 0 ? null : (
             <span className="text-destructive">{failed} failed</span>
@@ -953,6 +1022,7 @@ interface DevtoolsHeaderOptions {
   readonly onClear: (() => void) | undefined;
   readonly onClose: () => void;
   readonly onRefresh: (() => void) | undefined;
+  readonly onSelectPanel: (panel: DevtoolsPanel) => void;
   readonly onToggleDockSide: () => void;
   readonly panel: DevtoolsPanel;
   readonly refreshDisabled: boolean;
@@ -960,25 +1030,49 @@ interface DevtoolsHeaderOptions {
   readonly tabTitle: string;
 }
 
+const devtoolsPanels: readonly DevtoolsPanel[] = [
+  "console",
+  "network",
+  "storage",
+];
+
 const renderDevtoolsHeader = ({
   dockSide,
   onClear,
   onClose,
   onRefresh,
+  onSelectPanel,
   onToggleDockSide,
   panel,
   refreshDisabled,
   refreshing,
   tabTitle,
 }: DevtoolsHeaderOptions) => (
-  <header className="flex h-10 shrink-0 items-center gap-1 border-b pr-1.5 pl-3">
-    <h2 className="shrink-0 text-sm font-medium">
-      {devtoolsPanelTitles[panel]}
-    </h2>
-    <span className="text-muted-foreground ml-1 min-w-0 truncate text-xs">
+  <header className="flex h-12 shrink-0 items-center gap-1 pt-1 pr-1.5 pl-2">
+    {/* The header switches panels, so the rail need not be reached again. */}
+    <div
+      aria-label="DevTools panels"
+      className="flex shrink-0 gap-0.5"
+      role="group"
+    >
+      {devtoolsPanels.map((choice) => (
+        <Button
+          aria-pressed={panel === choice}
+          className="text-muted-foreground hover:bg-island-hover hover:text-foreground aria-pressed:bg-island-hover aria-pressed:text-foreground h-[30px] rounded-[10px] px-[11px] text-sm font-medium aria-pressed:shadow-[inset_0_0_0_1px_var(--island-border)]"
+          key={choice}
+          onClick={() => onSelectPanel(choice)}
+          size="sm"
+          type="button"
+          variant="ghost"
+        >
+          {devtoolsPanelTitles[choice]}
+        </Button>
+      ))}
+    </div>
+    <span className="text-muted-foreground ml-1 min-w-0 flex-1 truncate text-right font-mono text-xs">
       {tabTitle}
     </span>
-    <div className="ml-auto flex shrink-0 items-center gap-0.5">
+    <div className="flex shrink-0 items-center gap-0.5">
       {onClear === undefined ? null : (
         <Button
           aria-label={`Clear ${panel} for ${tabTitle}`}
@@ -1032,6 +1126,7 @@ export const BrowserDevtools = ({
   onClose,
   onError,
   onRefreshNetwork,
+  onSelectPanel,
   onToggleDockSide,
   panel,
   refreshingNetwork,
@@ -1148,13 +1243,14 @@ export const BrowserDevtools = ({
   return (
     <section
       aria-label={devtoolsPanelTitles[panel]}
-      className="bg-background flex size-full min-h-0 flex-col"
+      className="flex size-full min-h-0 flex-col"
     >
       {renderDevtoolsHeader({
         dockSide,
         onClear: clearAction(),
         onClose,
         onRefresh: refreshAction(),
+        onSelectPanel,
         onToggleDockSide,
         panel,
         refreshDisabled:

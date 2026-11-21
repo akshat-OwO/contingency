@@ -451,7 +451,7 @@ test("pins the comments whose element is on this screen and lists them all", asy
     expect.stringContaining("Back returns to the list"),
     expect.stringContaining("Checkout opens the cart"),
   ]);
-  expect(items[2]).toHaveTextContent("0:05");
+  expect(items[2]).toHaveTextContent("00:05");
   // A native comment is a recorded event: there is no Edit.
   expect(within(list).queryByRole("button")).toBeNull();
   // SAFETY: the list has three items, checked above.

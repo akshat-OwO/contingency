@@ -130,7 +130,7 @@ export const StartSetup = ({
   <Collapsible className="border-island-border border-t">
     <CollapsibleTrigger className="group/setup flex w-full items-center gap-3.5 py-3.5 text-left">
       <SectionNumber>3</SectionNumber>
-      <span className="font-medium">Setup</span>
+      <span className="text-sm font-medium">Setup</span>
       <span className="text-muted-foreground min-w-0 flex-1 truncate text-xs">
         {summary}
       </span>

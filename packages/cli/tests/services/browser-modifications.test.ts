@@ -180,6 +180,39 @@ it("retains cookie values and mock bodies while bounding UTF-8 evidence", () => 
   expect(cookie).toBe(`Set cookie auth on example.test/: ${secret}`);
 });
 
+const emptyMock = {
+  action: "mock",
+  body: "",
+  contentType: "text/plain",
+  status: 204,
+} as const;
+
+it("describes a mock with an empty body as a finished sentence", () => {
+  expect(
+    modificationDescription(
+      {
+        action: "route_add",
+        operationId: "mock",
+        pattern: "**/cart-viewed",
+        response: emptyMock,
+      },
+      []
+    )
+  ).toBe("Mock **/cart-viewed: 204 text/plain with an empty body");
+  expect(
+    modificationDescription(
+      {
+        action: "route_add",
+        operationId: "mock-xhr",
+        pattern: "**/api",
+        resourceType: "xhr",
+        response: emptyMock,
+      },
+      []
+    )
+  ).toBe("Mock **/api (xhr): 204 text/plain with an empty body");
+});
+
 it.effect(
   "removes older layers without losing newer writes, then restores the original",
   () =>

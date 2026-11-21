@@ -57,6 +57,7 @@ import { BotProtectionNotice } from "@/components/agent/bot-protection-notice";
 import { DemoTeachingPassword } from "@/components/agent/demo-teaching-password";
 import { DockRequests } from "@/components/agent/dock-requests";
 import { DryRunSummaryView } from "@/components/agent/dry-run-summary";
+import type { FlowDecisionActions } from "@/components/agent/dry-run-summary";
 import { isTaskDryRunSummary } from "@/components/agent/dry-run-summary-state";
 import { EndedRunSummary } from "@/components/agent/ended-run-summary";
 import {
@@ -119,6 +120,7 @@ import { islandControlClassName } from "@/components/agent/workspace-home-nav";
 import { GoToWorkspace, StatusPage } from "@/components/app-islands";
 import { WatcherLoader } from "@/components/brand";
 import {
+  canvasViewportSize,
   keyboardModifiers,
   makeBrowserInputHandlers,
   makeBrowserInputQueue,
@@ -127,6 +129,7 @@ import {
 } from "@/components/browser/browser-input";
 import {
   browserStreamMetricsAtom,
+  browserStreamStatus,
   updateStreamMetrics,
 } from "@/components/browser/browser-stream-metrics";
 import { browserStreamTransportAtom } from "@/components/browser/browser-stream-settings";
@@ -141,6 +144,7 @@ import {
 } from "@/components/ui/input-group";
 import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
+import { cn } from "@/lib/utils";
 import {
   canViewTransition,
   nameForTransition,
@@ -178,7 +182,10 @@ type TeachingSessionSnapshot = Extract<
  * A task Dry Run gets the pass checks and the Runner's result; a historical
  * Step record keeps the view it was persisted for.
  */
-const finishedDryRunSummary = (session: AgentSessionSnapshot) => {
+const finishedDryRunSummary = (
+  session: AgentSessionSnapshot,
+  decision: FlowDecisionActions | undefined
+) => {
   if (
     session.activity !== "teaching" ||
     (session.captureState._tag !== "dry-run-passed" &&
@@ -192,6 +199,9 @@ const finishedDryRunSummary = (session: AgentSessionSnapshot) => {
   if (isTaskDryRunSummary(dryRunSummary)) {
     return (
       <DryRunSummaryView
+        decision={
+          session.captureState._tag === "dry-run-passed" ? decision : undefined
+        }
         result={dryRunResult}
         summary={dryRunSummary}
         videoSrc={videoSrc}
@@ -217,7 +227,8 @@ const isEndedInteractiveRun = (session: AgentSessionSnapshot): boolean =>
  * session, or an ended Interactive Run's beside its last frame.
  */
 const finishedRunSummary = (
-  session: AgentSessionSnapshot
+  session: AgentSessionSnapshot,
+  decision?: FlowDecisionActions
 ): { readonly label: string; readonly summary: ReactNode } | null => {
   if (
     session.activity === "run" &&
@@ -244,7 +255,7 @@ const finishedRunSummary = (
       ),
     };
   }
-  const dryRun = finishedDryRunSummary(session);
+  const dryRun = finishedDryRunSummary(session, decision);
   return dryRun === null ? null : { label: "Dry Run Summary", summary: dryRun };
 };
 
@@ -368,6 +379,38 @@ const StageZoom = ({
   );
 };
 
+/**
+ * The ended stage's label: a dark chip centred on the top edge of the frame
+ * it names, so it reads as a caption on the picture rather than on the canvas.
+ */
+const LastFrameLabel = ({
+  canvas,
+}: {
+  readonly canvas: HTMLCanvasElement | null;
+}) => {
+  const [container, setContainer] = useState<HTMLDivElement | null>(null);
+  const box = useCanvasBox(canvas, container);
+  const width = canvas === null ? 0 : canvasViewportSize(canvas).width;
+  return (
+    <div className="pointer-events-none absolute inset-0" ref={setContainer}>
+      <span
+        className="absolute inline-flex h-[26px] -translate-x-1/2 items-center gap-1.5 rounded-[9px] bg-[oklch(0.18_0_0/0.78)] px-2.5 text-xs font-medium whitespace-nowrap text-[oklch(0.95_0_0)] backdrop-blur-sm"
+        style={{
+          left: box.left + (width * box.scale) / 2,
+          top: box.top + 14,
+        }}
+      >
+        <span
+          aria-hidden="true"
+          className="size-1.5 rounded-[1.5px] bg-current"
+        />
+        Last frame
+        <span className="sr-only"> of the Run. The browser closed.</span>
+      </span>
+    </div>
+  );
+};
+
 const AgentBrowserCanvas = ({
   agentCursor,
   canvasRef,
@@ -377,7 +420,7 @@ const AgentBrowserCanvas = ({
   input,
   inspect,
   readOnly,
-  recording,
+  takeover,
 }: {
   /** Renders the agent's cursor over the frame, given the canvas it is on. */
   readonly agentCursor: (canvas: HTMLCanvasElement | null) => React.ReactNode;
@@ -393,8 +436,8 @@ const AgentBrowserCanvas = ({
     | ((canvas: HTMLCanvasElement | null) => React.ReactNode)
     | undefined;
   readonly readOnly: boolean;
-  /** A live recording draws a red inset ring around the whole frame. */
-  readonly recording: boolean;
+  /** The user holds the browser in a Takeover: the page gets a brand ring. */
+  readonly takeover: boolean;
 }) => {
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
   return (
@@ -402,11 +445,16 @@ const AgentBrowserCanvas = ({
       /*
         The dock floats over this column, so the frame keeps a bottom margin
         wide enough that no part of the browser, and nothing inspect opens over
-        it, ends up underneath the dock.
+        it, ends up underneath the dock. The side and top margins leave room
+        for the page's shadow and Takeover ring, which this box would clip.
       */
-      className={`relative flex min-h-0 flex-1 items-center justify-center overflow-hidden p-3${
-        dockedBelow ? " pb-36 sm:pb-28" : ""
-      }${recording ? " ring-2 ring-red-500 ring-inset" : ""}`}
+      className={cn(
+        "relative flex min-h-0 flex-1 items-center justify-center overflow-hidden pt-2 pb-3 pl-4",
+        // Live, the tools rail's column starts 12px to the right; ended,
+        // the rail is gone and the page keeps the canvas's 16px edge.
+        ended ? "pr-4" : "pr-3",
+        dockedBelow && "pb-36 sm:pb-[88px]"
+      )}
     >
       {frameReady ? null : (
         <div className="absolute inset-0 grid place-items-center p-6">
@@ -436,7 +484,17 @@ const AgentBrowserCanvas = ({
         <canvas
           aria-label="Live browser viewport"
           aria-readonly={readOnly}
-          className="max-h-full max-w-full touch-none overscroll-contain bg-white outline-none focus-visible:ring-2 focus-visible:ring-[oklch(0.55_0.19_258)] aria-readonly:cursor-default aria-readonly:opacity-95"
+          /*
+            The page floats as a rounded card on the canvas. During Takeover a
+            brand band (the ring's offset) and a soft brand halo (the ring)
+            surround it. Rings are box shadows, so the frame's box, which input
+            mapping measures, never moves.
+          */
+          className={cn(
+            "shadow-island-lift ring-island-border max-h-full max-w-full touch-none overscroll-contain rounded-[20px] bg-white ring-1 outline-none focus-visible:ring-2 focus-visible:ring-[oklch(0.55_0.19_258)] aria-readonly:cursor-default",
+            takeover && "ring-brand/22 ring-offset-brand ring-5 ring-offset-2",
+            ended ? "opacity-[0.82] saturate-50" : "aria-readonly:opacity-95"
+          )}
           onKeyDown={
             readOnly ? undefined : (event) => input.handleKey(event, "keyDown")
           }
@@ -454,13 +512,8 @@ const AgentBrowserCanvas = ({
           style={{ display: frameReady ? "block" : "none" }}
           tabIndex={readOnly ? undefined : 0}
         />
-        {frameReady ? <StageZoom canvas={canvas} /> : null}
-        {frameReady && ended ? (
-          <span className="material-float text-muted-foreground pointer-events-none absolute top-0 left-0 rounded-full px-2 py-0.5 text-xs font-medium shadow-xs">
-            Last frame
-            <span className="sr-only"> of the Run. The browser closed.</span>
-          </span>
-        ) : null}
+        {frameReady && !ended ? <StageZoom canvas={canvas} /> : null}
+        {frameReady && ended ? <LastFrameLabel canvas={canvas} /> : null}
         {inspect?.(canvas)}
         {agentCursor(canvas)}
       </div>
@@ -580,7 +633,7 @@ const AgentBrowserNavigation = ({
           </InputGroupAddon>
           <InputGroupInput
             aria-label="Browser address"
-            className="font-mono text-xs md:text-xs"
+            className="font-mono text-xs text-ellipsis md:text-xs"
             disabled={readOnly}
             onBlur={(event) => {
               event.currentTarget.scrollLeft = 0;
@@ -605,6 +658,16 @@ const AgentBrowserNavigation = ({
     </>
   );
 };
+
+/**
+ * Takeover hands the user the browser in a Run or a recording Guided Run.
+ * Teaching is user-led throughout, so its control is not a Takeover.
+ */
+const inTakeover = (session: AgentSessionSnapshot): boolean =>
+  session.controller === "user" &&
+  (session.activity === "run" ||
+    (session.origin === "guided-run" &&
+      session.captureState._tag === "recording"));
 
 /**
  * The one live Workspace shell. Teaching, a Dry Run, and an Interactive Run
@@ -666,6 +729,12 @@ const AgentLiveView = ({
   const readOnly = ended || session.controller !== "user";
   const browserStreamError = ended ? undefined : state.browserStreamError;
   const navigationError = navigation.error ?? stopLoading.error;
+  const takeover = !ended && inTakeover(session);
+  const streamStatus = browserStreamStatus({
+    connected: state.streamConnected,
+    failed: browserStreamError !== undefined,
+    frameReady: state.frameReady,
+  });
   /*
     What the agent is waiting on (an Execution Boundary, input requests) is
     the dock's own first tier, not a notice: it sits above the status line it
@@ -705,6 +774,7 @@ const AgentLiveView = ({
           />
         }
         consoleEntries={state.consoleEntries}
+        ended={ended}
         emulationFixed={
           session.activity === "teaching" &&
           session.captureState._tag !== "setup"
@@ -712,6 +782,7 @@ const AgentLiveView = ({
         onAttachBrowserContext={recording ? onAttachBrowserContext : undefined}
         onClearConsole={onClearConsole}
         sessionId={session.id}
+        streamStatus={streamStatus}
         teaching={session.activity === "teaching"}
         topBar={topBar}
         userHoldsBrowser={!readOnly}
@@ -734,7 +805,7 @@ const AgentLiveView = ({
           input={input}
           inspect={inspect}
           readOnly={readOnly}
-          recording={recording}
+          takeover={takeover}
         />
         {navigationError === undefined ? null : (
           <div className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center px-3">
@@ -2559,7 +2630,17 @@ const BrowserWorkspace = ({
   }
 
   const { session } = state;
-  const finished = finishedRunSummary(session);
+  const finished = finishedRunSummary(session, {
+    onReject: () => view.runSecondary("reject-flow"),
+    onVerify: () => view.changeRecording("verify-flow"),
+    pending: view.gestures.recording.pending,
+  });
+  // A passed Dry Run is decided at the foot of its docked summary (#757).
+  const flowDecisionDocked =
+    session.activity === "teaching" &&
+    session.captureState._tag === "dry-run-passed" &&
+    session.captureState.dryRunSummary !== undefined &&
+    isTaskDryRunSummary(session.captureState.dryRunSummary);
   const flowsEntry = <FlowsButton session={flowsSessionView(session)} />;
 
   return (
@@ -2571,6 +2652,7 @@ const BrowserWorkspace = ({
             dock={
               session.activity === "teaching" ? (
                 <TeachingRecordingDock
+                  flowDecisionDocked={flowDecisionDocked}
                   control={
                     <GuidedRunControl
                       session={session}

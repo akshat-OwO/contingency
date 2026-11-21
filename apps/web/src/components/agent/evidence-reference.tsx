@@ -63,11 +63,25 @@ export const CopyFeedback = ({
 );
 
 /**
- * A long id keeps its start and its end, where two ids differ; the full id
- * stays in the button's name and title.
+ * `<kind>-<uuid>` or `<kind>-<32 hex>`, the shapes Contingency gives the ids
+ * it mints, dashed or not.
  */
-const shortId = (id: string) =>
-  id.length > 28 ? `${id.slice(0, 16)}…${id.slice(-8)}` : id;
+const MINTED_ID =
+  /^(?<prefix>[a-z][a-z0-9]*(?:-[a-z][a-z0-9]*)*-)?(?<head>[0-9a-f]{8})(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[0-9a-f]{24})$/iu;
+
+/**
+ * An id as a reader tells it apart: a minted id keeps its kind and its first
+ * eight hex digits, `agentrun-b6e400b2`; any other long id keeps its start
+ * and its end, where two ids differ. The full id stays in the button's name
+ * and its description, and it is what the button copies.
+ */
+const shortId = (id: string): string => {
+  const minted = MINTED_ID.exec(id)?.groups;
+  if (minted?.head !== undefined) {
+    return `${minted.prefix ?? ""}${minted.head}`;
+  }
+  return id.length > 28 ? `${id.slice(0, 16)}…${id.slice(-8)}` : id;
+};
 
 /**
  * One evidence reference the agent cited. Evidence lives in the Run's own

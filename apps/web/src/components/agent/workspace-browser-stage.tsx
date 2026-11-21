@@ -45,11 +45,16 @@ import type {
   DevtoolsPanel,
 } from "@/components/browser/browser-devtools-panels";
 import { BrowserStreamDiagnostics } from "@/components/browser/browser-stream-diagnostics";
+import type { BrowserStreamStatus } from "@/components/browser/browser-stream-metrics";
 import { useAgentBrowserTooling } from "@/components/browser/browser-tooling";
 import { EmulationPanel } from "@/components/browser/emulation-panel";
 import type { SessionEmulationState } from "@/components/browser/emulation-panel";
 import type { EmulationPatch } from "@/components/browser/emulation-patch";
-import { RailBadge, RailButton } from "@/components/browser/inspector-rail";
+import {
+  RailBadge,
+  RailButton,
+  RailDot,
+} from "@/components/browser/inspector-rail";
 import { UserAgentList } from "@/components/browser/user-agent-list";
 import { Button } from "@/components/ui/button";
 import { useElementSize } from "@/hooks/use-element-size";
@@ -103,12 +108,20 @@ interface InspectorState {
   readonly rightWidth: number;
 }
 
-const DEFAULT_RIGHT_WIDTH = 576;
+/**
+ * DevTools' column beside the page: the 420px island the #763 canvas draws,
+ * plus the 12px it keeps clear of the rail. A 1440px window leaves the page
+ * the prototype's 912px.
+ */
+const DEFAULT_RIGHT_WIDTH = 432;
 const DEFAULT_BOTTOM_HEIGHT = 240;
 const MIN_INSPECTOR_SIZE = 220;
 const RESIZE_STEP = 16;
-/** The rail island's column, which the stage and inspector share the rest of. */
-const RAIL_WIDTH = 64;
+/**
+ * The rail island's column: the 52px rail, 16px from the window's edge. The
+ * stage and inspector share the rest, each keeping its own 12px from the rail.
+ */
+const RAIL_WIDTH = 68;
 /** The narrowest stage worth keeping beside a right-docked inspector. */
 const MIN_STAGE_WIDTH = 560;
 /** The share of the region the inspector may take, so the stage survives. */
@@ -252,7 +265,12 @@ const InspectorResizeHandle = ({
       aria-valuenow={size}
       className={cn(
         "group/resize relative z-10 flex shrink-0 touch-none items-center justify-center outline-none",
-        side === "right" ? "w-2 cursor-col-resize" : "h-2 cursor-row-resize"
+        // Beside the page, the handle is the 12px gap the page's own margin
+        // already leaves, so the page sits as close to DevTools as the
+        // prototype draws it.
+        side === "right"
+          ? "-ml-3 w-3 cursor-col-resize"
+          : "h-2 cursor-row-resize"
       )}
       onKeyDown={onKeyDown}
       onPointerCancel={() => {
@@ -281,7 +299,7 @@ const InspectorResizeHandle = ({
       <span
         aria-hidden="true"
         className={cn(
-          "group-hover/resize:bg-ring/60 group-focus-visible/resize:bg-ring rounded-full bg-transparent transition-colors",
+          "group-hover/resize:bg-brand/60 group-focus-visible/resize:bg-ring rounded-full bg-transparent transition-colors",
           side === "right" ? "h-10 w-1" : "h-1 w-10"
         )}
       />
@@ -376,6 +394,12 @@ const StageError = ({
  * Every browser tool behind one rail: configuration cards above the divider,
  * docked inspection panels below it, and stream diagnostics at the foot.
  */
+const streamDescriptions: Readonly<Record<BrowserStreamStatus, string>> = {
+  connecting: "Connecting",
+  live: "Live",
+  lost: "Stream lost",
+};
+
 const InspectorRail = ({
   card,
   errors,
@@ -385,6 +409,7 @@ const InspectorRail = ({
   overrides,
   panel,
   requests,
+  streamStatus,
 }: {
   readonly card: InspectorCard | undefined;
   readonly errors: number;
@@ -394,10 +419,11 @@ const InspectorRail = ({
   readonly overrides: number;
   readonly panel: DevtoolsPanel | undefined;
   readonly requests: number;
+  readonly streamStatus: BrowserStreamStatus;
 }) => (
   <nav
     aria-label="Browser tools"
-    className="island pointer-events-auto flex w-[52px] shrink-0 flex-col items-center gap-1 p-2"
+    className="island pointer-events-auto flex w-[52px] shrink-0 flex-col items-center gap-0.5 p-[7px]"
   >
     <RailButton
       active={card === "identity"}
@@ -448,6 +474,8 @@ const InspectorRail = ({
     <span aria-hidden="true" className="bg-island-border my-1 h-px w-5" />
     <RailButton
       active={card === "stream"}
+      badge={<RailDot status={streamStatus} />}
+      description={streamDescriptions[streamStatus]}
       icon={<ActivityIcon />}
       label="Stream diagnostics"
       onClick={() => onToggleCard("stream")}
@@ -529,7 +557,7 @@ const InspectorCardSurface = ({
 }) => (
   <section
     aria-label={cardTitles[card]}
-    className="island bg-island-solid absolute top-2 right-[4.5rem] z-30 flex max-h-[min(44rem,calc(100%-1rem))] w-88 max-w-[calc(100%-5rem)] origin-right flex-col overflow-hidden rounded-[18px]"
+    className="island bg-island-solid absolute top-2 right-20 z-30 flex max-h-[min(44rem,calc(100%-1rem))] w-88 max-w-[calc(100%-6rem)] origin-right flex-col overflow-hidden rounded-[18px]"
     inert={leaving}
     ref={cardRef}
   >
@@ -595,7 +623,7 @@ const DockedInspector = ({
           // No `duration-*` here: it would give every property a transition
           // and the inspector would trail the drag.
           "animate-in fade-in-0 flex min-h-0 min-w-0 shrink-0 flex-col",
-          side === "right" ? "py-2" : "pb-2 pl-2",
+          side === "right" ? "pt-2 pr-3 pb-4" : "pr-3 pb-4 pl-4",
           stretch.settling &&
             "transition-[width,height] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none"
         )}
@@ -746,49 +774,11 @@ const useBrowserSetup = (sessionId: AgentSessionId) => {
 };
 
 /**
- * The live browser as a device stage, with every browser tool behind one
- * inspector rail beside it. The stage owns the whole column: the device bar
- * floats over it, configuration (identity, Emulation, stream diagnostics)
- * opens as a card over it, and inspection (console, network, storage) docks
- * beside or below it. Making room only re-zooms the frame — the Page keeps the
- * viewport the session applies. Every call is addressed by Agent Session id:
- * the MCP-owned browser has no handle the Workspace can name (ADR 0038).
+ * Which rail tool is open, where DevTools docks and how large it is. An
+ * ended stage keeps the author's layout for the next live session, but shows
+ * none of the tools that act on a browser that is gone.
  */
-export const WorkspaceBrowserStage = ({
-  browserControls,
-  children,
-  consoleEntries,
-  emulationFixed,
-  onClearConsole,
-  onAttachBrowserContext,
-  sessionId,
-  teaching,
-  topBar,
-  userHoldsBrowser,
-}: {
-  /** The browser's navigation and address, which lead the device bar. */
-  readonly browserControls: ReactNode;
-  /** The live frame and everything that floats over it. */
-  readonly children: ReactNode;
-  readonly consoleEntries: readonly BrowserConsoleEntry[];
-  /** A Teaching Recording has started, so its Emulation can no longer change. */
-  readonly emulationFixed: boolean;
-  readonly onClearConsole: () => void;
-  readonly onAttachBrowserContext?:
-    | ((attachment: TeachingBrowserAttachment) => void)
-    | undefined;
-  readonly sessionId: AgentSessionId;
-  /**
-   * Teaching has no Take control: an agent preparing its setup hands the
-   * browser over itself (ADR 0042).
-   */
-  readonly teaching: boolean;
-  /** The session's top bar, given the device bar to centre between its islands. */
-  readonly topBar: (deviceBar: ReactNode) => ReactNode;
-  readonly userHoldsBrowser: boolean;
-}) => {
-  const tooling = useAgentBrowserTooling(sessionId);
-  const { patch, refresh, setState, state } = useBrowserSetup(sessionId);
+const useInspector = (ended: boolean) => {
   const [inspector, setInspector] = useAtom(inspectorStateAtom);
   const { ref: bodyRef, size: body } = useElementSize<HTMLDivElement>();
   const closeCard = useEffectEvent(() => {
@@ -815,6 +805,115 @@ export const WorkspaceBrowserStage = ({
     globalThis.addEventListener("keydown", onKeyDown);
     return () => globalThis.removeEventListener("keydown", onKeyDown);
   }, [inspector.card]);
+  const { inspectorSize, regionLength, side } = inspectorLayout(
+    inspector,
+    body
+  );
+  return {
+    bodyRef,
+    card: ended ? undefined : inspector.card,
+    closeCard,
+    closePanel: () =>
+      setInspector((current) => ({ ...current, panel: undefined })),
+    inspectorSize,
+    panel: ended ? undefined : inspector.panel,
+    regionLength,
+    resize: (size: number) =>
+      setInspector((current) =>
+        side === "right"
+          ? { ...current, rightWidth: size }
+          : { ...current, bottomHeight: size }
+      ),
+    selectPanel: (next: DevtoolsPanel) =>
+      setInspector((current) => ({ ...current, card: undefined, panel: next })),
+    side,
+    toggleCard: (next: InspectorCard) =>
+      setInspector((current) => ({
+        ...current,
+        card: current.card === next ? undefined : next,
+      })),
+    toggleDockSide: () =>
+      setInspector((current) => ({
+        ...current,
+        dockSide: side === "right" ? "bottom" : "right",
+      })),
+    togglePanel: (next: DevtoolsPanel) =>
+      setInspector((current) => ({
+        ...current,
+        card: undefined,
+        panel: current.panel === next ? undefined : next,
+      })),
+  };
+};
+
+/**
+ * The live browser as a device stage, with every browser tool behind one
+ * inspector rail beside it. The stage owns the whole column: the device bar
+ * floats over it, configuration (identity, Emulation, stream diagnostics)
+ * opens as a card over it, and inspection (console, network, storage) docks
+ * beside or below it. Making room only re-zooms the frame — the Page keeps the
+ * viewport the session applies. Every call is addressed by Agent Session id:
+ * the MCP-owned browser has no handle the Workspace can name (ADR 0038).
+ */
+export const WorkspaceBrowserStage = ({
+  browserControls,
+  children,
+  consoleEntries,
+  emulationFixed,
+  ended,
+  onClearConsole,
+  onAttachBrowserContext,
+  sessionId,
+  streamStatus,
+  teaching,
+  topBar,
+  userHoldsBrowser,
+}: {
+  /** The browser's navigation and address, which lead the device bar. */
+  readonly browserControls: ReactNode;
+  /** The live frame and everything that floats over it. */
+  readonly children: ReactNode;
+  readonly consoleEntries: readonly BrowserConsoleEntry[];
+  /**
+   * The session ended: its stage is a last frame, so the device bar, the
+   * tools rail, DevTools and the cards give the page their room.
+   */
+  readonly ended: boolean;
+  /** A Teaching Recording has started, so its Emulation can no longer change. */
+  readonly emulationFixed: boolean;
+  readonly onClearConsole: () => void;
+  readonly onAttachBrowserContext?:
+    | ((attachment: TeachingBrowserAttachment) => void)
+    | undefined;
+  readonly sessionId: AgentSessionId;
+  /** Whether frames reach the stage, for the rail's dot and its card. */
+  readonly streamStatus: BrowserStreamStatus;
+  /**
+   * Teaching has no Take control: an agent preparing its setup hands the
+   * browser over itself (ADR 0042).
+   */
+  readonly teaching: boolean;
+  /** The session's top bar, given the device bar to centre between its islands. */
+  readonly topBar: (deviceBar: ReactNode) => ReactNode;
+  readonly userHoldsBrowser: boolean;
+}) => {
+  const tooling = useAgentBrowserTooling(sessionId);
+  const { patch, refresh, setState, state } = useBrowserSetup(sessionId);
+  const {
+    bodyRef,
+    card,
+    closeCard,
+    closePanel,
+    inspectorSize,
+    panel,
+    regionLength,
+    resize,
+    selectPanel,
+    side,
+    toggleCard,
+    toggleDockSide,
+    togglePanel,
+  } = useInspector(ended);
 
   const applied =
     state.emulation.status === "known" ? state.emulation.emulation : undefined;
@@ -828,28 +927,6 @@ export const WorkspaceBrowserStage = ({
     emulationFixed
   );
 
-  const { inspectorSize, regionLength, side } = inspectorLayout(
-    inspector,
-    body
-  );
-  const toggleCard = (card: InspectorCard) =>
-    setInspector((current) => ({
-      ...current,
-      card: current.card === card ? undefined : card,
-    }));
-  const togglePanel = (panel: DevtoolsPanel) =>
-    setInspector((current) => ({
-      ...current,
-      card: undefined,
-      panel: current.panel === panel ? undefined : panel,
-    }));
-  const closePanel = () =>
-    setInspector((current) => ({ ...current, panel: undefined }));
-  const toggleDockSide = () =>
-    setInspector((current) => ({
-      ...current,
-      dockSide: side === "right" ? "bottom" : "right",
-    }));
   const clearNetwork = () =>
     setState((current) => ({ ...current, networkRequests: [] }));
   const showError = (message: string) =>
@@ -865,7 +942,6 @@ export const WorkspaceBrowserStage = ({
     }
   };
 
-  const { panel, card } = inspector;
   // The card grows out of the rail it was opened from and shrinks back into
   // it; the error drops from the device bar and lifts back under it.
   const cardPresence = usePresence(card, {
@@ -884,15 +960,17 @@ export const WorkspaceBrowserStage = ({
   return (
     <div className="workspace-canvas relative flex min-h-0 flex-1 flex-col">
       {topBar(
-        <BrowserDeviceBar
-          applied={applied?.viewport}
-          disabled={disabled}
-          leading={browserControls}
-          lockedReason={lockedReason}
-          onPresetChange={changePreset}
-          onViewportChange={(viewport) => patch({ viewport })}
-          presetId={state.presetId}
-        />
+        ended ? undefined : (
+          <BrowserDeviceBar
+            applied={applied?.viewport}
+            disabled={disabled}
+            leading={browserControls}
+            lockedReason={lockedReason}
+            onPresetChange={changePreset}
+            onViewportChange={(viewport) => patch({ viewport })}
+            presetId={state.presetId}
+          />
+        )
       )}
       <div className="relative flex min-h-0 flex-1" ref={bodyRef}>
         <div
@@ -931,13 +1009,7 @@ export const WorkspaceBrowserStage = ({
 
           {panel === undefined ? null : (
             <DockedInspector
-              onResize={(size) =>
-                setInspector((current) =>
-                  side === "right"
-                    ? { ...current, rightWidth: size }
-                    : { ...current, bottomHeight: size }
-                )
-              }
+              onResize={resize}
               region={regionLength}
               side={side}
               size={inspectorSize}
@@ -961,6 +1033,7 @@ export const WorkspaceBrowserStage = ({
                   onClose={closePanel}
                   onError={showError}
                   onRefreshNetwork={refreshNow}
+                  onSelectPanel={selectPanel}
                   onToggleDockSide={toggleDockSide}
                   panel={panel}
                   refreshingNetwork={false}
@@ -977,18 +1050,21 @@ export const WorkspaceBrowserStage = ({
           )}
         </div>
 
-        <div className="pointer-events-none flex w-16 shrink-0 items-center justify-center">
-          <InspectorRail
-            card={card}
-            errors={consoleErrorCount(consoleEntries)}
-            identityCustomised={state.identity !== DEFAULT_IDENTITY}
-            onToggleCard={toggleCard}
-            onTogglePanel={togglePanel}
-            overrides={emulationOverrideCount(applied)}
-            panel={panel}
-            requests={state.networkRequests.length}
-          />
-        </div>
+        {ended ? null : (
+          <div className="pointer-events-none flex w-[68px] shrink-0 items-center justify-end pr-4">
+            <InspectorRail
+              card={card}
+              errors={consoleErrorCount(consoleEntries)}
+              identityCustomised={state.identity !== DEFAULT_IDENTITY}
+              onToggleCard={toggleCard}
+              onTogglePanel={togglePanel}
+              overrides={emulationOverrideCount(applied)}
+              panel={panel}
+              requests={state.networkRequests.length}
+              streamStatus={streamStatus}
+            />
+          </div>
+        )}
 
         {shownCard === undefined ? null : (
           <InspectorCardSurface
@@ -1024,7 +1100,10 @@ export const WorkspaceBrowserStage = ({
               />
             ) : null}
             {shownCard === "stream" ? (
-              <BrowserStreamDiagnostics sessionId={sessionId} />
+              <BrowserStreamDiagnostics
+                sessionId={sessionId}
+                status={streamStatus}
+              />
             ) : null}
           </InspectorCardSurface>
         )}

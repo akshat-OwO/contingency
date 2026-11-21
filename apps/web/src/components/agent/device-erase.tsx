@@ -195,7 +195,10 @@ export const useDeviceErase = (
   return { controls, dialog };
 };
 
-/** The Erase control on one device card, with its progress or failure. */
+/**
+ * The Erase control in the device's hint row, with its progress or failure.
+ * It reads **Erase** and is named **Erase <device>**.
+ */
 export const DeviceEraseButton = ({
   controls,
   device,
@@ -212,16 +215,19 @@ export const DeviceEraseButton = ({
     return (
       <span
         aria-live="polite"
-        className="text-muted-foreground mt-2 flex items-center gap-1 text-xs"
+        className="text-muted-foreground flex items-center gap-1 text-xs"
       >
-        <LoaderCircleIcon aria-hidden="true" className="size-3 animate-spin" />
+        <LoaderCircleIcon
+          aria-hidden="true"
+          className="size-3 animate-spin motion-reduce:animate-none"
+        />
         Erasing…
       </span>
     );
   }
   if (!erasable(device, controls)) {
     return device.status._tag === "ready" ? (
-      <span className="text-muted-foreground mt-2 block text-xs">
+      <span className="text-muted-foreground text-xs">
         Stop this device to erase it.
       </span>
     ) : null;
@@ -229,23 +235,20 @@ export const DeviceEraseButton = ({
   return (
     <>
       {progress?._tag === "failed" ? (
-        <span
-          aria-live="polite"
-          className="text-destructive mt-2 block text-xs"
-        >
+        <span aria-live="polite" className="text-destructive text-xs">
           {progress.reason}
         </span>
       ) : null}
       <Button
         aria-label={`Erase ${device.name}`}
-        className="mt-2"
+        className="text-destructive hover:text-destructive"
         onClick={() => controls.confirm(eraseId, device.name)}
         size="xs"
         type="button"
         variant="ghost"
       >
         <EraserIcon aria-hidden="true" />
-        Erase device
+        Erase
       </Button>
     </>
   );

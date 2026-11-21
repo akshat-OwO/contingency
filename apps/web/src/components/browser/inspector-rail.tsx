@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 
+import type { BrowserStreamStatus } from "@/components/browser/browser-stream-metrics";
 import {
   Tooltip,
   TooltipContent,
@@ -34,9 +35,11 @@ export const RailButton = ({
           aria-label={label}
           aria-pressed={active}
           className={cn(
-            "text-muted-foreground hover:text-foreground hover:bg-muted/70 focus-visible:ring-ring relative grid size-9 place-items-center rounded-lg transition-[color,background-color,transform] duration-150 outline-none focus-visible:ring-2 active:scale-95 disabled:opacity-40 motion-reduce:active:scale-100 pointer-coarse:size-10 [&_svg]:size-4",
+            "text-muted-foreground hover:text-foreground hover:bg-island-hover focus-visible:ring-ring relative grid size-9 place-items-center rounded-xl transition-[color,background-color,transform] duration-150 outline-none focus-visible:ring-2 active:scale-[0.92] disabled:opacity-40 motion-reduce:active:scale-100 pointer-coarse:size-10 [&_svg]:size-[17px]",
+            // The open tool is ringed in the brand accent, as every selected
+            // state in the Workspace chrome is; focus alone keeps `--ring`.
             active &&
-              "text-foreground bg-[color-mix(in_oklch,var(--ring)_14%,var(--background))] shadow-[inset_0_0_0_1.5px_var(--ring)] hover:bg-[color-mix(in_oklch,var(--ring)_18%,var(--background))]"
+              "text-foreground bg-brand/16 hover:bg-brand/20 shadow-[inset_0_0_0_1.5px_color-mix(in_oklch,var(--brand)_70%,transparent)]"
           )}
           disabled={disabled}
           onClick={onClick}
@@ -62,7 +65,7 @@ export const RailBadge = ({
   <span
     aria-hidden="true"
     className={cn(
-      "ring-background absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[11px] leading-none font-semibold tabular-nums ring-2",
+      "ring-island-solid absolute top-px right-px grid h-4 min-w-4 place-items-center rounded-full px-1 text-[10px] leading-none font-semibold tabular-nums ring-2",
       tone === "danger" && "bg-destructive text-white",
       tone === "info" && "bg-sky-500 text-white",
       tone === "neutral" && "bg-muted-foreground/80 text-background"
@@ -70,4 +73,24 @@ export const RailBadge = ({
   >
     {children}
   </span>
+);
+
+/**
+ * A dot pinned to a rail button's corner for a state rather than a count: a
+ * live stream breathes green, one connecting is amber, and a lost one is red.
+ */
+export const RailDot = ({
+  status,
+}: {
+  readonly status: BrowserStreamStatus;
+}) => (
+  <span
+    aria-hidden="true"
+    className={cn(
+      "ring-island-solid absolute top-[7px] right-[7px] size-2 rounded-full ring-2",
+      status === "live" && "bg-status-ready motion-safe:animate-pulse",
+      status === "connecting" && "bg-brand",
+      status === "lost" && "bg-destructive"
+    )}
+  />
 );

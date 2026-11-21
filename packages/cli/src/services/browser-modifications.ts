@@ -151,7 +151,18 @@ export const modificationDescription = (
       break;
     }
     default: {
-      description = `${command.response.action === "mock" ? "Mock" : "Block"} ${command.pattern}${command.resourceType === undefined ? "" : ` (${command.resourceType})`}${command.response.action === "mock" ? `: ${command.response.status} ${command.response.contentType}, ${boundedDevtoolsText(command.response.body, secrets, 2048).text}` : ""}`;
+      const route = `${command.pattern}${command.resourceType === undefined ? "" : ` (${command.resourceType})`}`;
+      if (command.response.action !== "mock") {
+        description = `Block ${route}`;
+        break;
+      }
+      const { body, contentType, status } = command.response;
+      const response = `${status}${contentType === "" ? "" : ` ${contentType}`}`;
+      // An empty mock body still reads as a finished sentence.
+      description =
+        body === ""
+          ? `Mock ${route}: ${response} with an empty body`
+          : `Mock ${route}: ${response}, ${boundedDevtoolsText(body, secrets, 2048).text}`;
       break;
     }
   }

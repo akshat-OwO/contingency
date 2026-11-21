@@ -234,6 +234,18 @@ await Effect.runPromise(
         500
       );
       for (const panel of ["Network", "Console"]) {
+        // While open, DevTools repeats the panel buttons in its `DevTools
+        // panels` group, so close it and open each panel from the rail.
+        if (panel !== "Network") {
+          yield* command(
+            "browser",
+            "click",
+            "--role",
+            "button",
+            "--name",
+            "Close DevTools"
+          );
+        }
         yield* command("browser", "click", "--role", "button", "--name", panel);
         yield* command("browser", "wait", "--role", "region", "--name", panel);
         if (panel === "Network") {

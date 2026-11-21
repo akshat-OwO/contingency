@@ -7,17 +7,20 @@ import type {
   TeachingInstruction,
   TeachingRecordingCleanupState,
 } from "@contingency/protocol";
+import { useAtomValue } from "@effect/atom-react";
 import {
   CircleAlertIcon,
   CheckIcon,
-  CircleIcon,
-  LoaderCircleIcon,
   MessageSquareTextIcon,
   RotateCwIcon,
-  SquareIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import {
+  commentComposerOpenAtom,
+  sessionWaitsOnUserAtom,
+  WAITING_ON_YOU_SENTENCE,
+} from "@/components/agent/agent-workspace-state";
 import { ShortcutKbd } from "@/components/agent/teaching-comment-composer";
 import type { ShortcutPlatform } from "@/components/agent/teaching-comment-shortcuts";
 import { ariaKeyShortcuts } from "@/components/agent/teaching-comment-shortcuts";
@@ -26,8 +29,7 @@ import type {
   TeachingSecondaryAction,
 } from "@/components/agent/teaching-recording-state";
 import {
-  elapsedLabel,
-  elapsedSpokenLabel,
+  elapsedClock,
   teachingRecordingPresentation,
 } from "@/components/agent/teaching-recording-state";
 import {
@@ -39,6 +41,11 @@ import type { DockStateTone } from "@/components/agent/workspace-dock";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 import { BrowserModificationBadge } from "./browser-modifications";
 
@@ -59,9 +66,10 @@ const SECONDARY_SHORT_LABEL: Record<TeachingSecondaryAction, string> = {
 };
 
 /**
- * The elapsed timer owns its own interval and its own render. Keeping the tick
- * inside this leaf is what stops a one-second clock from re-rendering the
- * browser canvas and the whole Workspace beside it.
+ * The elapsed time inside the Recording chip, as `mm:ss` in mono (#753). The
+ * timer owns its own interval and its own render. Keeping the tick inside
+ * this leaf is what stops a one-second clock from re-rendering the browser
+ * canvas and the whole Workspace beside it.
  *
  * `role="timer"` carries no implicit live region, so the seconds are readable
  * on demand without a screen reader announcing every tick. State changes are
@@ -80,13 +88,14 @@ const RecordingElapsed = ({ startedAt }: { readonly startedAt: string }) => {
     };
   }, []);
 
+  const clock = elapsedClock(startedAt, now);
   return (
     <span
-      aria-label={elapsedSpokenLabel(startedAt, now)}
-      className="text-muted-foreground font-mono text-[13px] leading-5 tabular-nums"
+      aria-label={`Elapsed recording time ${clock}`}
+      className="font-mono text-xs tabular-nums opacity-85"
       role="timer"
     >
-      {elapsedLabel(startedAt, now)}
+      {clock}
     </span>
   );
 };
@@ -103,15 +112,20 @@ interface DockBadge {
 
 /**
  * A Guided recording's badge names who holds the browser (#777): the agent
- * while it drives, then the takeover it asked for, then the user.
+ * while it drives, then the takeover it asked for, then the user. Any open
+ * request outranks all of that: the chip reads `Needs you` (#753).
  */
 const guidedBadge = (
   origin: "teaching" | "guided-run" | undefined,
   tag: TeachingCaptureState["_tag"],
   presentation: DockBadge,
   controller: AgentSessionController,
-  phase: AgentSessionPhase
+  phase: AgentSessionPhase,
+  waiting: boolean
 ): DockBadge => {
+  if (waiting) {
+    return { badge: "Needs you", tone: "attention" };
+  }
   if (origin !== "guided-run") {
     return presentation;
   }
@@ -127,8 +141,9 @@ const guidedBadge = (
 };
 
 /**
- * The red dot is the capture gesture's own mark; verifying, retrying, and
- * rejecting are decisions about a recording, so they get their own icons.
+ * Starting and stopping capture are labels alone, as in the prototype;
+ * verifying and retrying are decisions about a recording, so they keep an
+ * icon.
  */
 const TeachingActionIcon = ({
   gesture,
@@ -136,10 +151,6 @@ const TeachingActionIcon = ({
   readonly gesture: TeachingRecordingGesture;
 }) => {
   switch (gesture) {
-    case "stop":
-    case "stop-dry-run": {
-      return <SquareIcon aria-hidden="true" className="fill-current" />;
-    }
     case "verify-flow": {
       return <CheckIcon aria-hidden="true" />;
     }
@@ -147,17 +158,26 @@ const TeachingActionIcon = ({
       return <RotateCwIcon aria-hidden="true" />;
     }
     default: {
-      return (
-        <CircleIcon aria-hidden="true" className="fill-current text-red-500" />
-      );
+      return null;
     }
   }
 };
 
 /**
+ * Each action's tone, as the prototype's buttons (#753): Start recording is
+ * filled red, because it begins capture; every other one action, Stop
+ * included, is filled neutral.
+ */
+const actionClassName = (gesture: TeachingRecordingGesture) =>
+  gesture === "start"
+    ? "bg-status-recording hover:bg-status-recording/90 ml-auto text-white"
+    : "ml-auto";
+
+/**
  * The way into the comment composer, with the comment count beside it. The
- * shortcut hint always shows the chord, which works everywhere. The bare `/`
- * key still works outside the Page and remains in aria-keyshortcuts.
+ * island shows no keycaps (#753): the chord is in the tooltip, and both the
+ * chord and the bare `/` key, which works outside the Page, are in
+ * aria-keyshortcuts. It reports whether the card it opens is open.
  */
 const CommentTrigger = ({
   count,
@@ -167,35 +187,60 @@ const CommentTrigger = ({
   readonly count: number;
   readonly onComment: () => void;
   readonly platform: ShortcutPlatform;
-}) => (
-  <Button
-    aria-keyshortcuts={ariaKeyShortcuts("compose", platform)}
-    aria-label={
-      count === 0
-        ? "Comment"
-        : `Comment, ${count} ${count === 1 ? "comment" : "comments"} so far`
-    }
-    onClick={onComment}
-    size="sm"
-    title="Comment"
-    type="button"
-    variant="ghost"
-  >
-    <MessageSquareTextIcon aria-hidden="true" />
-    <span className="hidden @md:inline">Comment</span>
-    {count === 0 ? null : (
-      <span className="bg-muted text-foreground grid h-4 min-w-4 place-items-center rounded-full px-1 text-xs leading-none font-medium tabular-nums">
-        {count}
-      </span>
-    )}
-    <ShortcutKbd
-      className="hidden @lg:inline-flex"
-      platform={platform}
-      scope="chord"
-      shortcut="compose"
-    />
-  </Button>
-);
+}) => {
+  const open = useAtomValue(commentComposerOpenAtom);
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            aria-expanded={open}
+            aria-haspopup="dialog"
+            aria-keyshortcuts={ariaKeyShortcuts("compose", platform)}
+            aria-label={
+              count === 0
+                ? "Comment"
+                : `Comment, ${count} ${count === 1 ? "comment" : "comments"} so far`
+            }
+            onClick={onComment}
+            size="sm"
+            type="button"
+            variant="ghost"
+          />
+        }
+      >
+        <MessageSquareTextIcon aria-hidden="true" />
+        <span className="hidden @md:inline">Comment</span>
+        {count === 0 ? null : (
+          <span className="bg-foreground text-background grid h-5 min-w-5 place-items-center rounded-[7px] px-1.5 font-mono text-xs leading-none font-semibold tabular-nums">
+            {count}
+          </span>
+        )}
+      </TooltipTrigger>
+      <TooltipContent>
+        Comment
+        <ShortcutKbd platform={platform} scope="chord" shortcut="compose" />
+      </TooltipContent>
+    </Tooltip>
+  );
+};
+
+/**
+ * The actions the status island offers. A docked Flow decision takes Verify
+ * flow and Reject flow (#757).
+ */
+const islandActions = (
+  presentation: ReturnType<typeof teachingRecordingPresentation>,
+  decisionDocked: boolean
+) =>
+  decisionDocked
+    ? {
+        action: null,
+        secondaries: presentation.secondaries.filter(
+          (secondary) => secondary !== "reject-flow"
+        ),
+      }
+    : { action: presentation.action, secondaries: presentation.secondaries };
 
 /**
  * The Teaching dock, on the same two-tier card a Run gets: whatever the agent
@@ -215,6 +260,7 @@ export const TeachingRecordingDock = ({
   captureState,
   cleanup,
   controller,
+  flowDecisionDocked,
   flowName,
   origin,
   instructions,
@@ -235,6 +281,11 @@ export const TeachingRecordingDock = ({
   /** Who holds the browser. Start waits for the agent's setup handoff. */
   readonly controller: AgentSessionController;
   readonly origin?: "teaching" | "guided-run";
+  /**
+   * Whether the docked Dry Run Summary carries the `Flow decision` region
+   * (#757). While it does, Verify flow and Reject flow live there, not here.
+   */
+  readonly flowDecisionDocked?: boolean;
   readonly flowName: string;
   /**
    * Every Teaching instruction this recording has collected, oldest first,
@@ -262,14 +313,30 @@ export const TeachingRecordingDock = ({
     controller,
     phase
   );
-  const { action } = presentation;
+  const waiting = useAtomValue(sessionWaitsOnUserAtom);
+  const { action, secondaries } = islandActions(
+    presentation,
+    flowDecisionDocked === true && captureState._tag === "dry-run-passed"
+  );
   const badge = guidedBadge(
     origin,
     captureState._tag,
     presentation,
     controller,
-    phase
+    phase,
+    waiting
   );
+  const guidedRecording =
+    origin === "guided-run" && captureState._tag === "recording";
+  // A Guided Run reads Stop's whole name beside its control (#777).
+  const actionLabel =
+    guidedRecording && action !== null ? action.accessibleName : action?.label;
+  let sentence = presentation.nextStep;
+  if (guidedRecording) {
+    sentence = controlStatus ?? presentation.nextStep;
+  } else if (waiting) {
+    sentence = WAITING_ON_YOU_SENTENCE;
+  }
   const [rename, setRename] = useState("");
   const [renaming, setRenaming] = useState(false);
   const startRename = () => {
@@ -317,22 +384,28 @@ export const TeachingRecordingDock = ({
         <DockStatus
           badges={
             <>
-              <DockState tone={badge.tone}>{badge.badge}</DockState>
+              <DockState tone={badge.tone}>
+                {badge.badge}
+                {/*
+                  The time belongs to recording itself, so it shows only
+                  while the chip says so: not while a takeover waits or the
+                  user drives (#777).
+                */}
+                {captureState._tag === "recording" &&
+                badge.tone === "recording" ? (
+                  <RecordingElapsed startedAt={captureState.startedAt} />
+                ) : null}
+              </DockState>
+              {/*
+                Teaching has no Task details, so this is the only place a
+                Teaching session's active Browser Modifications show.
+              */}
               <BrowserModificationBadge
                 modifications={
                   sessions.find((session) => session.id === selectedSessionId)
                     ?.browserModifications ?? []
                 }
               />
-              {captureState._tag === "recording" ? (
-                <RecordingElapsed startedAt={captureState.startedAt} />
-              ) : null}
-              {captureState._tag === "finalizing" ? (
-                <LoaderCircleIcon
-                  aria-hidden="true"
-                  className="text-muted-foreground size-4 animate-spin"
-                />
-              ) : null}
             </>
           }
           note={
@@ -345,9 +418,7 @@ export const TeachingRecordingDock = ({
             The sentence changes when the capture state changes, never on a
             timer tick: the elapsed clock owns its own leaf render.
           */}
-          {origin === "guided-run" && captureState._tag === "recording"
-            ? controlStatus
-            : presentation.nextStep}
+          {sentence}
         </DockStatus>
       }
     >
@@ -358,7 +429,12 @@ export const TeachingRecordingDock = ({
           platform={platform}
         />
       ) : null}
-      {presentation.secondaries.map((secondary) => (
+      {/*
+        Secondaries are quiet: the island has one action (#753). Rename
+        stays here while there is no other place in the session to rename
+        the Flow.
+      */}
+      {secondaries.map((secondary) => (
         <Button
           aria-label={SECONDARY_LABEL[secondary]}
           disabled={pending}
@@ -368,7 +444,7 @@ export const TeachingRecordingDock = ({
           }
           size="sm"
           type="button"
-          variant="outline"
+          variant="ghost"
         >
           {/*
             A narrow dock wraps the session picker onto its own row, so even
@@ -384,16 +460,11 @@ export const TeachingRecordingDock = ({
       {action === null ? null : (
         <Button
           // When the actions wrap, the primary one keeps the end of its line.
-          className="ml-auto"
+          className={actionClassName(action.gesture)}
           aria-label={action.accessibleName}
           disabled={pending}
           onClick={() => onGesture(action.gesture)}
           type="button"
-          variant={
-            action.gesture === "stop" || action.gesture === "stop-dry-run"
-              ? "destructive"
-              : "default"
-          }
         >
           <TeachingActionIcon gesture={action.gesture} />
           {action.gesture === "start" ? (
@@ -402,7 +473,7 @@ export const TeachingRecordingDock = ({
               <span className="hidden @sm:inline">{action.label}</span>
             </>
           ) : (
-            action.label
+            actionLabel
           )}
         </Button>
       )}

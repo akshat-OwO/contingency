@@ -8,6 +8,7 @@ import { agentRunVideoPath } from "@contingency/protocol";
 import { useAtom, useAtomValue } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import {
+  CircleAlertIcon,
   CircleCheckIcon,
   CircleMinusIcon,
   CircleXIcon,
@@ -15,7 +16,7 @@ import {
   PlayIcon,
 } from "lucide-react";
 import type { ReactNode } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import type {
   DryRunVerdict,
@@ -26,7 +27,9 @@ import type {
 } from "@/components/agent/dry-run-summary-state";
 import {
   assessmentOutcomeLabel,
+  dryRunCannotVerify,
   dryRunChecks,
+  dryRunChecksPass,
   dryRunFailureSentence,
   dryRunMissedOnlyQualifiers,
   dryRunVerdict,
@@ -42,7 +45,7 @@ import {
 } from "@/components/agent/evidence-reference";
 import { usePublishRunSummaryVerdict } from "@/components/agent/run-summary-dock";
 import { VerdictCard } from "@/components/agent/run-summary-verdict";
-import { RunVideo } from "@/components/agent/run-video";
+import { RunVideo, RunVideoLocation } from "@/components/agent/run-video";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
@@ -50,6 +53,7 @@ import { cn } from "@/lib/utils";
 
 import { BrowserCheckResults } from "./browser-check-results";
 import { BrowserModifications } from "./browser-modifications";
+import { DetailHeadingLevel } from "./run-detail-state";
 import { videoClock, videoOffsetMs } from "./run-video-timeline";
 import { ScanResults } from "./scan-results.tsx";
 import {
@@ -61,8 +65,13 @@ import {
 
 const passedTone = "text-status-ready";
 
+/**
+ * A persisted record without the Runner's result passes on its checks alone:
+ * they are the Runner's pass rule, so it reads as the same "Dry Run passed"
+ * the dock shows for that Run.
+ */
 const verdictLabel: Record<DryRunVerdict, string> = {
-  "checks-passed": "All checks passed",
+  "checks-passed": "Dry Run passed",
   failed: "Dry Run failed",
   passed: "Dry Run passed",
 };
@@ -158,6 +167,8 @@ const SummaryVideo = ({
     ) : (
       <RunVideo
         note="The video and Trace stay on this machine."
+        // The path is copied from the Task tab, not under the player.
+        pathInPlayer={false}
         seekAt={seekAt}
         src={src}
         timeMap={summary.videoTimeMap}
@@ -416,88 +427,98 @@ const TaskRunSummaryLayout = ({
         <Stat label="Findings" value={summary.findings.length} />
         <Stat label="Evidence" value={evidenceCount(summary)} />
       </dl>
-      <Tabs className="gap-3" defaultValue="checks">
-        <TabsList aria-label="Run Summary sections" variant="segmented">
-          <TabsTrigger value="checks">
-            {checksTab}
-            {failing ? (
-              // The checklist names the failed check; the dot only draws
-              // the eye, so the segment keeps one stable name.
-              <span
-                aria-hidden="true"
-                className="bg-destructive size-1.5 rounded-full"
+      {/* Its sections sit one level under the summary's level 3 title. */}
+      <DetailHeadingLevel value={4}>
+        <Tabs className="gap-3" defaultValue="checks">
+          <TabsList aria-label="Run Summary sections" variant="segmented">
+            <TabsTrigger value="checks">
+              {checksTab}
+              {failing ? (
+                // The checklist names the failed check; the dot only draws
+                // the eye, so the segment keeps one stable name.
+                <span
+                  aria-hidden="true"
+                  className="bg-destructive size-1.5 rounded-full"
+                />
+              ) : null}
+            </TabsTrigger>
+            <TabsTrigger value="findings">
+              Findings{" "}
+              <span className="text-muted-foreground/80 font-mono text-xs tabular-nums">
+                {summary.findings.length}
+              </span>
+            </TabsTrigger>
+            <TabsTrigger value="task">Task</TabsTrigger>
+          </TabsList>
+          <TabsContent className="grid gap-4" value="checks">
+            <Checklist checks={checks} label={checksLabel} />
+            {summary.assessment === null ? (
+              <p className="text-muted-foreground text-sm">
+                No Agent Assessment submitted.
+              </p>
+            ) : (
+              <EvidenceList hint evidence={summary.assessment.evidence} />
+            )}
+            <BrowserCheckResults run={summary} />
+            <ScanResults run={summary} />
+          </TabsContent>
+          <TabsContent className="grid gap-4" value="findings">
+            {summary.findings.length === 0 ? (
+              <p className="text-muted-foreground text-sm">
+                The agent reported no findings.
+              </p>
+            ) : (
+              <ul aria-label="Findings" className="grid gap-3.5">
+                {summary.findings.map((finding) => (
+                  <li
+                    className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-2.5"
+                    key={finding.id}
+                  >
+                    <FindingDot outcome={finding.outcome} />
+                    <div className="min-w-0 space-y-1">
+                      <p className="text-[13.5px] text-pretty wrap-anywhere">
+                        {finding.explanation}
+                      </p>
+                      <p className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px]">
+                        {assessmentOutcomeLabel[finding.outcome]} ·{" "}
+                        {finding.evidence.length} evidence
+                        <FindingSeek
+                          at={findingMoment(summary, finding)}
+                          onSeek={onSeek}
+                          summary={summary}
+                          videoSrc={
+                            videoSrc ?? agentRunVideoPath(summary.runId)
+                          }
+                        />
+                      </p>
+                      <EvidenceList evidence={finding.evidence} />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </TabsContent>
+          <TabsContent className="grid gap-4 text-sm" value="task">
+            <RequestedTask label={taskLabel} run={summary} />
+            <ReferencedFlows run={summary} />
+            <Pursuits run={summary} />
+            <BrowserModifications
+              modifications={summary.browserModifications ?? []}
+            />
+            <EmulationSection run={summary} />
+            <dl className="border-island-border [&_dt]:text-muted-foreground grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-2 gap-y-1.5 border-t pt-3 text-[12.5px]">
+              {details}
+              <dt>Execution</dt>
+              <dd>{runOutcomeLabel[summary.outcome]}</dd>
+            </dl>
+            {summary.videoPath === null ? null : (
+              <RunVideoLocation
+                src={videoSrc ?? agentRunVideoPath(summary.runId)}
               />
-            ) : null}
-          </TabsTrigger>
-          <TabsTrigger value="findings">
-            Findings{" "}
-            <span className="text-muted-foreground/80 font-mono text-xs tabular-nums">
-              {summary.findings.length}
-            </span>
-          </TabsTrigger>
-          <TabsTrigger value="task">Task</TabsTrigger>
-        </TabsList>
-        <TabsContent className="grid gap-4" value="checks">
-          <Checklist checks={checks} label={checksLabel} />
-          {summary.assessment === null ? (
-            <p className="text-muted-foreground text-sm">
-              No Agent Assessment submitted.
-            </p>
-          ) : (
-            <EvidenceList hint evidence={summary.assessment.evidence} />
-          )}
-          <BrowserCheckResults run={summary} />
-          <ScanResults run={summary} />
-        </TabsContent>
-        <TabsContent className="grid gap-4" value="findings">
-          {summary.findings.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              The agent reported no findings.
-            </p>
-          ) : (
-            <ul aria-label="Findings" className="grid gap-3.5">
-              {summary.findings.map((finding) => (
-                <li
-                  className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-2.5"
-                  key={finding.id}
-                >
-                  <FindingDot outcome={finding.outcome} />
-                  <div className="min-w-0 space-y-1">
-                    <p className="text-[13.5px] text-pretty wrap-anywhere">
-                      {finding.explanation}
-                    </p>
-                    <p className="text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px]">
-                      {assessmentOutcomeLabel[finding.outcome]} ·{" "}
-                      {finding.evidence.length} evidence
-                      <FindingSeek
-                        at={findingMoment(summary, finding)}
-                        onSeek={onSeek}
-                        summary={summary}
-                        videoSrc={videoSrc ?? agentRunVideoPath(summary.runId)}
-                      />
-                    </p>
-                    <EvidenceList evidence={finding.evidence} />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </TabsContent>
-        <TabsContent className="grid gap-4 text-sm" value="task">
-          <RequestedTask label={taskLabel} run={summary} />
-          <ReferencedFlows run={summary} />
-          <Pursuits run={summary} />
-          <BrowserModifications
-            modifications={summary.browserModifications ?? []}
-          />
-          <EmulationSection run={summary} />
-          <dl className="border-island-border [&_dt]:text-muted-foreground grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-2 gap-y-1.5 border-t pt-3 text-[12.5px]">
-            {details}
-            <dt>Execution</dt>
-            <dd>{runOutcomeLabel[summary.outcome]}</dd>
-          </dl>
-        </TabsContent>
-      </Tabs>
+            )}
+          </TabsContent>
+        </Tabs>
+      </DetailHeadingLevel>
       <footer className="border-island-border flex flex-wrap items-center gap-2 border-t pt-3">
         <EvidenceReference id={summary.runId} kind="Run ID" />
         {links === undefined || links === null ? null : (
@@ -510,21 +531,17 @@ const TaskRunSummaryLayout = ({
   );
 };
 
-/**
- * A finished task Dry Run. A Runner result of `failed` leads the Verdict tab:
- * the observable outcome is a system fact and outranks the pass checks.
- */
-export const DryRunSummaryView = ({
+/** A finished task Dry Run's summary, without its Flow decision. */
+const DryRunSummaryLayout = ({
   links,
   result,
   summary,
   videoSrc,
 }: {
-  readonly links?: ReactNode;
-  /** The Runner's observable-outcome result, when the caller has it. */
-  readonly result?: FlowDryRunResult;
+  readonly links: ReactNode;
+  readonly result: FlowDryRunResult | undefined;
   readonly summary: TaskDryRunSummary;
-  readonly videoSrc?: string | undefined;
+  readonly videoSrc: string | undefined;
 }) => (
   <TaskRunSummaryLayout
     checks={dryRunChecks(summary)}
@@ -553,6 +570,216 @@ export const DryRunSummaryView = ({
     videoSrc={videoSrc}
   />
 );
+
+/** How the Flow decision bar reads: a question, or where the Flow stands. */
+export type FlowDecisionTone = "ask" | "failed" | "neutral" | "passed";
+
+const flowDecisionTone: Record<FlowDecisionTone, string> = {
+  ask: "",
+  failed: "[--decision-tone:var(--destructive)]",
+  neutral: "[--decision-tone:var(--muted-foreground)]",
+  passed: "[--decision-tone:var(--status-ready)]",
+};
+
+const FlowDecisionIcon = ({ tone }: { readonly tone: FlowDecisionTone }) => {
+  const className = "size-4 shrink-0 text-(--decision-tone)";
+  if (tone === "passed") {
+    return <CircleCheckIcon aria-hidden="true" className={className} />;
+  }
+  if (tone === "neutral") {
+    return <CircleXIcon aria-hidden="true" className={className} />;
+  }
+  if (tone === "failed") {
+    return <CircleAlertIcon aria-hidden="true" className={className} />;
+  }
+  return null;
+};
+
+/**
+ * Whether the summary above the decision bar runs on below what the dock
+ * shows. A marker sits at the end of the summary, just above the bar; while
+ * it is out of view, the summary continues under the bar.
+ */
+const useSummaryContinues = () => {
+  const [continuesAtom] = useState(() => Atom.make(false));
+  const [continues, setContinues] = useAtom(continuesAtom);
+  const [marker, setMarker] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (marker === null || typeof IntersectionObserver === "undefined") {
+      return;
+    }
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry !== undefined) {
+        setContinues(!entry.isIntersecting);
+      }
+    });
+    observer.observe(marker);
+    return () => {
+      observer.disconnect();
+    };
+  }, [marker, setContinues]);
+  return [continues, setMarker] as const;
+};
+
+/**
+ * The `Flow decision` region at the foot of a docked Dry Run Summary (ADR
+ * 0073): one sentence on where the Flow stands, then whatever the user can
+ * do about it. It is a compact solid bar that sticks to the bottom of the
+ * dock, so the decision stays in reach however far the summary scrolls.
+ * While the summary runs on under it, a fade over its top edge says so.
+ */
+export const FlowDecision = ({
+  actions,
+  children,
+  error,
+  tone,
+}: {
+  /** The buttons under the sentence, such as `FlowDecisionButtons`. */
+  readonly actions?: ReactNode;
+  readonly children: ReactNode;
+  /** A decision that could not be saved, said as an alert. */
+  readonly error?: string | undefined;
+  readonly tone: FlowDecisionTone;
+}) => {
+  const [continues, markerRef] = useSummaryContinues();
+  return (
+    <>
+      <div aria-hidden="true" className="h-px" ref={markerRef} />
+      <section
+        aria-label="Flow decision"
+        className={cn(
+          "border-island-border bg-island-solid sticky -bottom-4 z-10 -mx-4 mt-4 -mb-4 grid gap-2 border-t px-3.5 pt-2.5 pb-3",
+          continues &&
+            "before:from-island-solid before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:h-8 before:bg-linear-to-t before:to-transparent",
+          flowDecisionTone[tone]
+        )}
+        data-tone={tone}
+      >
+        <div className="flex items-start gap-2">
+          <FlowDecisionIcon tone={tone} />
+          <p className="text-xs/4 text-pretty" role="status">
+            {children}
+          </p>
+        </div>
+        {actions}
+        {error === undefined ? null : (
+          <p className="text-destructive text-xs" role="alert">
+            {error}
+          </p>
+        )}
+      </section>
+    </>
+  );
+};
+
+/** What the Flow decision's buttons do; the caller owns both mutations. */
+export interface FlowDecisionActions {
+  readonly onReject: () => void;
+  readonly onVerify: () => void;
+  /** A decision is being saved; both buttons wait for it. */
+  readonly pending: boolean;
+}
+
+/** **Reject flow** and **Verify flow**, side by side at equal width. */
+export const FlowDecisionButtons = ({
+  onReject,
+  onVerify,
+  pending,
+}: FlowDecisionActions) => (
+  <div className="grid grid-cols-2 gap-2">
+    <Button
+      className="w-full rounded-[10px] text-[13px]"
+      disabled={pending}
+      onClick={onReject}
+      type="button"
+      variant="outline"
+    >
+      Reject flow
+    </Button>
+    <Button
+      className="w-full rounded-[10px] text-[13px]"
+      disabled={pending}
+      onClick={onVerify}
+      type="button"
+    >
+      Verify flow
+    </Button>
+  </div>
+);
+
+/** The question a passed Dry Run asks, naming its Flow. */
+export const VerifyFlowQuestion = ({ flow }: { readonly flow: ReactNode }) => (
+  <>
+    <strong className="font-semibold">Verify {flow}?</strong> Verifying keeps
+    the Flow and deletes its Teaching evidence.
+  </>
+);
+
+/**
+ * A finished task Dry Run. A Runner result of `failed` leads the Verdict tab:
+ * the observable outcome is a system fact and outranks the pass checks. With
+ * `decision`, a pending Flow decision closes the dock: Verify and Reject for
+ * a Dry Run that passed, or why it cannot be verified.
+ */
+export const DryRunSummaryView = ({
+  decision,
+  links,
+  result,
+  summary,
+  videoSrc,
+}: {
+  /**
+   * The user's Verify and Reject for this Dry Run's Flow, when the Flow
+   * still awaits them. Without it the summary asks nothing.
+   */
+  readonly decision?:
+    | (FlowDecisionActions & { readonly error?: string })
+    | undefined;
+  readonly links?: ReactNode;
+  /** The Runner's observable-outcome result, when the caller has it. */
+  readonly result?: FlowDryRunResult;
+  readonly summary: TaskDryRunSummary;
+  readonly videoSrc?: string | undefined;
+}) => {
+  const view = (
+    <DryRunSummaryLayout
+      links={links}
+      result={result}
+      summary={summary}
+      videoSrc={videoSrc}
+    />
+  );
+  if (decision === undefined) {
+    return view;
+  }
+  const passed = result?.outcome !== "failed" && dryRunChecksPass(summary);
+  return (
+    <div className="flex flex-1 flex-col">
+      <div className="flex-1">{view}</div>
+      <FlowDecision
+        actions={
+          passed ? (
+            <FlowDecisionButtons
+              onReject={decision.onReject}
+              onVerify={decision.onVerify}
+              pending={decision.pending}
+            />
+          ) : null
+        }
+        error={decision.error}
+        tone={passed ? "ask" : "failed"}
+      >
+        {passed ? (
+          <VerifyFlowQuestion
+            flow={<span className="font-mono">{summary.purpose.flowName}</span>}
+          />
+        ) : (
+          dryRunCannotVerify
+        )}
+      </FlowDecision>
+    </div>
+  );
+};
 
 /**
  * A finished Interactive Run, laid out like a Dry Run so the two read the same

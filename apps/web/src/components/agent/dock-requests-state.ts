@@ -8,10 +8,10 @@ import { takesExampleVariables } from "./run-provenance";
 import { hasRuntimeVariableNotice } from "./runtime-variable-state";
 
 /**
- * Everything the agent can be waiting on the user for, as the dock's first
- * tier lists it. Each entry carries the one line a collapsed tier keeps, and
- * a key naming exactly what is being asked, so collapsing hides that request
- * and a new one opens the tier again.
+ * Everything the agent can be waiting on the user for, as the Requests island
+ * lists it. Each entry carries the one line a collapsed island keeps, and a
+ * key naming exactly what is being asked, so collapsing hides that request
+ * and a new one opens the island again.
  */
 export interface DockRequest {
   readonly key: string;
@@ -25,16 +25,21 @@ export interface DockRequest {
   /** What is asked, in a few words: the action, or how many inputs remain. */
   readonly summary: string;
   readonly title: string;
+  /**
+   * Whether it still waits on the user. A settled request, such as answered
+   * Guided Run questions, stays readable but queues behind open ones.
+   */
+  readonly waiting: boolean;
 }
 
 /**
- * The state badge already reads `Waiting for you`, so the request
- * names what is being confirmed instead of repeating it.
+ * The question an Execution Boundary puts to the user, as the prototype asks
+ * it (#753). The eyebrow already says it is an Execution Boundary.
  */
 export const boundaryTitle: Record<AgentExecutionBoundary["reason"], string> = {
-  confirmation: "Confirm this action",
-  domain: "Allow a new domain",
-  objective: "Confirm an action outside the objective",
+  confirmation: "Allow the agent to take this action?",
+  domain: "Allow the agent to visit a new host?",
+  objective: "Allow the agent to act outside the objective?",
 };
 
 /**
@@ -53,8 +58,38 @@ export const splitWaiting = <Input>(
   return [waiting, answered];
 };
 
-const remaining = (waiting: number, total: number) =>
+/**
+ * How many of a request's inputs still wait, as every Variable card's eyebrow
+ * and a collapsed island's line read it.
+ */
+export const stillNeeded = (waiting: number, total: number) =>
   waiting === 0 ? "All answered" : `${waiting} of ${total} needed`;
+
+/**
+ * The runtime Variables a Workspace Variable card holds: the pending supply
+ * decisions, and the Variables already answered that no longer wait.
+ */
+export const runtimeVariables = (session: AgentSessionSnapshot) => {
+  const pending = (session.pendingDecisions ?? []).filter(
+    (decision) => decision.kind === "supply_variable"
+  );
+  const pendingScopes = new Set(
+    pending.map((decision) =>
+      JSON.stringify([decision.variable?.flowName, decision.variable?.name])
+    )
+  );
+  const answers =
+    session.run !== null && "schemaVersion" in session.run
+      ? session.run.variables.filter(
+          (variable) =>
+            variable.lastAnswer !== undefined &&
+            !pendingScopes.has(
+              JSON.stringify([variable.flowName, variable.name])
+            )
+        )
+      : [];
+  return { answers, pending };
+};
 
 /** The heading a runtime Variable request takes, by who answers it where. */
 export const runtimeVariablesTitle = (session: AgentSessionSnapshot) => {
@@ -83,6 +118,7 @@ const boundaryRequest = (
     kind: "boundary",
     summary: boundary.requested,
     title: boundaryTitle[boundary.reason],
+    waiting: true,
   };
 };
 
@@ -105,8 +141,9 @@ const setupVariablesRequest = (
   return {
     key: `setup:${waiting.map(({ requestId }) => requestId).join(",")}`,
     kind: "setup-variables",
-    summary: remaining(waiting.length, variables.length),
+    summary: stillNeeded(waiting.length, variables.length),
     title: "Setup Variables",
+    waiting: waiting.length > 0,
   };
 };
 
@@ -116,17 +153,13 @@ const runtimeVariablesRequest = (
   if (!hasRuntimeVariableNotice(session)) {
     return undefined;
   }
-  const pending = (session.pendingDecisions ?? []).filter(
-    ({ kind }) => kind === "supply_variable"
-  );
+  const { answers, pending } = runtimeVariables(session);
   return {
     key: `variables:${pending.map(({ pendingDecisionId }) => pendingDecisionId).join(",")}`,
     kind: "runtime-variables",
-    summary:
-      pending.length === 0
-        ? "All answered"
-        : `${pending.length} ${pending.length === 1 ? "input" : "inputs"} needed`,
+    summary: stillNeeded(pending.length, pending.length + answers.length),
     title: runtimeVariablesTitle(session),
+    waiting: pending.length > 0,
   };
 };
 
@@ -147,8 +180,9 @@ const dryRunSecretsRequest = (
   return {
     key: `secrets:${waiting.map(({ name }) => name).join(",")}`,
     kind: "dry-run-secrets",
-    summary: remaining(waiting.length, variables.length),
+    summary: stillNeeded(waiting.length, variables.length),
     title: "Dry Run Variables",
+    waiting: true,
   };
 };
 
@@ -175,12 +209,12 @@ const questionsRequest = (
   return {
     key: `questions:${waiting.map(({ id }) => id).join(",")}`,
     kind: "guided-run-questions",
-    summary: remaining(waiting.length, questions.length),
+    summary: stillNeeded(waiting.length, questions.length),
     title: "Guided Run questions",
+    waiting: waiting.length > 0,
   };
 };
 
-/** The requests the Requests island shows, in the order it shows them. */
 /**
  * Whether the user can type a Variable into the page: only while they hold
  * the browser during a Guided recording (ADR 0052, ADR 0065).
@@ -228,9 +262,11 @@ const takeoverVariableRequest = (
         kind: "takeover-variable",
         summary: "Type a Variable into the focused field",
         title: "Takeover Variable",
+        waiting: true,
       }
     : undefined;
 
+/** The requests the Requests island holds, in the order they were asked. */
 export const dockRequests = (
   session: AgentSessionSnapshot
 ): readonly DockRequest[] =>
@@ -244,7 +280,49 @@ export const dockRequests = (
   ].filter((request) => request !== undefined);
 
 /**
- * Whether a tier collapsed over `collapsedKeys` stays collapsed. Any request
+ * The order the Requests island shows its requests in, one at a time (#753):
+ * open requests first, then settled ones, each in the order they were asked.
+ * A request the user set aside with "more after this" queues behind all of
+ * them, in the order it was set aside, so stepping on reaches every request
+ * and comes back round.
+ */
+export const requestQueue = (
+  requests: readonly DockRequest[],
+  setAside: readonly string[]
+): readonly DockRequest[] => {
+  const rank = ({ key, waiting }: DockRequest) => {
+    const aside = setAside.indexOf(key);
+    if (aside !== -1) {
+      return 2 + aside;
+    }
+    return waiting ? 0 : 1;
+  };
+  return requests
+    .map((request, order) => ({ order, rank: rank(request), request }))
+    .toSorted(
+      (left, right) => left.rank - right.rank || left.order - right.order
+    )
+    .map(({ request }) => request);
+};
+
+/**
+ * The requests set aside after stepping past `shown`: it moves behind every
+ * other one, and keys no longer asked are dropped.
+ */
+export const setAsideAfter = (
+  requests: readonly DockRequest[],
+  setAside: readonly string[],
+  shown: DockRequest
+): readonly string[] => [
+  ...setAside.filter(
+    (key) =>
+      key !== shown.key && requests.some((request) => request.key === key)
+  ),
+  shown.key,
+];
+
+/**
+ * Whether an island collapsed over `collapsedKeys` stays collapsed. Any request
  * the person has not collapsed yet opens it again, so a new Boundary or a new
  * input is never hidden behind an earlier fold.
  */
