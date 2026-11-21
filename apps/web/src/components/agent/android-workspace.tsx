@@ -266,7 +266,11 @@ export const AndroidEmptyState = ({
 type SetState = (update: (current: WorkspaceState) => WorkspaceState) => void;
 /** How often an idle session is observed. Input never waits on it. */
 const IDLE_OBSERVATION = "3 seconds";
-type Mutate = (command: AndroidWorkspaceCommand) => boolean;
+/** `onApplied` runs once the host accepts the command. */
+type Mutate = (
+  command: AndroidWorkspaceCommand,
+  onApplied?: () => void
+) => boolean;
 
 /**
  * Reads a `?android=` session once, then refreshes the selected session's
@@ -854,13 +858,16 @@ export const AndroidSessionView = ({
             (session.phase === "running" || session.phase === "paused")
           }
           emulation={session.emulation}
-          onEmulate={(change) =>
-            mutate({
-              _tag: "emulate",
-              change,
-              operationId: operationId(),
-              sessionId: session.id,
-            })
+          onEmulate={(change, onApplied) =>
+            mutate(
+              {
+                _tag: "emulate",
+                change,
+                operationId: operationId(),
+                sessionId: session.id,
+              },
+              onApplied
+            )
           }
           onDeviceKey={(key) => {
             for (const action of ["down", "up"] as const) {
@@ -1052,8 +1059,12 @@ export const AndroidWorkspace = ({
       Effect.asVoid
     );
   };
-  const mutate = (command: AndroidWorkspaceCommand) =>
-    gesture.dispatch(run(command));
+  const mutate: Mutate = (command, onApplied) =>
+    gesture.dispatch(
+      onApplied === undefined
+        ? run(command)
+        : run(command).pipe(Effect.tap(() => Effect.sync(onApplied)))
+    );
   const failure = gesture.error ?? state.failure;
   const notices =
     failure === null ? null : (

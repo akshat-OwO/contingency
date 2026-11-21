@@ -49,6 +49,7 @@ import { cn } from "@/lib/utils";
 import { DeviceUnavailable, NativeStage } from "./android-device";
 import type {
   DeviceKey,
+  EmulateDevice,
   NativeCommentPins,
   NativeElementPick,
 } from "./android-device";
@@ -217,7 +218,7 @@ const IosMirror = ({
   readonly onInput: (input: NativeInput) => void;
   /** Home and the App Switcher, sent through the session (ADR 0083). */
   readonly onDeviceKey: (key: DeviceKey) => void;
-  readonly onEmulate: (change: NativeEmulationChange) => void;
+  readonly onEmulate: EmulateDevice;
 }) => {
   const canvas = useRef<HTMLCanvasElement>(null);
   const [probe] = useState(() =>
@@ -1168,7 +1169,8 @@ export const IosWorkspace = ({
   useEffect(() => {
     routeRef.current = requestedSessionId;
   }, [requestedSessionId]);
-  const send = (command: IosWorkspaceCommand) => {
+  /** `onApplied` runs once the host accepts the command. */
+  const send = (command: IosWorkspaceCommand, onApplied?: () => void) => {
     const route = routeRef.current;
     return gesture.dispatch(
       runIosWorkspaceCommand(command).pipe(
@@ -1179,6 +1181,7 @@ export const IosWorkspace = ({
               return;
             }
             apply(next);
+            onApplied?.();
           })
         ),
         Effect.asVoid,
@@ -1383,7 +1386,9 @@ export const IosWorkspace = ({
               send(command);
             }
           }}
-          onEmulate={(change) => send(emulateCommand(change, session))}
+          onEmulate={(change, onApplied) =>
+            send(emulateCommand(change, session), onApplied)
+          }
           onInput={onInput}
           session={session}
           unavailable={glassText(session)}

@@ -14,10 +14,13 @@ import userEvent from "@testing-library/user-event";
 import { Effect, Exit, Scope } from "effect";
 import { TestClock } from "effect/testing";
 import { useState } from "react";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, assert, expect, test, vi } from "vitest";
 
 import { NativeStage } from "@/components/agent/android-device";
-import type { NativeStream } from "@/components/agent/android-device";
+import type {
+  EmulateDevice,
+  NativeStream,
+} from "@/components/agent/android-device";
 import { NativeCommentComposer } from "@/components/agent/native-comment-composer";
 import {
   closedComment,
@@ -288,7 +291,7 @@ test("losing control closes the cards only the person in control can use", async
 
 test("Device settings counts only what this session changed", async () => {
   const user = userEvent.setup();
-  const onEmulate = vi.fn();
+  const onEmulate = vi.fn<EmulateDevice>();
   // The emulator already reports a location and dark appearance.
   const reported = {
     appearance: "dark",
@@ -321,11 +324,17 @@ test("Device settings counts only what this session changed", async () => {
     "77.59"
   );
   await user.click(within(location).getByRole("button", { name: "Apply" }));
-  expect(onEmulate).toHaveBeenLastCalledWith({
-    _tag: "location",
-    latitude: 12.97,
-    longitude: 77.59,
-  });
+  expect(onEmulate).toHaveBeenLastCalledWith(
+    { _tag: "location", latitude: 12.97, longitude: 77.59 },
+    expect.any(Function)
+  );
+  // Until the device accepts it, the inherited location is not this
+  // session's: a refusal leaves no Applied line and no badge.
+  expect(within(card).queryByText(/Applied:/u)).toBeNull();
+  expect(settings.textContent).toBe("");
+  const onApplied = onEmulate.mock.lastCall?.[1];
+  assert.isDefined(onApplied);
+  act(onApplied);
   rerender(
     <NativeStage
       canAct

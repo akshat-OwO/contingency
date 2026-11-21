@@ -250,6 +250,15 @@ const deviceCardTitles: Record<DeviceCard, string> = {
 
 const Icon = ({ icon: Glyph }: { readonly icon: ComponentType }) => <Glyph />;
 
+/**
+ * Sends a Device setting. `onApplied` runs once the device accepts it, so a
+ * refused or declined change never reads as this session's.
+ */
+export type EmulateDevice = (
+  change: NativeEmulationChange,
+  onApplied?: () => void
+) => void;
+
 /** The Device settings this session changed from the rail. */
 export type ChangedSettings = ReadonlySet<"appearance" | "location">;
 const noChangedSettings: ChangedSettings = new Set();
@@ -700,7 +709,7 @@ export const NativeStage = ({
   readonly lockedReason: string | undefined;
   readonly observation: AndroidWorkspaceObservation | null;
   readonly onActivate: (inputs: readonly NativeInput[]) => void;
-  readonly onEmulate: (change: NativeEmulationChange) => void;
+  readonly onEmulate: EmulateDevice;
   readonly onKey: (key: DeviceKey) => void;
   readonly pick?: NativeElementPick | undefined;
   /** The recording's comment pins, while Teaching records. */
@@ -826,12 +835,16 @@ export const NativeStage = ({
                   changed={changed}
                   emulation={emulation}
                   onEmulate={(change) => {
-                    if (change._tag !== "orientation") {
-                      setChanged((current): ChangedSettings =>
-                        new Set(current).add(change._tag)
-                      );
-                    }
-                    onEmulate(change);
+                    const tag = change._tag;
+                    onEmulate(
+                      change,
+                      tag === "orientation"
+                        ? undefined
+                        : () =>
+                            setChanged((current): ChangedSettings =>
+                              new Set(current).add(tag)
+                            )
+                    );
                   }}
                   platform={platform}
                 />
@@ -981,7 +994,7 @@ export const AndroidDevice = ({
   readonly onDeviceKey: (key: DeviceKey) => void;
   /** The device's Emulation as last read or set. */
   readonly emulation?: NativeEmulation | undefined;
-  readonly onEmulate: (change: NativeEmulationChange) => void;
+  readonly onEmulate: EmulateDevice;
   readonly onInput: (input: NativeInput) => void;
   /** The agent holds the device, so its touches are drawn on the screen. */
   readonly agentDriving: boolean;

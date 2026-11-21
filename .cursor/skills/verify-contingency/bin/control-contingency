@@ -854,16 +854,15 @@ const runPageAction = async (page, appUrl, action, flags) => {
       } else {
         target = locator(page, flags);
       }
-      await target.waitFor({ state, timeout });
-      if (enabled) {
-        // A control that waits on data, such as the Target App combobox.
-        await page.waitForFunction(
-          (element) =>
-            !element.disabled && element.getAttribute("aria-disabled") !== "true",
-          await target.elementHandle(),
-          { timeout }
-        );
-      }
+      // A control that waits on data, such as the Target App combobox. The
+      // filter is part of the locator, so a re-rendered control is resolved
+      // again rather than pinned, under the one timeout.
+      await (enabled
+        ? target.and(
+            page.locator(':not([disabled]):not([aria-disabled="true"])')
+          )
+        : target
+      ).waitFor({ state, timeout });
       return "";
     }
     case "flows-layout-check": {
