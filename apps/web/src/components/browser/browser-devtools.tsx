@@ -58,7 +58,6 @@ import type {
 import type { BrowserTooling } from "@/components/browser/browser-tooling";
 import { devtoolsFieldClassName } from "@/components/browser/devtools-field";
 import { HighlightedCode } from "@/components/browser/highlighted-code";
-import { SegmentedControl } from "@/components/browser/segmented-control";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -68,6 +67,11 @@ import {
 } from "@/components/ui/resizable";
 import type { ResizableLayoutChangeDetails } from "@/components/ui/resizable";
 import { pixelShare, shareSize } from "@/components/ui/resizable-size";
+import {
+  SegmentedControl,
+  SegmentedControlCount,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
 import { Toggle, ToggleGroup } from "@/components/ui/toggle";
 import { useElementSize } from "@/hooks/use-element-size";
 import { usePresence } from "@/hooks/use-presence";
@@ -509,17 +513,32 @@ const DevtoolsConsolePanel = ({
   return (
     <div className="flex size-full min-h-0 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2">
-        <SegmentedControl
-          label="Console level"
-          onChange={(consoleFilter) => onUpdateUiState({ consoleFilter })}
-          options={[
-            { count: consoleEntries.length, label: "All", value: "all" },
-            { count: errors, label: "Errors", value: "error" },
-            { count: warnings, label: "Warnings", value: "warning" },
-            { label: "Logs", value: "log" },
-          ]}
+        <SegmentedControl<ConsoleFilter>
+          aria-label="Console level"
+          onValueChange={(consoleFilter) => {
+            if (consoleFilter !== null) {
+              onUpdateUiState({ consoleFilter });
+            }
+          }}
+          size="sm"
           value={filter}
-        />
+        >
+          <SegmentedControlItem value="all">
+            All
+            <SegmentedControlCount>
+              {consoleEntries.length}
+            </SegmentedControlCount>
+          </SegmentedControlItem>
+          <SegmentedControlItem value="error">
+            Errors
+            <SegmentedControlCount>{errors}</SegmentedControlCount>
+          </SegmentedControlItem>
+          <SegmentedControlItem value="warning">
+            Warnings
+            <SegmentedControlCount>{warnings}</SegmentedControlCount>
+          </SegmentedControlItem>
+          <SegmentedControlItem value="log">Logs</SegmentedControlItem>
+        </SegmentedControl>
         <SearchField
           label="Filter console messages"
           onChange={(consoleQuery) => onUpdateUiState({ consoleQuery })}
@@ -677,13 +696,22 @@ const RequestDetailView = ({
         {request.method} {requestName(request.url)}
       </span>
       <div className="ml-auto flex shrink-0 items-center gap-1">
-        <SegmentedControl
-          label="Request detail"
-          onChange={(value) => onUpdateUiState({ detailTab: value })}
-          options={detailTabs}
+        <SegmentedControl<NetworkDetailTab>
+          aria-label="Request detail"
+          onValueChange={(next) => {
+            if (next !== null) {
+              onUpdateUiState({ detailTab: next });
+            }
+          }}
           size="xs"
           value={detailTab}
-        />
+        >
+          {detailTabs.map((tab) => (
+            <SegmentedControlItem key={tab.value} value={tab.value}>
+              {tab.label}
+            </SegmentedControlItem>
+          ))}
+        </SegmentedControl>
         <Button
           aria-label="Close request details"
           onClick={() => onUpdateUiState({ selectedRequestId: undefined })}
@@ -800,13 +828,22 @@ const DevtoolsNetworkPanel = ({
             value={networkQuery}
           />
           <div className="overflow-x-auto">
-            <SegmentedControl
-              label="Request type"
-              onChange={(value) => onUpdateUiState({ networkFilter: value })}
-              options={networkFilters}
+            <SegmentedControl<NetworkFilter>
+              aria-label="Request type"
+              onValueChange={(next) => {
+                if (next !== null) {
+                  onUpdateUiState({ networkFilter: next });
+                }
+              }}
               size="xs"
               value={networkFilter}
-            />
+            >
+              {networkFilters.map((option) => (
+                <SegmentedControlItem key={option.value} value={option.value}>
+                  {option.label}
+                </SegmentedControlItem>
+              ))}
+            </SegmentedControl>
           </div>
         </div>
         <div

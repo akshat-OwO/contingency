@@ -11,8 +11,6 @@ import { useState } from "react";
 import { devtoolsFieldClassName } from "@/components/browser/devtools-field";
 import type { EmulationPatch } from "@/components/browser/emulation-patch";
 import { LocationFields } from "@/components/browser/location-fields";
-import { SegmentedControl } from "@/components/browser/segmented-control";
-import type { SegmentedOption } from "@/components/browser/segmented-control";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -24,6 +22,10 @@ import {
 } from "@/components/ui/dialog";
 import { DraftField } from "@/components/ui/draft-field";
 import { Input } from "@/components/ui/input";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
 import {
   Select,
   SelectContent,
@@ -80,7 +82,10 @@ type LocationScope = "context" | "origin";
 
 type ColorSchemeChoice = "dark" | "light" | "none";
 
-const colorSchemeOptions: readonly SegmentedOption<ColorSchemeChoice>[] = [
+const colorSchemeOptions: readonly {
+  readonly label: string;
+  readonly value: ColorSchemeChoice;
+}[] = [
   { label: "No preference", value: "none" },
   { label: "Light", value: "light" },
   { label: "Dark", value: "dark" },
@@ -711,13 +716,23 @@ const EmulationPanelContent = ({
             <span aria-hidden="true" className="block">
               Color scheme
             </span>
-            <SegmentedControl
+            <SegmentedControl<ColorSchemeChoice>
+              aria-label="Color scheme"
               disabled={disabled}
-              label="Color scheme"
-              onChange={applyColorScheme}
-              options={colorSchemeOptions}
+              onValueChange={(scheme) => {
+                if (scheme !== null) {
+                  applyColorScheme(scheme);
+                }
+              }}
+              size="sm"
               value={colorScheme}
-            />
+            >
+              {colorSchemeOptions.map((option) => (
+                <SegmentedControlItem key={option.value} value={option.value}>
+                  {option.label}
+                </SegmentedControlItem>
+              ))}
+            </SegmentedControl>
           </div>
         </section>
 

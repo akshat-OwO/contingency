@@ -55,8 +55,6 @@ import type {
 } from "@/components/browser/browser-tooling";
 import { devtoolsFieldClassName } from "@/components/browser/devtools-field";
 import { HighlightedBody } from "@/components/browser/highlighted-body";
-import { SegmentedControl } from "@/components/browser/segmented-control";
-import type { SegmentedOption } from "@/components/browser/segmented-control";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -73,6 +71,10 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { DraftField } from "@/components/ui/draft-field";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
 import {
   Select,
   SelectContent,
@@ -94,9 +96,6 @@ const innerTabs: readonly {
   { kind: "local", label: "localStorage", short: "Local" },
   { kind: "session", label: "sessionStorage", short: "Session" },
 ];
-
-const storageAreaOptions: readonly SegmentedOption<StorageKind>[] =
-  innerTabs.map((tab) => ({ label: tab.short, value: tab.kind }));
 
 const clearConfirmCopy = (kind: StorageKind): string => {
   if (kind === "cookies") {
@@ -1005,9 +1004,12 @@ const StoragePanelChrome = ({
     <>
       <div className="flex shrink-0 items-center gap-1 border-b px-1.5 py-1">
         <div className="flex min-w-0 flex-1 overflow-x-auto">
-          <SegmentedControl
-            label="Storage area"
-            onChange={(kind) => {
+          <SegmentedControl<StorageKind>
+            aria-label="Storage area"
+            onValueChange={(kind) => {
+              if (kind === null) {
+                return;
+              }
               setUiState((current) => ({
                 ...current,
                 storageDraft: undefined,
@@ -1020,9 +1022,15 @@ const StoragePanelChrome = ({
                     : undefined,
               }));
             }}
-            options={storageAreaOptions}
+            size="sm"
             value={uiState.storageKind}
-          />
+          >
+            {innerTabs.map((tab) => (
+              <SegmentedControlItem key={tab.kind} value={tab.kind}>
+                {tab.short}
+              </SegmentedControlItem>
+            ))}
+          </SegmentedControl>
         </div>
         <Button
           aria-label={`Add ${uiState.storageKind === "cookies" ? "cookie" : "entry"}`}
