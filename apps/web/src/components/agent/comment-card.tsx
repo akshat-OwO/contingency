@@ -16,6 +16,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Kbd } from "@/components/ui/kbd";
+import { Toggle } from "@/components/ui/toggle";
 import { cn } from "@/lib/utils";
 
 const TICK_MS = 1000;
@@ -498,21 +499,26 @@ export const CommentCard = ({
             )}
           </div>
           <div className="flex min-w-0 items-center gap-0.5 px-2.5 pt-1 pb-2.5">
-            <Button
-              aria-pressed={picking}
-              className="aria-pressed:bg-status-running/14 aria-pressed:text-status-running"
+            <Toggle
+              className="data-pressed:bg-status-running/14 data-pressed:text-status-running"
               disabled={attach.disabled}
-              onClick={picking ? attach.onCancel : attach.onPick}
+              onPressedChange={(next) => {
+                if (next) {
+                  attach.onPick();
+                } else {
+                  attach.onCancel();
+                }
+              }}
+              pressed={picking}
               title={
                 attach.shortcut === undefined
                   ? undefined
                   : `${attach.attached ? "Change element" : "Attach element"} (${attach.shortcut})`
               }
-              type="button"
             >
               <MousePointer2Icon aria-hidden="true" />
               {attach.attached ? "Change element" : "Attach element"}
-            </Button>
+            </Toggle>
             {tools}
             <span className="flex-1" />
             <Button

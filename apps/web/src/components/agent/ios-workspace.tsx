@@ -34,6 +34,7 @@ import {
 import { WatcherLoader } from "@/components/brand";
 import { FlowsButton } from "@/components/catalog/flows-button";
 import { Button } from "@/components/ui/button";
+import { Toggle } from "@/components/ui/toggle";
 import { decodeBase64 } from "@/lib/base64";
 import { isSessionNotFound } from "@/lib/failure-message";
 import {
@@ -673,17 +674,17 @@ const IosDockControls = ({
   return (
     <>
       {presentation.showsComment ? (
-        <Button
+        <Toggle
           aria-label="Comment"
           title="Comment"
-          aria-pressed={commenting}
-          onClick={onComment}
+          pressed={commenting}
+          onPressedChange={onComment}
           size="sm"
           variant="ghost"
         >
           <MessageSquareTextIcon />
           <span className="hidden @md:inline">Comment</span>
-        </Button>
+        </Toggle>
       ) : null}
       {presentation.rejectable ? (
         <Button

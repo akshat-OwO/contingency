@@ -68,6 +68,7 @@ import {
 } from "@/components/ui/resizable";
 import type { ResizableLayoutChangeDetails } from "@/components/ui/resizable";
 import { pixelShare, shareSize } from "@/components/ui/resizable-size";
+import { Toggle, ToggleGroup } from "@/components/ui/toggle";
 import { useElementSize } from "@/hooks/use-element-size";
 import { usePresence } from "@/hooks/use-presence";
 import { cn } from "@/lib/utils";
@@ -1016,25 +1017,27 @@ const renderDevtoolsHeader = ({
 }: DevtoolsHeaderOptions) => (
   <header className="flex h-12 shrink-0 items-center gap-1 pt-1 pr-1.5 pl-2">
     {/* The header switches panels, so the rail need not be reached again. */}
-    <div
+    <ToggleGroup
       aria-label="DevTools panels"
-      className="flex shrink-0 gap-0.5"
-      role="group"
+      className="shrink-0 gap-0.5"
+      // Pressing the open panel asks to unpress it. The value stays the open
+      // panel, so the panel stays pressed, and selecting it again dismisses
+      // any card over the stage, as choosing a panel always does.
+      onValueChange={([choice]) => onSelectPanel(choice ?? panel)}
+      value={[panel]}
     >
       {devtoolsPanels.map((choice) => (
-        <Button
-          aria-pressed={panel === choice}
-          className="text-muted-foreground hover:bg-island-hover hover:text-foreground aria-pressed:bg-island-hover aria-pressed:text-foreground h-[30px] rounded-[10px] px-[11px] text-sm font-medium aria-pressed:shadow-[inset_0_0_0_1px_var(--island-border)]"
+        <Toggle
+          className="text-muted-foreground hover:bg-island-hover hover:text-foreground data-pressed:bg-island-hover data-pressed:text-foreground h-[30px] rounded-[10px] px-[11px] text-sm font-medium data-pressed:shadow-[inset_0_0_0_1px_var(--island-border)]"
           key={choice}
-          onClick={() => onSelectPanel(choice)}
           size="sm"
-          type="button"
+          value={choice}
           variant="ghost"
         >
           {devtoolsPanelTitles[choice]}
-        </Button>
+        </Toggle>
       ))}
-    </div>
+    </ToggleGroup>
     <span className="text-muted-foreground ml-1 min-w-0 flex-1 truncate text-right font-mono text-xs">
       {tabTitle}
     </span>

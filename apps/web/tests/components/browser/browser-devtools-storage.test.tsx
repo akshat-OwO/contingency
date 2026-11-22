@@ -400,10 +400,25 @@ test("lists network requests as a table with durations and switches panels from 
   expect(
     within(panels).getByRole("button", { name: "Network" })
   ).toHaveAttribute("aria-pressed", "true");
-  await userEvent
-    .setup()
-    .click(within(panels).getByRole("button", { name: "Console" }));
-  expect(onSelectPanel).toHaveBeenCalledWith("console");
+  // The panel switcher is one tab stop on the open panel; arrows move focus
+  // between panels without switching.
+  const network = within(panels).getByRole("button", { name: "Network" });
+  expect(
+    within(panels)
+      .getAllByRole("button")
+      .map((button) => button.tabIndex)
+  ).toEqual([-1, 0, -1]);
+  const user = userEvent.setup();
+  network.focus();
+  await user.keyboard("{ArrowRight}");
+  expect(within(panels).getByRole("button", { name: "Storage" })).toHaveFocus();
+  expect(onSelectPanel).not.toHaveBeenCalled();
+  // Pressing the open panel selects it again and leaves it pressed.
+  await user.click(network);
+  expect(onSelectPanel).toHaveBeenLastCalledWith("network");
+  expect(network).toHaveAttribute("aria-pressed", "true");
+  await user.click(within(panels).getByRole("button", { name: "Console" }));
+  expect(onSelectPanel).toHaveBeenLastCalledWith("console");
 });
 
 test("shows a failed detail fetch instead of reporting empty headers or payload", async () => {
