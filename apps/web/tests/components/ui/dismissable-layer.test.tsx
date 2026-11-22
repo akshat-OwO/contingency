@@ -456,6 +456,37 @@ test("already-open child Dialog mounted in the same render receives Escape befor
   expect(outerDismiss).toHaveBeenCalledTimes(1);
 });
 
+// Pins a known @ui-sdk/core 0.1.0-beta.5 limitation. Only the top layer gets
+// Escape, and a non-modal Dialog calls `preventDefault()` before ignoring an
+// Escape pressed outside it (`popup.js` `onEscape`), so nothing beneath it can
+// tell the key went unhandled. A non-modal Dialog inside UI SDK's own Popover
+// behaves the same. If this test fails after an upgrade, the parent can now
+// take that Escape: flip the expectation.
+test("an open non-modal Dialog keeps Escape pressed beside it from its parent", async () => {
+  const user = userEvent.setup();
+  const outerDismiss = vi.fn();
+
+  render(
+    <DismissableLayer
+      onDismiss={outerDismiss}
+      render={<section aria-label="Surface" />}
+    >
+      <button type="button">Beside</button>
+      <Dialog closeOnOutsidePress={false} defaultOpen modal={false}>
+        <DialogContent showOverlay={false}>
+          <DialogTitle>Non-modal note</DialogTitle>
+        </DialogContent>
+      </Dialog>
+    </DismissableLayer>
+  );
+  expect(screen.getByRole("dialog", { name: "Non-modal note" })).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: "Beside" }));
+  await user.keyboard("{Escape}");
+  expect(screen.getByRole("dialog", { name: "Non-modal note" })).toBeVisible();
+  expect(outerDismiss).not.toHaveBeenCalled();
+});
+
 test("reopening a mounted parent with a Dialog defaultOpen child dismisses the dialog first", async () => {
   const user = userEvent.setup();
   const outerDismiss = vi.fn();
