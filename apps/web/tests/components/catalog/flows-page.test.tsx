@@ -373,8 +373,8 @@ test("lists local Flows, hides Global behind its filter, and shows a Flow's Runs
   ).toBeNull();
   const runs = screen.getByRole("region", { name: "Runs" });
   expect(
-    within(runs).getByRole("button", { name: /Sign in with a fresh SMS code/u })
-  ).toHaveAttribute("aria-pressed", "true");
+    within(runs).getByRole("option", { name: /Sign in with a fresh SMS code/u })
+  ).toHaveAttribute("aria-selected", "true");
 
   const filter = within(catalog).getByRole("button", { name: "Global" });
   await userEvent.click(filter);
@@ -393,11 +393,16 @@ test("lists local Flows, hides Global behind its filter, and shows a Flow's Runs
     within(catalog).getByRole("button", { name: /Runs without one Flow/u })
   );
   expect(url()).toBe("@root|");
-  expect(
-    within(screen.getByRole("region", { name: "Runs" })).getByRole("button", {
-      name: /Explore the store/u,
-    })
-  ).toBeVisible();
+  const shown = within(screen.getByRole("region", { name: "Runs" })).getByRole(
+    "option",
+    { name: /Explore the store/u }
+  );
+  expect(shown).toBeVisible();
+  // The folder shows its newest Run by default; choosing it pins its ID.
+  expect(shown).toHaveAttribute("aria-selected", "true");
+  await userEvent.click(shown);
+  expect(url()).toBe("@root|agentrun-loose");
+  expect(shown).toHaveAttribute("aria-selected", "true");
 });
 
 test("says what to do next for a drafted Flow with no Runs", async () => {
@@ -456,8 +461,8 @@ test("opens a Run named only by `?run=` under its Flow", () => {
   renderPage({ run: runId("agentrun-loose") });
   expect(url()).toBe("@root|agentrun-loose");
   expect(
-    screen.getByRole("button", { name: /Explore the store/u })
-  ).toHaveAttribute("aria-pressed", "true");
+    screen.getByRole("option", { name: /Explore the store/u })
+  ).toHaveAttribute("aria-selected", "true");
 });
 
 test("says a named Run is missing rather than showing another", () => {
@@ -470,9 +475,9 @@ test("says a named Run is missing rather than showing another", () => {
   );
   expect(screen.queryByRole("region", { name: "Run Summary" })).toBeNull();
   for (const entry of within(
-    screen.getByRole("list", { name: "Runs and recordings" })
-  ).getAllByRole("button")) {
-    expect(entry).toHaveAttribute("aria-pressed", "false");
+    screen.getByRole("listbox", { name: "Runs and recordings" })
+  ).getAllByRole("option")) {
+    expect(entry).toHaveAttribute("aria-selected", "false");
   }
 });
 
@@ -886,7 +891,7 @@ test("leads each Run with its outcome and ends on its length as a clock", () => 
   rpc.flow = { _tag: "Initial", waiting: true };
   renderPage();
   const row = within(screen.getByRole("region", { name: "Runs" })).getByRole(
-    "button",
+    "option",
     { name: /Sign in with a fresh SMS code/u }
   );
   // 16:13:28 to 16:16:40 is three minutes and twelve seconds.
@@ -930,20 +935,20 @@ test("lists a recording by where it stands, never by its id", async () => {
     }),
   ]);
   renderPage({ initial: { kind: "root", scope: "local" } });
-  const list = screen.getByRole("list", { name: "Runs and recordings" });
+  const list = screen.getByRole("listbox", { name: "Runs and recordings" });
   // The chip names the entry's kind, so the title never repeats it.
   expect(
-    within(list).getByRole("button", { name: /Capturing/u })
+    within(list).getByRole("option", { name: /Capturing/u })
   ).toHaveTextContent(/^Recording\s*Capturing\s*Teaching · /u);
   expect(
-    within(list).getByRole("button", { name: /Learned, Dry Run next/u })
+    within(list).getByRole("option", { name: /Learned, Dry Run next/u })
   ).toHaveTextContent(/^Recording\s*Learned, Dry Run next\s*Teaching · /u);
   expect(
-    within(list).getByRole("button", { name: /Cleaned up/u })
+    within(list).getByRole("option", { name: /Cleaned up/u })
   ).toBeVisible();
   expect(within(list).queryByText(/recording-retained/u)).toBeNull();
   await userEvent.click(
-    within(list).getByRole("button", { name: /Learned, Dry Run next/u })
+    within(list).getByRole("option", { name: /Learned, Dry Run next/u })
   );
   const summary = screen.getByRole("article", { name: "Teaching Recording" });
   expect(

@@ -1,5 +1,5 @@
 import type { AgentSessionSnapshot } from "@contingency/protocol";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { checkPattern } from "@ui-sdk/core/testing";
 import { afterEach, expect, test, vi } from "vitest";
@@ -211,6 +211,63 @@ test("the Agent Session combobox keeps its roles, names and keys", async () => {
   await userEvent.keyboard("{Escape}");
   expect(trigger).toHaveAttribute("aria-expanded", "false");
   expect(trigger).toHaveFocus();
+});
+
+test("the Agent Session picker is a listbox with its deletes beside it", async () => {
+  const user = userEvent.setup();
+  const onSelect = vi.fn();
+  const onDelete = vi.fn();
+  const browsing: AgentSessionSnapshot = {
+    ...teaching,
+    flowName: "browse-catalogue",
+    id: "agent-two",
+  };
+  render(
+    <DockSessionSelect
+      deletion={{ error: undefined, onDelete, pending: false }}
+      onSelect={onSelect}
+      selectedSessionId={teaching.id}
+      sessions={[teaching, browsing]}
+    />
+  );
+  const trigger = screen.getByRole("combobox", { name: "Agent Session" });
+  await user.click(trigger);
+  const sessions = screen.getByRole("listbox", { name: "Agent Sessions" });
+  // Choosing a session closes the picker, so `checkPattern`'s Space probe
+  // can't stay on the list; tests/components/ui/listbox.test.tsx checks it.
+  expect(within(sessions).getAllByRole("option")).toHaveLength(2);
+  const shown = screen.getByRole("option", { name: "add-anvil" });
+  const other = screen.getByRole("option", { name: "browse-catalogue" });
+  expect(shown).toHaveAttribute("aria-selected", "true");
+  expect(other).toHaveAttribute("aria-selected", "false");
+  // Deletes are buttons outside the listbox, so it keeps only options.
+  expect(sessions).not.toContainElement(
+    screen.getByRole("button", { name: "Delete session add-anvil" })
+  );
+
+  // One tab stop: arrows browse without opening; Tab moves on to the deletes.
+  shown.focus();
+  await user.keyboard("{ArrowDown}");
+  expect(other).toHaveFocus();
+  expect(onSelect).not.toHaveBeenCalled();
+  await user.tab();
+  expect(
+    screen.getByRole("button", { name: "Delete session add-anvil" })
+  ).toHaveFocus();
+  await user.keyboard("{Enter}");
+  expect(onDelete).toHaveBeenCalledWith(teaching.id);
+  expect(onSelect).not.toHaveBeenCalled();
+
+  // Enter opens the browsed session and closes the picker.
+  await user.click(other);
+  expect(onSelect).toHaveBeenLastCalledWith(browsing.id);
+  expect(screen.queryByRole("dialog", { name: "Agent Sessions" })).toBeNull();
+
+  // Choosing the shown session closes the picker too.
+  await user.click(trigger);
+  await user.click(screen.getByRole("option", { name: "add-anvil" }));
+  expect(onSelect).toHaveBeenLastCalledWith(teaching.id);
+  expect(screen.queryByRole("dialog", { name: "Agent Sessions" })).toBeNull();
 });
 
 test("the Agent Session picker starts a new session on the Workspace home", async () => {

@@ -103,12 +103,12 @@ test("offers the listed sessions without a selected Android session", async () =
   await user.keyboard("{ArrowDown}");
   const dialog = await screen.findByRole("dialog", { name: "Agent Sessions" });
   expect(
-    within(dialog).getByRole("button", {
+    within(dialog).getByRole("option", {
       name: "paused-checkout · Android Run",
     })
   ).toBeVisible();
   await user.click(
-    within(dialog).getByRole("button", {
+    within(dialog).getByRole("option", {
       name: "finished-checkout · Android Run",
     })
   );
