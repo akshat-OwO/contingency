@@ -556,9 +556,9 @@ test("opens a request's detail beside the list and resizes it from the keyboard"
     height: 300,
     width: 1000,
   });
-  const restoreObserver = stubResizeObserver();
+  const observer = stubResizeObserver();
   onTestFinished(() => {
-    restoreObserver();
+    observer.restore();
     restoreLayout();
   });
   rpc.detailAvailable.mockReturnValue(true);
@@ -616,19 +616,16 @@ test("opens a request's detail beside the list and resizes it from the keyboard"
   ).not.toBeInTheDocument();
 });
 
-test("keeps the detail at its minimum when the split can't fit both panes", async () => {
+test("keeps the detail at its minimum while the split can't fit both panes, then restores its size", async () => {
   vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(300);
   vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(600);
   // 600px leaves the panes 594px: less than the list's 400px and the
   // detail's 320px together.
-  const restoreLayout = stubResizableLayout({
-    handle: 6,
-    height: 300,
-    width: 600,
-  });
-  const restoreObserver = stubResizeObserver();
+  const split = { handle: 6, height: 300, width: 600 };
+  const restoreLayout = stubResizableLayout(split);
+  const observer = stubResizeObserver();
   onTestFinished(() => {
-    restoreObserver();
+    observer.restore();
     restoreLayout();
   });
   rpc.detailAvailable.mockReturnValue(true);
@@ -682,4 +679,14 @@ test("keeps the detail at its minimum when the split can't fit both panes", asyn
   handle.focus();
   await user.keyboard("{ArrowRight}");
   expect(detailWidth()).toBe(320);
+
+  // Neither moved the 360px the detail opens at: a split with room for both
+  // panes gives it back.
+  split.width = 1000;
+  act(() => {
+    observer.report();
+  });
+  await waitFor(() => {
+    expect(detailWidth()).toBe(360);
+  });
 });

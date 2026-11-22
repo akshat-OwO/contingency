@@ -334,9 +334,9 @@ test("resizes docked DevTools in pixels and keeps the size when it reopens", asy
     outside: { height: 600, width: 1280 },
     width: 1212,
   });
-  const restoreObserver = stubResizeObserver();
+  const observer = stubResizeObserver();
   onTestFinished(() => {
-    restoreObserver();
+    observer.restore();
     restoreLayout();
   });
   renderSetup();

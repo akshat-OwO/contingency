@@ -15,32 +15,29 @@ const shareOf = (panel: HTMLElement): number | undefined => {
  * share of what's left before the group lays it out, and a handle takes
  * `handle` pixels.
  */
-export const stubResizableLayout = ({
-  handle = 0,
-  height,
-  outside,
-  width,
-}: {
+export const stubResizableLayout = (layout: {
   readonly handle?: number;
+  /** Read on every measure, so a test can grow the group it passed. */
   readonly height: number;
   /** The size of every other element, like the region a group fills. */
   readonly outside?: { readonly height: number; readonly width: number };
   readonly width: number;
 }) => {
+  const { handle = 0, outside } = layout;
   const original = Object.getOwnPropertyDescriptor(
     HTMLElement.prototype,
     "getBoundingClientRect"
   );
   const along = (vertical: boolean, offset: number, extent: number): DOMRect =>
     vertical
-      ? new DOMRect(0, offset, width, extent)
-      : new DOMRect(offset, 0, extent, height);
+      ? new DOMRect(0, offset, layout.width, extent)
+      : new DOMRect(offset, 0, extent, layout.height);
 
   const getBoundingClientRect = function getBoundingClientRect(
     this: HTMLElement
   ): DOMRect {
     if (this.dataset.slot === "resizable") {
-      return new DOMRect(0, 0, width, height);
+      return new DOMRect(0, 0, layout.width, layout.height);
     }
     const root = this.parentElement;
     if (root?.dataset.slot !== "resizable") {
@@ -53,7 +50,7 @@ export const stubResizableLayout = ({
       (child): child is HTMLElement => child instanceof HTMLElement
     );
     const handles = children.filter(isHandle).length;
-    const room = (vertical ? height : width) - handles * handle;
+    const room = (vertical ? layout.height : layout.width) - handles * handle;
     const panels = children.filter((child) => !isHandle(child));
     // Like flex layout, panels the group hasn't sized yet share what's left.
     const sized = panels.reduce(
@@ -103,38 +100,67 @@ export const stubResizableLayout = ({
 };
 
 /**
- * A ResizeObserver that reports each element's stubbed size once, when it
- * starts observing, so hooks that measure an element see the layout above.
+ * A ResizeObserver that reports each element's stubbed size when it starts
+ * observing, and again on `report()`, so hooks that measure an element see
+ * the layout above and any change a test makes to it.
  */
 export const stubResizeObserver = () => {
   const original = globalThis.ResizeObserver;
+  const observers = new Set<ReportingResizeObserver>();
   class ReportingResizeObserver implements ResizeObserver {
     readonly #onResize: ResizeObserverCallback;
+    readonly #targets = new Set<Element>();
 
     constructor(onResize: ResizeObserverCallback) {
       this.#onResize = onResize;
+      observers.add(this);
     }
 
     disconnect(): void {
-      void this;
+      this.#targets.clear();
+      observers.delete(this);
     }
 
     observe(target: Element): void {
-      const contentRect = target.getBoundingClientRect();
+      this.#targets.add(target);
       queueMicrotask(() => {
-        // SAFETY: jsdom has no ResizeObserverEntry; callers read only
-        // `target` and `contentRect`.
-        const entry = { contentRect, target } as ResizeObserverEntry;
-        this.#onResize([entry], this);
+        this.report(target);
       });
     }
 
-    unobserve(): void {
-      void this;
+    report(target: Element): void {
+      if (!this.#targets.has(target)) {
+        return;
+      }
+      // SAFETY: jsdom has no ResizeObserverEntry; callers read only
+      // `target` and `contentRect`.
+      const entry = {
+        contentRect: target.getBoundingClientRect(),
+        target,
+      } as ResizeObserverEntry;
+      this.#onResize([entry], this);
+    }
+
+    reportAll(): void {
+      for (const target of this.#targets) {
+        this.report(target);
+      }
+    }
+
+    unobserve(target: Element): void {
+      this.#targets.delete(target);
     }
   }
   globalThis.ResizeObserver = ReportingResizeObserver;
-  return () => {
-    globalThis.ResizeObserver = original;
+  return {
+    /** Reports every observed element's current size, as a resize would. */
+    report: () => {
+      for (const observer of observers) {
+        observer.reportAll();
+      }
+    },
+    restore: () => {
+      globalThis.ResizeObserver = original;
+    },
   };
 };
