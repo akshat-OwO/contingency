@@ -857,3 +857,56 @@ test("Escape closes the open Target App list before it folds the card", async ()
   await user.keyboard("{Escape}");
   expect(onClose).toHaveBeenCalledTimes(1);
 });
+
+test("Escape with focus outside the start form leaves the card and its unclaimed upload open", async () => {
+  const user = userEvent.setup({ pointerEventsCheck: 0 });
+  const onClose = vi.fn();
+  const discard = vi.fn(() => Effect.void);
+  const upload = vi.fn((file: File) =>
+    Effect.succeed({
+      apkPath: "/tmp/contingency-builds-x/1/target.apk",
+      app: {
+        label: "Shop",
+        launchActivity: "dev.shop/.Main",
+        package: "dev.shop",
+        versionCode: "2",
+        versionName: "2",
+      },
+      id: "44444444-4444-4444-4444-444444444444",
+      name: file.name,
+    })
+  );
+  render(
+    <div>
+      <button type="button">Outside action</button>
+      <Card discovery={{ ...discovery, discard, upload }} onClose={onClose} />
+    </div>
+  );
+  await vi.waitFor(() => expect(targetApp()).toBeEnabled());
+  const picker = document.querySelector<HTMLInputElement>('input[type="file"]');
+  await user.upload(
+    picker ?? document.createElement("input"),
+    new File(["PK"], "shop.apk", {
+      type: "application/vnd.android.package-archive",
+    })
+  );
+  await screen.findByRole("button", { name: "Remove shop.apk" });
+
+  // Escape from an unrelated control outside the form leaves the card open.
+  await user.click(screen.getByRole("button", { name: "Outside action" }));
+  await user.keyboard("{Escape}");
+  expect(onClose).not.toHaveBeenCalled();
+  expect(discard).not.toHaveBeenCalled();
+  expect(screen.getByRole("form", { name: "Teach on Android" })).toBeVisible();
+
+  // Escape from the sibling "Other platforms" pill also leaves the card open.
+  await user.click(screen.getByRole("button", { name: "Web" }));
+  await user.keyboard("{Escape}");
+  expect(onClose).not.toHaveBeenCalled();
+  expect(discard).not.toHaveBeenCalled();
+
+  // Focusing back inside the form restores nested-popup-first Escape folding.
+  await user.click(screen.getByRole("textbox", { name: "Flow name" }));
+  await user.keyboard("{Escape}");
+  expect(onClose).toHaveBeenCalledTimes(1);
+});

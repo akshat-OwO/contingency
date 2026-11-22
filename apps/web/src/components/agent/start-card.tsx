@@ -183,6 +183,7 @@ export const StartCard = ({
     <div className="grid w-full justify-items-center gap-3.5">
       <DismissableLayer
         onDismiss={onClose}
+        scope="focus-within"
         render={
           <form
             aria-labelledby={`${ids}-title`}

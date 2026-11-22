@@ -17,4 +17,5 @@ export type {
   DismissableLayerOpenChangeDetails,
   DismissableLayerOptions,
   DismissableLayerRootState,
+  DismissableLayerScope,
 } from "./dismissable-layer-primitive";
