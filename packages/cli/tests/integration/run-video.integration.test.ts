@@ -246,7 +246,7 @@ it.live(
         yield* fileSystem.exists(path.join(directory, RUN_VIDEO_FILE))
       ).toBe(true);
 
-      // The arrow's 20px box hangs below and right of its tip at (320, 200);
+      // The arrow's 34px box hangs below and right of its tip at (320, 200);
       // the badge pill sits in the bottom-right corner.
       const arrow = { height: 16, width: 16, x: 320, y: 200 };
       const corner = { height: 18, width: 30, x: WIDTH - 50, y: HEIGHT - 32 };
@@ -262,9 +262,12 @@ it.live(
         { at: 5.3, height: 10, width: 10, x: 40, y: 40 },
       ]);
       const [cursor, beforeCursor, badge, noBadge, blue] = sample.regions;
-      // The arrow's white fill, which none of the frames contain.
-      expect(cursor?.whitest).toBeGreaterThan(200);
-      expect(beforeCursor?.whitest).toBeLessThan(120);
+      // The arrow's amber lifts red over the green frame (red 40), and would
+      // lift green over the red frame (green 40) before it is drawn.
+      expect(cursor?.mean[0]).toBeGreaterThan(80);
+      // Its dark keyline, which no frame is as dark as.
+      expect(cursor?.darkShare).toBeGreaterThan(0.02);
+      expect(beforeCursor?.mean[1]).toBeLessThan(60);
       expect(beforeCursor?.mean[0]).toBeGreaterThan(150);
       // The dark pill over the green frame, absent in real time.
       expect(badge?.darkShare).toBeGreaterThan(0.4);

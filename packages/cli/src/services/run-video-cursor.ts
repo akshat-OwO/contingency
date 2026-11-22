@@ -9,13 +9,8 @@ import type { RunSpan } from "./run-video-plan.ts";
 
 // The Workspace's agent cursor, replayed against the Run's clock rather than
 // animation frames. The timings mirror `agent-cursor.tsx`, so the cursor in a
-// Run's video moves, presses, and dims as the live one did.
+// Run's video moves and presses as the live one did.
 
-/** How long the cursor stays fully drawn after it lands before it dims. */
-const ACTIVE_MS = 700;
-/** The dimming and brightening transition, and the level it dims to. */
-const REST_TRANSITION_MS = 300;
-const RESTING_OPACITY = 0.4;
 /** The press: the arrow dips while a ring opens. */
 const PRESS_MS = 220;
 const RING_MS = 420;
@@ -35,8 +30,6 @@ export interface CursorStroke {
   readonly action: FootagePointer["action"];
   readonly atMs: number;
   readonly path: CursorPath;
-  /** The arrow's opacity as the stroke began, mid-dim or rested. */
-  readonly startOpacity: number;
 }
 
 /** What to draw for the cursor in one frame, or nothing. */
@@ -65,19 +58,6 @@ const easeOut = (time: number): number => 1 - (1 - time) ** 2;
 const easeOutQuart = (time: number): number => 1 - (1 - time) ** 4;
 const lerp = (from: number, to: number, share: number): number =>
   from + (to - from) * Math.min(1, Math.max(0, share));
-
-/** The arrow's opacity `atMs` into the Run, given the stroke then playing. */
-const strokeOpacity = (stroke: CursorStroke, atMs: number): number => {
-  const restsAt = stroke.atMs + stroke.path.durationMs + ACTIVE_MS;
-  if (atMs >= restsAt) {
-    return lerp(1, RESTING_OPACITY, (atMs - restsAt) / REST_TRANSITION_MS);
-  }
-  return lerp(
-    stroke.startOpacity,
-    1,
-    (atMs - stroke.atMs) / REST_TRANSITION_MS
-  );
-};
 
 /**
  * Draw every stroke once. A stroke starts wherever the previous one had
@@ -108,8 +88,6 @@ export const planCursorStrokes = (
         pointer.durationMs,
         seeded(pointer.atMs)
       ),
-      startOpacity:
-        previous === undefined ? 1 : strokeOpacity(previous, pointer.atMs),
     });
   }
   return strokes;
@@ -179,7 +157,7 @@ export const cursorAt = (
   const ring = pressing ? easeOutQuart(sinceLanding / RING_MS) : 1;
   return {
     glyphScale: pressing && sinceLanding < PRESS_MS ? pressScale(press) : 1,
-    opacity: strokeOpacity(stroke, atMs) * visible,
+    opacity: visible,
     ringOpacity:
       pressing && sinceLanding < RING_MS ? lerp(0.55, 0, ring) * visible : 0,
     ringScale: lerp(0.4, 1.6, ring),

@@ -6,6 +6,7 @@ import { cursorPointAt, planCursorPath } from "@contingency/protocol";
 import { Effect, Fiber } from "effect";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
+import { AgentTag } from "@/components/agent/agent-cursor";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 /**
@@ -14,12 +15,6 @@ import { useRpcDependencies } from "@/lib/rpc-dependencies";
  * dot travelling to an action already finished. As `AgentCursor`.
  */
 const STALE_TOUCH_MS = 1500;
-
-/**
- * How long the dot stays fully drawn after it lands before it dims, so it
- * marks where the agent is without covering the app between actions.
- */
-const ACTIVE_MS = 700;
 
 /** How long a swipe's finger takes to travel from its start to its end. */
 const SWIPE_MS = 320;
@@ -146,9 +141,6 @@ export const NativeAgentTouch = ({
     const stale = Date.now() - touch.timestamp > STALE_TOUCH_MS;
     if (stale || prefersReducedMotion()) {
       place(restingPoint(touch), screen);
-      if (dot !== null) {
-        dot.dataset.resting = "";
-      }
       return;
     }
     // A new touch starts from wherever the last one reached, including
@@ -162,9 +154,7 @@ export const NativeAgentTouch = ({
       touch.action === "swipe"
         ? planCursorPath(target, touch.end, SWIPE_MS, () => 0.5)
         : undefined;
-    delete dot?.dataset.resting;
     let frameId = 0;
-    let rest: ReturnType<typeof setTimeout> | undefined;
     let startedAt: number | undefined;
     let landed = false;
     const step = (now: number) => {
@@ -188,16 +178,10 @@ export const NativeAgentTouch = ({
         return;
       }
       place(restingPoint(touch), screen);
-      rest = setTimeout(() => {
-        if (dot !== null) {
-          dot.dataset.resting = "";
-        }
-      }, ACTIVE_MS);
     };
     frameId = requestAnimationFrame(step);
     return () => {
       cancelAnimationFrame(frameId);
-      clearTimeout(rest);
     };
   }, [touch]);
 
@@ -219,16 +203,14 @@ export const NativeAgentTouch = ({
         ref={touchRef}
       >
         <span
-          className="absolute -top-[11px] -left-[11px] block size-[22px] rounded-full bg-blue-600/30 opacity-0 dark:bg-blue-400/30"
+          className="bg-brand/45 absolute -top-[15px] -left-[15px] block size-[30px] rounded-full opacity-0"
           ref={ringRef}
         />
         <span
-          className="absolute -top-[11px] -left-[11px] block size-[22px] rounded-full border-2 border-white bg-blue-600/85 shadow-md transition-opacity duration-300 data-resting:opacity-50 dark:border-neutral-900 dark:bg-blue-400/85"
+          className="bg-brand/60 border-brand absolute -top-3 -left-3 block size-6 rounded-full border-[3px] shadow-[0_0_0_1px_var(--agent-ink),0_1px_2px_oklch(0_0_0/0.35)]"
           ref={dotRef}
         />
-        <span className="absolute top-3.5 left-3.5 rounded-full bg-blue-600 px-1.5 py-px text-[11px] leading-4 font-medium text-white shadow-sm dark:bg-blue-400 dark:text-neutral-950">
-          Agent
-        </span>
+        <AgentTag className="top-[13px] left-[13px]" />
       </div>
     </div>
   );

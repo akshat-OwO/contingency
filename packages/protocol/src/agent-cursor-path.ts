@@ -73,3 +73,22 @@ export const cursorPointAt = (
     y: path.from.y + dy * share + (dx / distance) * arc,
   };
 };
+
+/**
+ * The agent's arrow: a wide, shallow-notched pointer drawn in a 24-unit box,
+ * outlined in amber over a translucent amber fill, with a dark keyline outside
+ * the amber so its edge holds on white footage, where amber alone is about
+ * 1.6:1. The Workspace draws it over the live frame and the Run's video draws
+ * it again, so both read it here.
+ */
+export const AGENT_CURSOR_GLYPH = {
+  /** The dark keyline's width outside the amber outline, in CSS pixels. */
+  keyline: 1,
+  /** The outline, in the 24-unit box. */
+  path: "M3 3L21.5 8.5L13 13L8.5 21.5Z",
+  /** The arrow's size and outline, in CSS pixels. */
+  size: 34,
+  stroke: 3.5,
+  /** Where the tip sits in the box; it is drawn on the point. */
+  tip: { x: 3, y: 3 },
+} as const;
