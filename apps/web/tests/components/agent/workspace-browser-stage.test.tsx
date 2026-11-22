@@ -10,10 +10,15 @@ import userEvent from "@testing-library/user-event";
 import { Effect } from "effect";
 import { Atom } from "effect/reactivity";
 import type { ReactNode } from "react";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 
 import { WorkspaceBrowserStage } from "@/components/agent/workspace-browser-stage";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
+
+import {
+  stubResizableLayout,
+  stubResizeObserver,
+} from "../ui/resizable-layout";
 
 /** What the Workspace sent, as the loopback RPC boundary received it. */
 interface RecordedCall {
@@ -314,6 +319,53 @@ test("docks an inspection panel beside the stage and moves it below", async () =
   // Docking, moving, and closing the inspector keep the same live frame
   // rather than remounting it.
   expect(screen.getByLabelText("Live browser viewport")).toBe(canvas);
+});
+
+/** The docked DevTools panel the Console sits in. */
+const consolePanel = () =>
+  screen
+    .getByRole("region", { name: "Console" })
+    .closest('[data-slot="resizable-panel"]');
+
+test("resizes docked DevTools in pixels and keeps the size when it reopens", async () => {
+  // A 1280px region leaves the stage and DevTools 1212px beside the rail.
+  const restoreLayout = stubResizableLayout({
+    height: 600,
+    outside: { height: 600, width: 1280 },
+    width: 1212,
+  });
+  const restoreObserver = stubResizeObserver();
+  onTestFinished(() => {
+    restoreObserver();
+    restoreLayout();
+  });
+  renderSetup();
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Console" }));
+  const width = () =>
+    Math.round(consolePanel()?.getBoundingClientRect().width ?? 0);
+  const separator = screen.getByRole("separator", { name: "Resize DevTools" });
+  // The handle reports the stage's share: DevTools starts 432px wide, may
+  // shrink to 220px, and may take 70% of the region.
+  await waitFor(() => {
+    expect(width()).toBe(432);
+  });
+  expect(separator).toHaveAttribute("aria-valuenow", "64");
+  expect(separator).toHaveAttribute("aria-valuemin", "30");
+  expect(separator).toHaveAttribute("aria-valuemax", "82");
+
+  separator.focus();
+  // Each arrow trades 16px; ArrowLeft grows DevTools beside the page.
+  await user.keyboard("{ArrowLeft}");
+  expect(width()).toBe(448);
+  await user.keyboard("{ArrowLeft}{ArrowRight}");
+  expect(width()).toBe(448);
+
+  await user.click(screen.getByRole("button", { name: "Close DevTools" }));
+  await user.click(screen.getByRole("button", { name: "Console" }));
+  await waitFor(() => {
+    expect(width()).toBe(448);
+  });
 });
 
 test("switches DevTools panels from its header", async () => {

@@ -29,7 +29,6 @@ import {
   XIcon,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 
 import {
   dragAttachment,
@@ -62,6 +61,13 @@ import { HighlightedCode } from "@/components/browser/highlighted-code";
 import { SegmentedControl } from "@/components/browser/segmented-control";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Resizable,
+  ResizableHandle,
+  ResizablePanel,
+} from "@/components/ui/resizable";
+import type { ResizableLayoutChangeDetails } from "@/components/ui/resizable";
+import { pixelShare, shareSize } from "@/components/ui/resizable-size";
 import { useElementSize } from "@/hooks/use-element-size";
 import { usePresence } from "@/hooks/use-presence";
 import { cn } from "@/lib/utils";
@@ -585,83 +591,48 @@ const splitBounds = {
 } as const;
 
 /**
- * The separator between the request list and its detail. Dragging it, or the
- * arrow keys while it has focus, trade room between the two.
+ * The request list and its detail as a Resizable sized in pixels. A DevTools
+ * island docked under the page is wide, so the detail sits beside the list;
+ * docked beside the page, it sits under the list. Each side keeps its own
+ * size.
  */
-const RequestDetailResizeHandle = ({
-  max,
-  onResize,
-  side,
-  size,
-}: {
-  readonly max: number;
-  readonly onResize: (size: number) => void;
-  /** Where the detail sits: beside the list, or under it. */
-  readonly side: "beside" | "under";
-  readonly size: number;
-}) => {
-  const drag = useRef<{
-    readonly origin: number;
-    readonly size: number;
-  } | null>(null);
-  const min = splitBounds[side].detail;
-  const clamp = (value: number) =>
-    Math.round(Math.min(Math.max(value, min), Math.max(max, min)));
-  const pointer = (event: ReactPointerEvent<HTMLDivElement>) =>
-    side === "beside" ? event.clientX : event.clientY;
-  return (
-    <div
-      aria-label="Resize request details"
-      aria-orientation={side === "beside" ? "vertical" : "horizontal"}
-      aria-valuemax={
-        Number.isFinite(max) ? Math.max(Math.round(max), min) : undefined
-      }
-      aria-valuemin={min}
-      aria-valuenow={size}
-      className={cn(
-        "group/split relative z-10 flex shrink-0 touch-none items-center justify-center outline-none",
-        side === "beside"
-          ? "w-1.5 cursor-col-resize"
-          : "h-1.5 cursor-row-resize"
-      )}
-      onKeyDown={(event) => {
-        const grow = side === "beside" ? "ArrowLeft" : "ArrowUp";
-        const shrink = side === "beside" ? "ArrowRight" : "ArrowDown";
-        if (event.key === grow || event.key === shrink) {
-          event.preventDefault();
-          onResize(
-            clamp(size + (event.key === grow ? DETAIL_STEP : -DETAIL_STEP))
-          );
-        }
-      }}
-      onPointerCancel={() => {
-        drag.current = null;
-      }}
-      onPointerDown={(event) => {
-        event.currentTarget.setPointerCapture(event.pointerId);
-        drag.current = { origin: pointer(event), size };
-      }}
-      onPointerMove={(event) => {
-        const start = drag.current;
-        if (start !== null) {
-          onResize(clamp(start.size + start.origin - pointer(event)));
-        }
-      }}
-      onPointerUp={() => {
-        drag.current = null;
-      }}
-      role="separator"
-      tabIndex={0}
-    >
-      <span
-        aria-hidden="true"
-        className={cn(
-          "bg-border group-hover/split:bg-ring/60 group-focus-visible/split:bg-ring transition-colors",
-          side === "beside" ? "h-full w-px" : "h-px w-full"
-        )}
-      />
-    </div>
+const useRequestDetailSplit = (dockSide: DevtoolsDockSide) => {
+  const side = dockSide === "bottom" ? "beside" : "under";
+  const [split, setSplit] = useState({ beside: 360, under: 240 });
+  const { ref, size } = useElementSize<HTMLDivElement>();
+  const room = side === "beside" ? size.width : size.height;
+  const bounds = splitBounds[side];
+  // The room the list and detail share, without the handle between them.
+  const shared = room - SPLIT_HANDLE;
+  // Before the panel is measured there is no bound to hold the detail to.
+  const maxDetail =
+    room === 0 ? Number.POSITIVE_INFINITY : shared - bounds.list;
+  const detailSize = Math.round(
+    Math.min(split[side], Math.max(maxDetail, bounds.detail))
   );
+  const detailShare = pixelShare(detailSize, shared);
+  return {
+    bounds,
+    layout: (open: boolean): number[] =>
+      open ? [100 - detailShare, detailShare] : [100],
+    onLayoutChange: (
+      layout: readonly number[],
+      { reason }: ResizableLayoutChangeDetails
+    ) => {
+      const [, share] = layout;
+      // Only a person's drag or key moves the split; the group fitting its
+      // panels to a new size leaves the size they chose.
+      if (share !== undefined && (reason === "drag" || reason === "step-key")) {
+        setSplit((current) => ({
+          ...current,
+          [side]: shareSize(share, shared),
+        }));
+      }
+    },
+    ref,
+    side,
+    step: shared > 0 ? pixelShare(DETAIL_STEP, shared) : 1,
+  };
 };
 
 const RequestDetailView = ({
@@ -673,7 +644,6 @@ const RequestDetailView = ({
   leaving = false,
   onUpdateUiState,
   request,
-  style,
 }: {
   readonly onAttach:
     | ((attachment: TeachingBrowserAttachment) => void)
@@ -683,15 +653,13 @@ const RequestDetailView = ({
   readonly detailTab: NetworkDetailTab;
   readonly onUpdateUiState: (update: Partial<DevtoolsUiState>) => void;
   readonly request: BrowserNetworkRequestSummary;
-  readonly style: CSSProperties;
   readonly detailRef?: (element: HTMLElement | null) => void;
   readonly leaving?: boolean;
 }) => (
   <div
-    className="flex min-h-0 min-w-0 flex-col"
+    className="flex size-full min-h-0 min-w-0 flex-col"
     inert={leaving}
     ref={detailRef}
-    style={style}
   >
     <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b px-2 py-1.5">
       <StatusPill status={request.status} />
@@ -786,19 +754,8 @@ const DevtoolsNetworkPanel = ({
     return () => globalThis.cancelAnimationFrame(frame);
   }, [networkVirtualizer]);
 
-  // A DevTools island docked under the page is wide, so the detail sits
-  // beside the list; docked beside the page, it sits under the list.
-  const side = dockSide === "bottom" ? "beside" : "under";
-  const [split, setSplit] = useState({ beside: 360, under: 240 });
-  const { ref: panelRef, size: panelSize } = useElementSize<HTMLDivElement>();
-  const room = side === "beside" ? panelSize.width : panelSize.height;
-  // Before the panel is measured there is no bound to hold the detail to.
-  const bounds = splitBounds[side];
-  const maxDetail =
-    room === 0 ? Number.POSITIVE_INFINITY : room - bounds.list - SPLIT_HANDLE;
-  const detailSize = Math.round(
-    Math.min(split[side], Math.max(maxDetail, bounds.detail))
-  );
+  const split = useRequestDetailSplit(dockSide);
+  const { bounds, side } = split;
   const detailPresence = usePresence(selectedRequest, {
     durationMs: 180,
     hidden: { opacity: 0 },
@@ -813,14 +770,18 @@ const DevtoolsNetworkPanel = ({
   ).length;
 
   return (
-    <div
-      className={cn(
-        "relative flex size-full min-h-0 min-w-0",
-        side === "beside" ? "flex-row" : "flex-col"
-      )}
-      ref={panelRef}
+    <Resizable
+      className="relative size-full"
+      layout={split.layout(shownRequest !== undefined)}
+      onLayoutChange={split.onLayoutChange}
+      orientation={side === "beside" ? "horizontal" : "vertical"}
+      ref={split.ref}
+      step={split.step}
     >
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <ResizablePanel
+        className="flex flex-col overflow-hidden"
+        minSize={`${bounds.list}px`}
+      >
         <div className="shrink-0 space-y-2 px-3 py-2">
           <SearchField
             label="Filter network requests"
@@ -988,33 +949,28 @@ const DevtoolsNetworkPanel = ({
             <span className="text-destructive">{failed} failed</span>
           )}
         </footer>
-      </div>
+      </ResizablePanel>
       {shownRequest === undefined ? null : (
-        <RequestDetailResizeHandle
-          max={maxDetail}
-          onResize={(size) =>
-            setSplit((current) => ({ ...current, [side]: size }))
-          }
-          side={side}
-          size={detailSize}
+        <ResizableHandle
+          aria-label="Resize request details"
+          className={side === "beside" ? "w-1.5" : "h-1.5"}
         />
       )}
       {shownRequest === undefined ? null : (
-        <RequestDetailView
-          onAttach={onAttach}
-          detail={detail}
-          detailLoading={detailLoading}
-          detailRef={detailPresence.ref}
-          detailTab={detailTab}
-          leaving={detailPresence.leaving}
-          onUpdateUiState={onUpdateUiState}
-          request={shownRequest}
-          style={
-            side === "beside" ? { width: detailSize } : { height: detailSize }
-          }
-        />
+        <ResizablePanel minSize={`${bounds.detail}px`}>
+          <RequestDetailView
+            onAttach={onAttach}
+            detail={detail}
+            detailLoading={detailLoading}
+            detailRef={detailPresence.ref}
+            detailTab={detailTab}
+            leaving={detailPresence.leaving}
+            onUpdateUiState={onUpdateUiState}
+            request={shownRequest}
+          />
+        </ResizablePanel>
       )}
-    </div>
+    </Resizable>
   );
 };
 

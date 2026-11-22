@@ -23,12 +23,8 @@ import {
   TerminalIcon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
-import type {
-  KeyboardEvent as ReactKeyboardEvent,
-  PointerEvent as ReactPointerEvent,
-  ReactNode,
-} from "react";
+import { useEffect, useEffectEvent, useState } from "react";
+import type { ReactNode } from "react";
 
 import { BrowserDeviceBar } from "@/components/browser/browser-device-bar";
 import {
@@ -58,6 +54,13 @@ import {
 import { UserAgentList } from "@/components/browser/user-agent-list";
 import { Button } from "@/components/ui/button";
 import { DismissableLayer } from "@/components/ui/dismissable-layer";
+import {
+  Resizable,
+  ResizableHandle,
+  ResizablePanel,
+} from "@/components/ui/resizable";
+import type { ResizableLayoutChangeDetails } from "@/components/ui/resizable";
+import { pixelShare, shareSize } from "@/components/ui/resizable-size";
 import { useElementSize } from "@/hooks/use-element-size";
 import type { ElementSize } from "@/hooks/use-element-size";
 import { usePresence } from "@/hooks/use-presence";
@@ -118,6 +121,8 @@ const DEFAULT_RIGHT_WIDTH = 432;
 const DEFAULT_BOTTOM_HEIGHT = 240;
 const MIN_INSPECTOR_SIZE = 220;
 const RESIZE_STEP = 16;
+/** The handle's height under the stage; beside it, the handle takes no room. */
+const BOTTOM_HANDLE_SIZE = 8;
 /**
  * The rail island's column: the 52px rail, 16px from the window's edge. The
  * stage and inspector share the rest, each keeping its own 12px from the rail.
@@ -189,122 +194,6 @@ const clampSize = (size: number, region: number): number =>
   Math.round(Math.min(Math.max(size, MIN_INSPECTOR_SIZE), maxSize(region)));
 
 /**
- * How far past a bound the inspector follows a drag. The further the pointer
- * goes, the less the edge follows it, so a bound reads as resistance rather
- * than a wall the drag stopped against. The edge starts at this share of the
- * pointer's travel and never strays further than the limit.
- */
-const RUBBER_BAND = 0.55;
-const RUBBER_BAND_LIMIT = 96;
-
-const rubberBand = (size: number, region: number): number => {
-  const overshoot =
-    size < MIN_INSPECTOR_SIZE
-      ? size - MIN_INSPECTOR_SIZE
-      : Math.max(size - maxSize(region), 0);
-  if (overshoot === 0) {
-    return 0;
-  }
-  return (
-    (overshoot * RUBBER_BAND_LIMIT * RUBBER_BAND) /
-    (RUBBER_BAND_LIMIT + RUBBER_BAND * Math.abs(overshoot))
-  );
-};
-
-/**
- * The separator between the stage and the docked inspector. Dragging it, or
- * the arrow keys while it has focus, trade space between the two; the stage
- * only re-zooms, so the page inside it never reflows.
- */
-const InspectorResizeHandle = ({
-  onResize,
-  onStretch,
-  region,
-  side,
-  size,
-}: {
-  readonly onResize: (size: number) => void;
-  /**
-   * Pixels a drag pulls the inspector past its bounds, drawn but never kept;
-   * `0` once the drag ends lets the edge settle back.
-   */
-  readonly onStretch: (stretch: number) => void;
-  /** The length of the region the stage and inspector share. */
-  readonly region: number;
-  readonly side: DevtoolsDockSide;
-  readonly size: number;
-}) => {
-  const drag = useRef<{
-    readonly origin: number;
-    readonly size: number;
-  } | null>(null);
-  const pointer = (event: ReactPointerEvent<HTMLDivElement>) =>
-    side === "right" ? event.clientX : event.clientY;
-  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    const grow = side === "right" ? "ArrowLeft" : "ArrowUp";
-    const shrink = side === "right" ? "ArrowRight" : "ArrowDown";
-    if (event.key === grow || event.key === shrink) {
-      event.preventDefault();
-      onResize(
-        clampSize(
-          size + (event.key === grow ? RESIZE_STEP : -RESIZE_STEP),
-          region
-        )
-      );
-    }
-  };
-  return (
-    <div
-      aria-label="Resize DevTools"
-      aria-orientation={side === "right" ? "vertical" : "horizontal"}
-      aria-valuemax={Math.round(region * MAX_INSPECTOR_SHARE)}
-      aria-valuemin={MIN_INSPECTOR_SIZE}
-      aria-valuenow={size}
-      className={cn(
-        "group/resize relative z-10 flex shrink-0 touch-none items-center justify-center outline-none",
-        // Beside the page, the handle is the 12px gap the page's own margin
-        // already leaves, so the page sits as close to DevTools as the
-        // prototype draws it.
-        side === "right"
-          ? "-ml-3 w-3 cursor-col-resize"
-          : "h-2 cursor-row-resize"
-      )}
-      onKeyDown={onKeyDown}
-      onPointerCancel={() => {
-        drag.current = null;
-        onStretch(0);
-      }}
-      onPointerDown={(event) => {
-        event.currentTarget.setPointerCapture(event.pointerId);
-        drag.current = { origin: pointer(event), size };
-      }}
-      onPointerMove={(event) => {
-        const start = drag.current;
-        if (start !== null) {
-          const dragged = start.size + start.origin - pointer(event);
-          onResize(clampSize(dragged, region));
-          onStretch(rubberBand(dragged, region));
-        }
-      }}
-      onPointerUp={() => {
-        drag.current = null;
-        onStretch(0);
-      }}
-      role="separator"
-      tabIndex={0}
-    >
-      <span
-        aria-hidden="true"
-        className={cn(
-          "group-hover/resize:bg-brand/60 group-focus-visible/resize:bg-ring rounded-full bg-transparent transition-colors",
-          side === "right" ? "h-10 w-1" : "h-1 w-10"
-        )}
-      />
-    </div>
-  );
-};
-
-/**
  * Where the docked inspector sits and how large it is. With no explicit
  * choice it docks beside the stage only while the stage keeps a usable width
  * there; a narrow Workspace — a Run Summary open, a small window — docks it
@@ -324,6 +213,8 @@ const inspectorLayout = (inspector: InspectorState, body: ElementSize) => {
       regionLength
     ),
     regionLength,
+    /** The room the stage and inspector share, without the handle. */
+    room: side === "right" ? regionLength : regionLength - BOTTOM_HANDLE_SIZE,
     side,
   };
 };
@@ -588,62 +479,41 @@ const InspectorCardSurface = ({
 );
 
 /**
- * DevTools as an island docked beside or under the stage, behind its resize
- * separator. A drag past a bound stretches it; releasing it springs back.
+ * DevTools as an island docked beside or under the stage, behind the handle
+ * that resizes it. A drag stops at the inspector's bounds.
  */
 const DockedInspector = ({
   children,
-  onResize,
   region,
   side,
-  size,
 }: {
   readonly children: ReactNode;
-  readonly onResize: (size: number) => void;
   readonly region: number;
   readonly side: DevtoolsDockSide;
-  readonly size: number;
-}) => {
-  const [stretch, setStretch] = useState({ pixels: 0, settling: false });
-  const drawnSize = Math.max(size + stretch.pixels, 0);
-  return (
-    <>
-      <InspectorResizeHandle
-        onResize={onResize}
-        onStretch={(pixels) =>
-          setStretch((current) =>
-            pixels === 0
-              ? { pixels: 0, settling: Math.abs(current.pixels) >= 1 }
-              : { pixels, settling: false }
-          )
-        }
-        region={region}
-        side={side}
-        size={size}
-      />
-      <div
-        className={cn(
-          // No `duration-*` here: it would give every property a transition
-          // and the inspector would trail the drag.
-          "animate-in fade-in-0 flex min-h-0 min-w-0 shrink-0 flex-col",
-          side === "right" ? "pt-2 pr-3 pb-4" : "pr-3 pb-4 pl-4",
-          stretch.settling &&
-            "transition-[width,height] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none"
-        )}
-        onTransitionEnd={(event) => {
-          if (event.target === event.currentTarget) {
-            setStretch({ pixels: 0, settling: false });
-          }
-        }}
-        style={side === "right" ? { width: drawnSize } : { height: drawnSize }}
-      >
-        <div className="island bg-island-solid flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[18px]">
-          {children}
-        </div>
+}) => (
+  <>
+    <ResizableHandle
+      aria-label="Resize DevTools"
+      // Beside the page, the handle is the 12px gap the page's own margin
+      // already leaves, so the page sits as close to DevTools as the
+      // prototype draws it.
+      className={side === "right" ? "-ml-3 w-3" : "h-2"}
+      variant="pill"
+    />
+    <ResizablePanel
+      className={cn(
+        "animate-in fade-in-0 flex flex-col",
+        side === "right" ? "pt-2 pr-3 pb-4" : "pr-3 pb-4 pl-4"
+      )}
+      maxSize={`${Math.round(maxSize(region))}px`}
+      minSize={`${MIN_INSPECTOR_SIZE}px`}
+    >
+      <div className="island bg-island-solid flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[18px]">
+        {children}
       </div>
-    </>
-  );
-};
+    </ResizablePanel>
+  </>
+);
 
 /**
  * The session's browser setup as the stage reads and changes it: the applied
@@ -787,7 +657,7 @@ const useInspector = (ended: boolean) => {
   const closeCard = () => {
     setInspector((current) => ({ ...current, card: undefined }));
   };
-  const { inspectorSize, regionLength, side } = inspectorLayout(
+  const { inspectorSize, regionLength, room, side } = inspectorLayout(
     inspector,
     body
   );
@@ -797,15 +667,35 @@ const useInspector = (ended: boolean) => {
     closeCard,
     closePanel: () =>
       setInspector((current) => ({ ...current, panel: undefined })),
-    inspectorSize,
+    /** The Resizable's layout, step and changes, kept in pixels. */
+    dock: {
+      layout: (open: boolean): number[] => {
+        const share = pixelShare(inspectorSize, room);
+        return open ? [100 - share, share] : [100];
+      },
+      onLayoutChange: (
+        layout: readonly number[],
+        { reason }: ResizableLayoutChangeDetails
+      ) => {
+        const [, share] = layout;
+        // Only a person's drag or key moves DevTools. The group fitting its
+        // panels to a new size leaves the size they chose.
+        if (
+          share !== undefined &&
+          (reason === "drag" || reason === "step-key")
+        ) {
+          const size = clampSize(shareSize(share, room), regionLength);
+          setInspector((current) =>
+            side === "right"
+              ? { ...current, rightWidth: size }
+              : { ...current, bottomHeight: size }
+          );
+        }
+      },
+      step: room > 0 ? pixelShare(RESIZE_STEP, room) : 1,
+    },
     panel: ended ? undefined : inspector.panel,
     regionLength,
-    resize: (size: number) =>
-      setInspector((current) =>
-        side === "right"
-          ? { ...current, rightWidth: size }
-          : { ...current, bottomHeight: size }
-      ),
     selectPanel: (next: DevtoolsPanel) =>
       setInspector((current) => ({ ...current, card: undefined, panel: next })),
     side,
@@ -886,10 +776,9 @@ export const WorkspaceBrowserStage = ({
     card,
     closeCard,
     closePanel,
-    inspectorSize,
+    dock,
     panel,
     regionLength,
-    resize,
     selectPanel,
     side,
     toggleCard,
@@ -955,24 +844,29 @@ export const WorkspaceBrowserStage = ({
         )
       )}
       <div className="relative flex min-h-0 flex-1" ref={bodyRef}>
-        <div
-          className={cn(
-            "flex min-h-0 min-w-0 flex-1",
-            side === "right" ? "flex-row" : "flex-col"
-          )}
+        <Resizable
+          className="flex-1"
+          layout={dock.layout(panel !== undefined)}
+          onLayoutChange={dock.onLayoutChange}
+          orientation={side === "right" ? "horizontal" : "vertical"}
+          step={dock.step}
         >
           {/*
-          The stage is always the region's first child, so docking the
+          The stage is always the region's first panel, so docking the
           inspector, moving it, or closing it never remounts the live canvas.
         */}
-          <section
-            aria-label="Browser stage"
-            className="relative flex min-h-0 min-w-0 flex-1 flex-col"
-            onPointerDown={() => {
-              if (card !== undefined) {
-                closeCard();
-              }
-            }}
+          <ResizablePanel
+            render={
+              <section
+                aria-label="Browser stage"
+                className="relative flex flex-col"
+                onPointerDown={() => {
+                  if (card !== undefined) {
+                    closeCard();
+                  }
+                }}
+              />
+            }
           >
             {shownError === undefined ? null : (
               <StageError
@@ -987,15 +881,10 @@ export const WorkspaceBrowserStage = ({
             <div className="relative flex min-h-0 flex-1 flex-col">
               {children}
             </div>
-          </section>
+          </ResizablePanel>
 
           {panel === undefined ? null : (
-            <DockedInspector
-              onResize={resize}
-              region={regionLength}
-              side={side}
-              size={inspectorSize}
-            >
+            <DockedInspector region={regionLength} side={side}>
               {state.activeTab === undefined ? (
                 <section
                   aria-label={devtoolsPanelTitles[panel]}
@@ -1030,7 +919,7 @@ export const WorkspaceBrowserStage = ({
               )}
             </DockedInspector>
           )}
-        </div>
+        </Resizable>
 
         {ended ? null : (
           <div className="pointer-events-none flex w-[68px] shrink-0 items-center justify-end pr-4">

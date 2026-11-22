@@ -46,3 +46,11 @@ document.head.append(
     textContent: "[popover] { display: block !important }",
   })
 );
+
+// jsdom lays nothing out, so it has no `elementFromPoint`. UI SDK's Resizable
+// hit-tests pointer moves through it to mark a hovered handle; nothing is
+// under any point here.
+Document.prototype.elementFromPoint ??= function elementFromPoint(): null {
+  void this;
+  return null;
+};
