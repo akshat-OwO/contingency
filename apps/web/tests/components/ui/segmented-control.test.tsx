@@ -1,14 +1,18 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
 
 import {
+  createSegmentedControlController,
   SegmentedControl,
   SegmentedControlCount,
   SegmentedControlItem,
 } from "@/components/ui/segmented-control";
-import type { SegmentedControlSize } from "@/components/ui/segmented-control";
+import type {
+  SegmentedControlController,
+  SegmentedControlSize,
+} from "@/components/ui/segmented-control";
 
 declare global {
   var __UI_SDK_STRICT__: boolean | undefined;
@@ -33,14 +37,16 @@ afterEach(() => {
 type Scheme = "dark" | "light" | "none";
 
 const SchemeControl = ({
+  controller,
   disabled = false,
   initial = "none",
   onValueChange = () => null,
   size,
 }: {
+  readonly controller?: SegmentedControlController;
   readonly disabled?: boolean;
   readonly initial?: Scheme | null;
-  readonly onValueChange?: (value: Scheme) => void;
+  readonly onValueChange?: (value: Scheme | null) => void;
   readonly size?: SegmentedControlSize;
 }) => {
   const [value, setValue] = useState<Scheme | null>(initial);
@@ -49,6 +55,7 @@ const SchemeControl = ({
       <button type="button">Before</button>
       <SegmentedControl<Scheme>
         aria-label="Color scheme"
+        {...(controller === undefined ? {} : { controller })}
         disabled={disabled}
         onValueChange={(next) => {
           setValue(next);
@@ -80,10 +87,10 @@ test("is a named radio group with its slots", () => {
   expect(screen.getByRole("radio", { name: "Light" })).not.toBeChecked();
 });
 
-test("is one tab stop whose arrows, Home and End move and check", async () => {
+test("a compact control is one tab stop whose arrows, Home and End move and check", async () => {
   const onValueChange = vi.fn();
   const user = userEvent.setup();
-  render(<SchemeControl onValueChange={onValueChange} />);
+  render(<SchemeControl onValueChange={onValueChange} size="sm" />);
 
   screen.getByRole("button", { name: "Before" }).focus();
   await user.tab();
@@ -109,6 +116,49 @@ test("is one tab stop whose arrows, Home and End move and check", async () => {
   expect(light).toBeChecked();
   await user.keyboard("{ArrowUp}");
   expect(screen.getByRole("radio", { name: "No preference" })).toBeChecked();
+});
+
+test("Enter presses the focused compact segment, even with nothing checked", async () => {
+  const onValueChange = vi.fn();
+  const user = userEvent.setup();
+  render(
+    <SchemeControl initial={null} onValueChange={onValueChange} size="xs" />
+  );
+  screen.getByRole("button", { name: "Before" }).focus();
+  await user.tab();
+  expect(screen.getByRole("radio", { name: "No preference" })).toHaveFocus();
+  await user.keyboard("{Enter}");
+  expect(onValueChange).toHaveBeenLastCalledWith("none");
+  expect(screen.getByRole("radio", { name: "No preference" })).toBeChecked();
+});
+
+test("the island size keeps UI SDK's keys: Enter and Home check nothing", async () => {
+  const onValueChange = vi.fn();
+  const user = userEvent.setup();
+  render(<SchemeControl initial="light" onValueChange={onValueChange} />);
+  screen.getByRole("radio", { name: "Light" }).focus();
+  await user.keyboard("{Home}{Enter}");
+  expect(onValueChange).not.toHaveBeenCalled();
+  expect(screen.getByRole("radio", { name: "Light" })).toBeChecked();
+});
+
+test("a controller that clears the value tells the consumer", () => {
+  const onValueChange = vi.fn();
+  const controller = createSegmentedControlController();
+  render(
+    <SchemeControl
+      controller={controller}
+      onValueChange={onValueChange}
+      size="sm"
+    />
+  );
+  act(() => {
+    controller.setValue(null);
+  });
+  expect(onValueChange).toHaveBeenLastCalledWith(null);
+  for (const radio of screen.getAllByRole("radio")) {
+    expect(radio).not.toBeChecked();
+  }
 });
 
 test("swaps Left and Right in a right-to-left layout", async () => {

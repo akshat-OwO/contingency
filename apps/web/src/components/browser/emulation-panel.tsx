@@ -719,7 +719,11 @@ const EmulationPanelContent = ({
             <SegmentedControl<ColorSchemeChoice>
               aria-label="Color scheme"
               disabled={disabled}
-              onValueChange={applyColorScheme}
+              onValueChange={(scheme) => {
+                if (scheme !== null) {
+                  applyColorScheme(scheme);
+                }
+              }}
               size="sm"
               value={colorScheme}
             >

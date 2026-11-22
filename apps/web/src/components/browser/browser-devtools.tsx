@@ -515,7 +515,11 @@ const DevtoolsConsolePanel = ({
       <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2">
         <SegmentedControl<ConsoleFilter>
           aria-label="Console level"
-          onValueChange={(consoleFilter) => onUpdateUiState({ consoleFilter })}
+          onValueChange={(consoleFilter) => {
+            if (consoleFilter !== null) {
+              onUpdateUiState({ consoleFilter });
+            }
+          }}
           size="sm"
           value={filter}
         >
@@ -694,7 +698,11 @@ const RequestDetailView = ({
       <div className="ml-auto flex shrink-0 items-center gap-1">
         <SegmentedControl<NetworkDetailTab>
           aria-label="Request detail"
-          onValueChange={(value) => onUpdateUiState({ detailTab: value })}
+          onValueChange={(next) => {
+            if (next !== null) {
+              onUpdateUiState({ detailTab: next });
+            }
+          }}
           size="xs"
           value={detailTab}
         >
@@ -822,9 +830,11 @@ const DevtoolsNetworkPanel = ({
           <div className="overflow-x-auto">
             <SegmentedControl<NetworkFilter>
               aria-label="Request type"
-              onValueChange={(value) =>
-                onUpdateUiState({ networkFilter: value })
-              }
+              onValueChange={(next) => {
+                if (next !== null) {
+                  onUpdateUiState({ networkFilter: next });
+                }
+              }}
               size="xs"
               value={networkFilter}
             >

@@ -85,7 +85,11 @@ export const BrowserStreamDiagnostics = ({
         <span>Streaming preference</span>
         <SegmentedControl<"binary" | "json">
           aria-label="Streaming preference"
-          onValueChange={setTransport}
+          onValueChange={(next) => {
+            if (next !== null) {
+              setTransport(next);
+            }
+          }}
           size="sm"
           value={transport}
         >

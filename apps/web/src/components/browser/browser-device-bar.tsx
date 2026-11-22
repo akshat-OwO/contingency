@@ -203,13 +203,15 @@ export const BrowserDeviceBar = ({
           <SegmentedControl
             aria-label="Device pixel ratio"
             disabled={disabled}
-            onValueChange={(value) =>
-              onViewportChange({
-                deviceScaleFactor: Number(value),
-                height: applied.height,
-                width: applied.width,
-              })
-            }
+            onValueChange={(value) => {
+              if (value !== null) {
+                onViewportChange({
+                  deviceScaleFactor: Number(value),
+                  height: applied.height,
+                  width: applied.width,
+                });
+              }
+            }}
             size="xs"
             value={scaleFactor ?? null}
           >

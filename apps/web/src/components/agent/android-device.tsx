@@ -439,9 +439,11 @@ const DeviceSettings = ({
         <SegmentedControl<"dark" | "light">
           aria-label="Appearance"
           disabled={!canAct}
-          onValueChange={(appearance) =>
-            onEmulate({ _tag: "appearance", appearance })
-          }
+          onValueChange={(appearance) => {
+            if (appearance !== null) {
+              onEmulate({ _tag: "appearance", appearance });
+            }
+          }}
           size="sm"
           value={emulation?.appearance ?? null}
         >

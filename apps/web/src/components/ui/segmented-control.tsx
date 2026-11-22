@@ -66,30 +66,34 @@ const segmentedControlItemVariants = cva(
   }
 );
 
-type PrimitiveProps<T extends string> = React.ComponentProps<
-  typeof SegmentedControlPrimitive<T>
->;
-
-type ValueChangeDetails<T extends string> = Parameters<
-  NonNullable<PrimitiveProps<T>["onValueChange"]>
->[1];
-
 /**
- * Home and End check the first and last enabled segment. The APG radio group
- * leaves them out, so UI SDK does too, but the browser tooling's controls have
- * always had them. Pressing the segment checks it the way a click does.
+ * Keys the compact sizes keep from the browser tooling's own control, which
+ * the APG radio group, and so UI SDK, leaves out: Home and End check the
+ * first and last enabled segment, and Enter presses the focused one, as it
+ * did when the segments were plain buttons. The island look keeps UI SDK's
+ * Enter, which submits a surrounding form. Pressing a segment checks it the
+ * way a click does. It runs as the key goes down to the segment, before UI
+ * SDK's own Enter handling there; a consumer's `onKeyDownCapture` can still
+ * cancel it.
  */
-const checkEdgeSegment = (event: React.KeyboardEvent<HTMLDivElement>) => {
-  if (event.defaultPrevented || (event.key !== "Home" && event.key !== "End")) {
+const pressSegmentFor = (
+  event: React.KeyboardEvent<HTMLDivElement>,
+  size: SegmentedControlSize
+) => {
+  if (event.defaultPrevented || size === "default") {
     return;
   }
-  const segments = [
-    ...event.currentTarget.querySelectorAll<HTMLElement>(
-      '[data-slot="segmented-control-item"]:not([data-disabled])'
-    ),
-  ];
-  const target = event.key === "Home" ? segments.at(0) : segments.at(-1);
-  if (target === undefined) {
+  const enabled = '[data-slot="segmented-control-item"]:not([data-disabled])';
+  let target: HTMLElement | null | undefined;
+  if (event.key === "Home" || event.key === "End") {
+    const segments = [
+      ...event.currentTarget.querySelectorAll<HTMLElement>(enabled),
+    ];
+    target = event.key === "Home" ? segments.at(0) : segments.at(-1);
+  } else if (event.key === "Enter" && event.target instanceof HTMLElement) {
+    target = event.target.closest<HTMLElement>(enabled);
+  }
+  if (target === null || target === undefined) {
     return;
   }
   event.preventDefault();
@@ -100,36 +104,32 @@ const checkEdgeSegment = (event: React.KeyboardEvent<HTMLDivElement>) => {
 /**
  * One choice of a few, drawn as a row of segments with a raised thumb that
  * slides to the checked one. It is a radio group to assistive technology:
- * one tab stop, and the arrow keys, Home and End move and check. Name it with `aria-label`
- * or a Field label.
+ * one tab stop, and the arrow keys move and check. The compact sizes add
+ * Home, End and Enter. Name it with `aria-label` or a Field label.
  *
  * Pass `value={null}`, not `undefined`, while nothing is checked, so the
- * control stays controlled. A segment can't be unchecked, so `onValueChange`
- * only ever hears a value.
+ * control stays controlled. A click never unchecks a segment, but a
+ * `controller` can, so `onValueChange` hears `null` then.
  */
 const SegmentedControl = <T extends string = string>({
   className,
   children,
-  onKeyDown,
-  onValueChange,
+  onKeyDownCapture,
   size = "default",
   ...props
-}: Omit<PrimitiveProps<T>, "children" | "onValueChange"> & {
+}: Omit<
+  React.ComponentProps<typeof SegmentedControlPrimitive<T>>,
+  "children"
+> & {
   readonly children?: React.ReactNode;
-  readonly onValueChange?: (value: T, details: ValueChangeDetails<T>) => void;
   readonly size?: SegmentedControlSize;
 }) => (
   <SegmentedControlPrimitive<T>
     className={cn(segmentedControlVariants({ size }), className)}
     data-size={size}
-    onKeyDown={(event: React.KeyboardEvent<HTMLDivElement>) => {
-      onKeyDown?.(event);
-      checkEdgeSegment(event);
-    }}
-    onValueChange={(next, details) => {
-      if (next !== null) {
-        onValueChange?.(next, details);
-      }
+    onKeyDownCapture={(event: React.KeyboardEvent<HTMLDivElement>) => {
+      onKeyDownCapture?.(event);
+      pressSegmentFor(event, size);
     }}
     {...props}
   >
@@ -172,3 +172,6 @@ const SegmentedControlCount = ({
 
 export { SegmentedControl, SegmentedControlCount, SegmentedControlItem };
 export type { SegmentedControlSize };
+// A controller checks or clears a segment from outside the control.
+export { createSegmentedControlController } from "@ui-sdk/react/segmented-control";
+export type { SegmentedControlController } from "@ui-sdk/react/segmented-control";

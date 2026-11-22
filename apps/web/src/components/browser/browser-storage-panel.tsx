@@ -1007,6 +1007,9 @@ const StoragePanelChrome = ({
           <SegmentedControl<StorageKind>
             aria-label="Storage area"
             onValueChange={(kind) => {
+              if (kind === null) {
+                return;
+              }
               setUiState((current) => ({
                 ...current,
                 storageDraft: undefined,
