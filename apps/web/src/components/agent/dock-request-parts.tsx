@@ -14,10 +14,14 @@ import { useState } from "react";
 
 import { shortDecisionId } from "@/components/agent/dock-requests-state";
 import { Button } from "@/components/ui/button";
+import {
+  CopyButton,
+  CopyButtonFallback,
+  CopyButtonStatus,
+  CopyButtonTrigger,
+} from "@/components/ui/copy-button";
 import { DraftField } from "@/components/ui/draft-field";
 import { cn } from "@/lib/utils";
-
-import { CopyFeedback, useCopy } from "./evidence-reference";
 
 /**
  * The pieces every request in the Requests island is built from, so an
@@ -177,30 +181,30 @@ export const PendingLabel = ({
  * carry across. The button shows its first and last characters; the full id
  * is its accessible name, its title, and what it copies.
  */
-export const DecisionId = ({ id }: { readonly id: string }) => {
-  const { copied, copy, failed, text } = useCopy(id);
-  return (
-    <span className="inline-flex flex-wrap items-center gap-1.5">
-      <Button
-        aria-label={`Copy decision id ${id}`}
-        className="font-mono"
-        onClick={copy}
-        size="xs"
-        title={id}
-        type="button"
-        variant="outline"
-      >
-        {copied ? (
-          <CheckIcon aria-hidden="true" />
-        ) : (
-          <CopyIcon aria-hidden="true" />
-        )}
-        {shortDecisionId(id)}
-      </Button>
-      <CopyFeedback copied={copied} failed={failed} text={text} />
-    </span>
-  );
-};
+export const DecisionId = ({ id }: { readonly id: string }) => (
+  <CopyButton className="inline-flex flex-wrap items-center gap-1.5" value={id}>
+    <CopyButtonTrigger
+      aria-label={`Copy decision id ${id}`}
+      className="font-mono"
+      size="xs"
+      title={id}
+      variant="outline"
+    >
+      {({ copied }) => (
+        <>
+          {copied ? (
+            <CheckIcon aria-hidden="true" />
+          ) : (
+            <CopyIcon aria-hidden="true" />
+          )}
+          {shortDecisionId(id)}
+        </>
+      )}
+    </CopyButtonTrigger>
+    <CopyButtonStatus />
+    <CopyButtonFallback message="Copy failed; select the id below instead." />
+  </CopyButton>
+);
 
 /** Where an answer is given when it is not given here. */
 export const RelayHint = ({

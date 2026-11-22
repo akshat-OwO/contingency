@@ -1,66 +1,11 @@
-import { useAtom } from "@effect/atom-react";
-import { Atom } from "effect/reactivity";
 import { CheckIcon, CopyIcon } from "lucide-react";
-import { useEffect, useState } from "react";
 
-import { Button } from "@/components/ui/button";
-
-/**
- * Copies `text` and remembers how it went, so a copy button can say so: a
- * polite status on success, and a visible line when the clipboard refused.
- */
-export const useCopy = (text: string) => {
-  const [copiedAtom] = useState(() => Atom.make(false));
-  const [copied, setCopied] = useAtom(copiedAtom);
-  const [failedAtom] = useState(() => Atom.make(false));
-  const [failed, setFailed] = useAtom(failedAtom);
-  // Success clears after a moment, so the next copy is announced again.
-  useEffect(() => {
-    if (!copied) {
-      return;
-    }
-    const timer = setTimeout(() => setCopied(false), 2000);
-    return () => clearTimeout(timer);
-  }, [copied, setCopied]);
-  const copy = async () => {
-    setCopied(false);
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setFailed(false);
-    } catch {
-      setFailed(true);
-    }
-  };
-  return { copied, copy, failed, text };
-};
-
-/** What a copy button announces, and its visible failure line. */
-export const CopyFeedback = ({
-  copied,
-  failed,
-  text,
-}: {
-  readonly copied: boolean;
-  readonly failed: boolean;
-  readonly text: string;
-}) => (
-  <>
-    <span aria-live="polite" className="sr-only" role="status">
-      {copied ? "Copied" : ""}
-    </span>
-    {failed ? (
-      <span className="basis-full space-y-0.5 text-xs">
-        <span className="text-destructive block" role="alert">
-          Copy failed; select the id below instead.
-        </span>
-        <span className="bg-muted block rounded px-1.5 py-1 font-mono wrap-anywhere select-all">
-          {text}
-        </span>
-      </span>
-    ) : null}
-  </>
-);
+import {
+  CopyButton,
+  CopyButtonFallback,
+  CopyButtonStatus,
+  CopyButtonTrigger,
+} from "@/components/ui/copy-button";
 
 /**
  * `<kind>-<uuid>` or `<kind>-<32 hex>`, the shapes Contingency gives the ids
@@ -94,33 +39,36 @@ export const EvidenceReference = ({
 }: {
   readonly id: string;
   readonly kind: string;
-}) => {
-  const { copied, copy, failed, text } = useCopy(id);
-  return (
-    <span className="inline-flex max-w-full flex-wrap items-center gap-1.5">
-      <Button
-        aria-label={`Copy ${kind} ${id}`}
-        className="max-w-full font-normal"
-        onClick={copy}
-        size="xs"
-        title={`${kind}: ${id}. Copy it for your agent to open the evidence.`}
-        type="button"
-        variant="outline"
-      >
-        {copied ? (
-          <CheckIcon aria-hidden="true" />
-        ) : (
-          <CopyIcon aria-hidden="true" />
-        )}
-        <span className="text-muted-foreground">{kind}:</span>{" "}
-        <span className="max-w-80 min-w-0 truncate font-mono">
-          {shortId(id)}
-        </span>
-      </Button>
-      <CopyFeedback copied={copied} failed={failed} text={text} />
-    </span>
-  );
-};
+}) => (
+  <CopyButton
+    className="inline-flex max-w-full flex-wrap items-center gap-1.5"
+    value={id}
+  >
+    <CopyButtonTrigger
+      aria-label={`Copy ${kind} ${id}`}
+      className="max-w-full font-normal"
+      size="xs"
+      title={`${kind}: ${id}. Copy it for your agent to open the evidence.`}
+      variant="outline"
+    >
+      {({ copied }) => (
+        <>
+          {copied ? (
+            <CheckIcon aria-hidden="true" />
+          ) : (
+            <CopyIcon aria-hidden="true" />
+          )}
+          <span className="text-muted-foreground">{kind}:</span>{" "}
+          <span className="max-w-80 min-w-0 truncate font-mono">
+            {shortId(id)}
+          </span>
+        </>
+      )}
+    </CopyButtonTrigger>
+    <CopyButtonStatus />
+    <CopyButtonFallback message="Copy failed; select the id below instead." />
+  </CopyButton>
+);
 
 /**
  * The evidence an assessment cites, with the one sentence that says how to
