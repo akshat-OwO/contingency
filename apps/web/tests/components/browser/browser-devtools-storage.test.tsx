@@ -17,13 +17,25 @@ import userEvent from "@testing-library/user-event";
 import { Deferred, Effect } from "effect";
 import { Atom } from "effect/reactivity";
 import { createElement, useState } from "react";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  expect,
+  onTestFinished,
+  test,
+  vi,
+} from "vitest";
 
 import { BrowserDevtools } from "@/components/browser/browser-devtools";
 import type { BrowserDevtoolsProps } from "@/components/browser/browser-devtools";
 import { useAgentBrowserTooling } from "@/components/browser/browser-tooling";
 import { DismissableLayer } from "@/components/ui/dismissable-layer";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
+
+import {
+  stubResizableLayout,
+  stubResizeObserver,
+} from "../ui/resizable-layout";
 
 const rpc = vi.hoisted(() => ({
   clear: vi.fn(),
@@ -528,10 +540,27 @@ test.each(["before", "after"] as const)(
   }
 );
 
+/** The Resizable panel the open request detail sits in. */
+const detailPanel = () =>
+  screen
+    .getByRole("button", { name: "Close request details" })
+    .closest('[data-slot="resizable-panel"]');
+
 test("opens a request's detail beside the list and resizes it from the keyboard", async () => {
   // jsdom has no layout; supply the viewport dimensions to the real virtualizer.
   vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(300);
   vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(600);
+  // The split is 1000px wide; its 6px handle leaves the panes 994px.
+  const restoreLayout = stubResizableLayout({
+    handle: 6,
+    height: 300,
+    width: 1000,
+  });
+  const observer = stubResizeObserver();
+  onTestFinished(() => {
+    observer.restore();
+    restoreLayout();
+  });
   rpc.detailAvailable.mockReturnValue(true);
   renderDevtools(false, {
     dockSide: "bottom",
@@ -553,21 +582,111 @@ test("opens a request's detail beside the list and resizes it from the keyboard"
     name: "Resize request details",
   });
   expect(handle).toHaveAttribute("aria-orientation", "vertical");
-  expect(handle).toHaveAttribute("aria-valuenow", "360");
+  // The handle reports the list's share in percent: the detail starts at
+  // 360px of 994px, and the list keeps 400px while the detail keeps 320px.
+  await waitFor(() => {
+    expect(handle).toHaveAttribute("aria-valuenow", "64");
+  });
+  expect(handle).toHaveAttribute("aria-valuemin", "40");
+  expect(handle).toHaveAttribute("aria-valuemax", "68");
+  expect(Math.round(detailPanel()?.getBoundingClientRect().width ?? 0)).toBe(
+    360
+  );
   // The list stays usable beside the detail.
   expect(
     screen.getByRole("button", { name: /split-detail/u })
   ).toBeInTheDocument();
   handle.focus();
+  // Each arrow trades 16px between the list and the detail.
   await user.keyboard("{ArrowLeft}");
-  expect(handle).toHaveAttribute("aria-valuenow", "376");
+  expect(Math.round(detailPanel()?.getBoundingClientRect().width ?? 0)).toBe(
+    376
+  );
+  expect(handle).toHaveAttribute("aria-valuenow", "62");
   await user.keyboard("{ArrowRight}{ArrowRight}");
-  expect(handle).toHaveAttribute("aria-valuenow", "344");
-  expect(handle).toHaveAttribute("aria-valuemin", "320");
+  expect(Math.round(detailPanel()?.getBoundingClientRect().width ?? 0)).toBe(
+    344
+  );
+  expect(handle).toHaveAttribute("aria-valuenow", "65");
   await user.click(
     screen.getByRole("button", { name: "Close request details" })
   );
   expect(
     screen.queryByRole("separator", { name: "Resize request details" })
   ).not.toBeInTheDocument();
+});
+
+test("keeps the detail at its minimum while the split can't fit both panes, then restores its size", async () => {
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(300);
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(600);
+  // 600px leaves the panes 594px: less than the list's 400px and the
+  // detail's 320px together.
+  const split = { handle: 6, height: 300, width: 600 };
+  const restoreLayout = stubResizableLayout(split);
+  const observer = stubResizeObserver();
+  onTestFinished(() => {
+    observer.restore();
+    restoreLayout();
+  });
+  rpc.detailAvailable.mockReturnValue(true);
+  renderDevtools(false, {
+    dockSide: "bottom",
+    networkRequests: [
+      {
+        method: "GET",
+        requestId: BrowserRequestId.make("compact-detail"),
+        resourceType: "fetch",
+        tabId,
+        timestamp: 1,
+        url: "https://app.example.com/compact-detail",
+      },
+    ],
+    panel: "network",
+  });
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: /compact-detail/u }));
+  const handle = screen.getByRole("separator", {
+    name: "Resize request details",
+  });
+  const detailWidth = () =>
+    Math.round(detailPanel()?.getBoundingClientRect().width ?? 0);
+  await waitFor(() => {
+    expect(detailWidth()).toBe(320);
+  });
+
+  // A drag toward the detail can't take it below its minimum.
+  const pointer = {
+    bubbles: true,
+    isPrimary: true,
+    pointerId: 1,
+    pointerType: "mouse",
+  };
+  const at = (type: string, clientX: number, buttons: number) =>
+    new PointerEvent(type, { ...pointer, buttons, clientX, clientY: 100 });
+  act(() => {
+    handle.dispatchEvent(at("pointerdown", 274, 1));
+  });
+  act(() => {
+    document.dispatchEvent(at("pointermove", 500, 1));
+  });
+  act(() => {
+    document.dispatchEvent(at("pointerup", 500, 0));
+  });
+  await waitFor(() => {
+    expect(detailWidth()).toBe(320);
+  });
+
+  handle.focus();
+  await user.keyboard("{ArrowRight}");
+  expect(detailWidth()).toBe(320);
+
+  // Neither moved the 360px the detail opens at: a split with room for both
+  // panes gives it back.
+  split.width = 1000;
+  act(() => {
+    observer.report();
+  });
+  await waitFor(() => {
+    expect(detailWidth()).toBe(360);
+  });
 });
