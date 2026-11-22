@@ -217,6 +217,49 @@ test("rapid re-copy cancels the pending reset timer", async () => {
   }
 });
 
+test("a pending retry drops the old success but keeps a shown failure", async () => {
+  vi.useFakeTimers();
+  const pending = Promise.withResolvers<undefined>();
+  const writeText = vi
+    .fn<() => Promise<void>>()
+    .mockResolvedValueOnce()
+    .mockImplementationOnce(() => pending.promise)
+    .mockRejectedValueOnce(new Error("denied"))
+    .mockImplementationOnce(() => new Promise<void>(() => {}));
+  setClipboard({ writeText });
+
+  const view = mount(
+    copyButton,
+    { value: "agentrun-retry" },
+    '<root><trigger as="button">Copy</trigger><fallback>Failed</fallback></root>'
+  );
+  try {
+    expect(await view.api.copy()).toBe(true);
+    expect(view.state.status).toBe("copied");
+
+    // Retry before the reset, and leave it pending past the old deadline.
+    await vi.advanceTimersByTimeAsync(500);
+    const retry = view.api.copy();
+    expect(view.state.status).toBe("idle");
+    expect(view.part("trigger")).not.toHaveAttribute("data-copied");
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(view.state.status).toBe("idle");
+    pending.resolve();
+    expect(await retry).toBe(true);
+    expect(view.state.status).toBe("copied");
+
+    // After a failure, a pending retry keeps the fallback on screen.
+    expect(await view.api.copy()).toBe(false);
+    expect(view.state.status).toBe("failed");
+    void view.api.copy();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(view.state.status).toBe("failed");
+    expect(view.part("fallback")?.isConnected).toBe(true);
+  } finally {
+    view.unmount();
+  }
+});
+
 const ValueChangeHarness = ({ value }: { readonly value: string }) => (
   <CopyButton value={value}>
     <CopyButtonTrigger aria-label="Copy id">

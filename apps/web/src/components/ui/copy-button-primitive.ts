@@ -77,6 +77,11 @@ const definedCopyButton = definePrimitive({
       const currentAttempt = attempt;
       const { value } = context.options();
       clearResetTimer();
+      // A retry drops the old success at once, so "Copied" never outlives the
+      // write it reported; a shown failure stays until a write succeeds.
+      if (context.store.get().status === "copied") {
+        context.store.set({ status: "idle" });
+      }
 
       const clipboard = globalThis.navigator?.clipboard;
       if (
