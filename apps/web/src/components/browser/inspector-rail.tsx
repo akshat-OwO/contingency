@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import type { BrowserStreamStatus } from "@/components/browser/browser-stream-metrics";
+import { Toggle } from "@/components/ui/toggle";
 import {
   Tooltip,
   TooltipContent,
@@ -30,10 +31,9 @@ export const RailButton = ({
   <Tooltip>
     <TooltipTrigger
       render={
-        <button
+        <Toggle
           aria-description={description}
           aria-label={label}
-          aria-pressed={active}
           className={cn(
             "text-muted-foreground hover:text-foreground hover:bg-island-hover focus-visible:ring-ring relative grid size-9 place-items-center rounded-xl transition-[color,background-color,transform] duration-150 outline-none focus-visible:ring-2 active:scale-[0.92] disabled:opacity-40 motion-reduce:active:scale-100 pointer-coarse:size-10 [&_svg]:size-[17px]",
             // The open tool is ringed in the brand accent, as every selected
@@ -42,8 +42,9 @@ export const RailButton = ({
               "text-foreground bg-brand/16 hover:bg-brand/20 shadow-[inset_0_0_0_1.5px_color-mix(in_oklch,var(--brand)_70%,transparent)]"
           )}
           disabled={disabled}
-          onClick={onClick}
-          type="button"
+          onPressedChange={onClick}
+          pressed={active}
+          variant="unstyled"
         />
       }
     >

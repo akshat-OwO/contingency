@@ -21,6 +21,7 @@ import {
   CopyButtonTrigger,
 } from "@/components/ui/copy-button";
 import { DraftField } from "@/components/ui/draft-field";
+import { Toggle } from "@/components/ui/toggle";
 import { cn } from "@/lib/utils";
 
 /**
@@ -138,18 +139,17 @@ const RevealValue = ({
   readonly onToggle: () => void;
   readonly shown: boolean;
 }) => (
-  <Button
+  <Toggle
     aria-label={`${shown ? "Hide" : "Show"} ${label}`}
-    aria-pressed={shown}
     className="absolute top-[3px] right-[3px] size-7 rounded-lg"
     disabled={disabled}
-    onClick={onToggle}
+    onPressedChange={onToggle}
+    pressed={shown}
     size="icon-sm"
     title={shown ? "Hide value" : "Show value"}
-    type="button"
   >
     {shown ? <EyeOffIcon /> : <EyeIcon />}
-  </Button>
+  </Toggle>
 );
 
 /** The ids that describe a field, or nothing. */

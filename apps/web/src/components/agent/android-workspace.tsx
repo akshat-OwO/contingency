@@ -28,6 +28,7 @@ import {
 import { FlowsButton } from "@/components/catalog/flows-button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Toggle } from "@/components/ui/toggle";
 import { isSessionNotFound } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
@@ -442,17 +443,17 @@ const AndroidDockControls = ({
   return (
     <>
       {presentation.showsComment ? (
-        <Button
+        <Toggle
           aria-label="Comment"
           title="Comment"
-          aria-pressed={instructing}
-          onClick={onInstruct}
+          pressed={instructing}
+          onPressedChange={onInstruct}
           size="sm"
           variant="ghost"
         >
           <MessageSquareTextIcon />
           <span className="hidden @md:inline">Comment</span>
-        </Button>
+        </Toggle>
       ) : null}
       {presentation.rejectable ? (
         <Button

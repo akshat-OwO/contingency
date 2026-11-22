@@ -75,6 +75,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Toggle } from "@/components/ui/toggle";
 import {
   Tree,
   TreeGroup,
@@ -400,22 +401,19 @@ const Catalog = ({
         <h1 className="text-[15px] font-semibold tracking-[-0.02em]">Flows</h1>
         <CountPill>{count}</CountPill>
         {global === undefined ? null : (
-          <Button
-            aria-pressed={showGlobal}
+          <Toggle
             // The outline look fills dark mode with `dark:bg-input/30`, so the
             // pressed fill repeats under `dark:` to keep solid ink there too.
-            className="text-muted-foreground hover:text-foreground aria-pressed:bg-foreground aria-pressed:text-background aria-pressed:hover:bg-foreground/90 aria-pressed:hover:text-background dark:aria-pressed:bg-foreground dark:aria-pressed:hover:bg-foreground/90 ml-auto h-[26px] gap-1.5 rounded-lg px-2 text-xs aria-pressed:border-transparent dark:aria-pressed:border-transparent"
-            onClick={() => {
-              setShowGlobal(!showGlobal);
-            }}
+            className="text-muted-foreground hover:text-foreground data-pressed:bg-foreground data-pressed:text-background data-pressed:hover:bg-foreground/90 data-pressed:hover:text-background dark:data-pressed:bg-foreground dark:data-pressed:hover:bg-foreground/90 ml-auto h-[26px] gap-1.5 rounded-lg px-2 text-xs data-pressed:border-transparent dark:data-pressed:border-transparent"
+            onPressedChange={setShowGlobal}
+            pressed={showGlobal}
             size="xs"
             title={global.path}
-            type="button"
             variant="outline"
           >
             <GlobeIcon aria-hidden="true" />
             Global
-          </Button>
+          </Toggle>
         )}
       </div>
       <label className="bg-island-hover ring-island-border focus-within:ring-brand-ink mx-0.5 mb-2 flex h-[34px] items-center gap-2 rounded-xl px-2.5 ring-1 ring-inset focus-within:ring-[1.5px]">
