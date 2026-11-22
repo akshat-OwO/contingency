@@ -121,6 +121,13 @@ const definedDraftField = definePrimitive({
         return;
       }
       if (event.key === "Enter") {
+        // A blur-committed field commits Enter by leaving the field, so the
+        // blur that follows can't apply the same value a second time.
+        if (context.options().commitOnBlur) {
+          event.preventDefault();
+          event.target.blur();
+          return;
+        }
         if (commit(event.target.value, "enter-key", event)) {
           event.preventDefault();
         }

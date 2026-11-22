@@ -6,10 +6,7 @@ import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
 
 import { DismissableLayer } from "@/components/ui/dismissable-layer";
 import { DraftField, draftField } from "@/components/ui/draft-field";
-import type {
-  DraftFieldCancelDetails,
-  DraftFieldCommitDetails,
-} from "@/components/ui/draft-field";
+import type { DraftFieldCancelDetails } from "@/components/ui/draft-field";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 
 declare global {
@@ -208,7 +205,7 @@ test("commitOnBlur commits changed values once and skips unchanged or already-co
     input.blur();
     expect(onCommit).not.toHaveBeenCalled();
 
-    // Edit then Enter then blur commits once with enter-key.
+    // Edit then Enter leaves the field, which commits once; a later blur adds nothing.
     input.focus();
     input.value = "de-DE";
     input.dispatchEvent(
@@ -218,11 +215,12 @@ test("commitOnBlur commits changed values once and skips unchanged or already-co
         key: "Enter",
       })
     );
+    expect(document.activeElement).not.toBe(input);
     input.blur();
     expect(onCommit).toHaveBeenCalledTimes(1);
     expect(onCommit).toHaveBeenLastCalledWith(
       "de-DE",
-      expect.objectContaining({ reason: "enter-key" })
+      expect.objectContaining({ reason: "blur" })
     );
 
     // Refocus and blur unchanged does not commit again.
@@ -244,14 +242,8 @@ test("commitOnBlur commits changed values once and skips unchanged or already-co
   }
 });
 
-test("canceled Enter commit still commits on blur", () => {
-  let cancelOnce = true;
-  const onCommit = vi.fn((_value: string, details: DraftFieldCommitDetails) => {
-    if (cancelOnce) {
-      cancelOnce = false;
-      details.cancel();
-    }
-  });
+test("Enter on a blur-committed field claims the key and leaves the field", () => {
+  const onCommit = vi.fn();
   const view = mount(
     draftField,
     { commitOnBlur: true, onCommit },
@@ -270,15 +262,23 @@ test("canceled Enter commit still commits on blur", () => {
       key: "Enter",
     });
     input.dispatchEvent(enterEvent);
-    expect(enterEvent.defaultPrevented).toBe(false);
+    expect(enterEvent.defaultPrevented).toBe(true);
+    expect(document.activeElement).not.toBe(input);
     expect(onCommit).toHaveBeenCalledTimes(1);
-
-    input.blur();
-    expect(onCommit).toHaveBeenCalledTimes(2);
     expect(onCommit).toHaveBeenLastCalledWith(
       "fr-FR",
       expect.objectContaining({ reason: "blur" })
     );
+
+    // A second Enter on the field that already left does nothing.
+    input.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        bubbles: true,
+        cancelable: true,
+        key: "Enter",
+      })
+    );
+    expect(onCommit).toHaveBeenCalledTimes(1);
   } finally {
     view.unmount();
   }

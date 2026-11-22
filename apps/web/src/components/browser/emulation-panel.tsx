@@ -6,7 +6,7 @@ import type {
 import { make as makeScopedAtom, useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import { XIcon } from "lucide-react";
-import { useRef, useState } from "react";
+import { useState } from "react";
 
 import { devtoolsFieldClassName } from "@/components/browser/devtools-field";
 import type { EmulationPatch } from "@/components/browser/emulation-patch";
@@ -582,10 +582,6 @@ const EmulationPanelContent = ({
   const appliedEmulation =
     applied.status === "known" ? applied.emulation : undefined;
   const appliedLocation = appliedEmulation?.geolocation;
-  const lastLocaleRef = useRef<string | null>(appliedEmulation?.locale ?? null);
-  const lastTimezoneRef = useRef<string | null>(
-    appliedEmulation?.timezoneId ?? null
-  );
 
   const applyLocation = (geolocation: {
     readonly latitude: number;
@@ -640,20 +636,12 @@ const EmulationPanelContent = ({
   const applyLocale = (nextValue: string) => {
     const trimmed = nextValue.trim();
     const nextLocale = trimmed.length === 0 ? null : trimmed;
-    if (nextLocale === lastLocaleRef.current) {
-      return;
-    }
-    lastLocaleRef.current = nextLocale;
     onPatch({ locale: nextLocale });
   };
 
   const applyTimezone = (nextValue: string) => {
     const trimmed = nextValue.trim();
     const nextTimezone = trimmed.length === 0 ? null : trimmed;
-    if (nextTimezone === lastTimezoneRef.current) {
-      return;
-    }
-    lastTimezoneRef.current = nextTimezone;
     onPatch({ timezoneId: nextTimezone });
   };
 
