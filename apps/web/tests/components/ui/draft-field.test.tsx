@@ -205,7 +205,7 @@ test("commitOnBlur commits changed values once and skips unchanged or already-co
     input.blur();
     expect(onCommit).not.toHaveBeenCalled();
 
-    // Edit then Enter leaves the field, which commits once; a later blur adds nothing.
+    // Edit then Enter commits once and leaves the field; a later blur adds nothing.
     input.focus();
     input.value = "de-DE";
     input.dispatchEvent(
@@ -220,7 +220,7 @@ test("commitOnBlur commits changed values once and skips unchanged or already-co
     expect(onCommit).toHaveBeenCalledTimes(1);
     expect(onCommit).toHaveBeenLastCalledWith(
       "de-DE",
-      expect.objectContaining({ reason: "blur" })
+      expect.objectContaining({ reason: "enter-key" })
     );
 
     // Refocus and blur unchanged does not commit again.
@@ -242,7 +242,7 @@ test("commitOnBlur commits changed values once and skips unchanged or already-co
   }
 });
 
-test("Enter on a blur-committed field claims the key and leaves the field", () => {
+test("Enter on a blur-committed field commits, even unchanged, and leaves the field", () => {
   const onCommit = vi.fn();
   const view = mount(
     draftField,
@@ -267,10 +267,16 @@ test("Enter on a blur-committed field claims the key and leaves the field", () =
     expect(onCommit).toHaveBeenCalledTimes(1);
     expect(onCommit).toHaveBeenLastCalledWith(
       "fr-FR",
-      expect.objectContaining({ reason: "blur" })
+      expect.objectContaining({ reason: "enter-key" })
     );
 
-    // A second Enter on the field that already left does nothing.
+    // Enter in a blank, unchanged field still commits: it clears an override.
+    // A passive blur of that unchanged field sends nothing.
+    input.value = "";
+    input.focus();
+    input.blur();
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    input.focus();
     input.dispatchEvent(
       new KeyboardEvent("keydown", {
         bubbles: true,
@@ -278,7 +284,11 @@ test("Enter on a blur-committed field claims the key and leaves the field", () =
         key: "Enter",
       })
     );
-    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit).toHaveBeenCalledTimes(2);
+    expect(onCommit).toHaveBeenLastCalledWith(
+      "",
+      expect.objectContaining({ reason: "enter-key" })
+    );
   } finally {
     view.unmount();
   }

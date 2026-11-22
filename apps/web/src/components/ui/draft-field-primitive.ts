@@ -121,9 +121,12 @@ const definedDraftField = definePrimitive({
         return;
       }
       if (event.key === "Enter") {
-        // A blur-committed field commits Enter by leaving the field, so the
-        // blur that follows can't apply the same value a second time.
+        // Enter always commits, even unchanged: in a blank Emulation field it
+        // is how a person clears an applied override. A blur-committed field
+        // then leaves the field; the commit set the baseline, so that blur
+        // doesn't apply the same value again.
         if (context.options().commitOnBlur) {
+          commit(event.target.value, "enter-key", event);
           event.preventDefault();
           event.target.blur();
           return;

@@ -503,6 +503,19 @@ test("Locale and Time zone commit on Enter and blur without double-applying unch
   await user.tab();
   expect(onPatch).toHaveBeenCalledTimes(3);
   expect(onPatch).toHaveBeenLastCalledWith({ locale: null });
+
+  // Enter in the blank, unchanged field clears an override again, so a person
+  // can retry a failed clear or clear one the panel doesn't show.
+  await user.click(locale);
+  await user.keyboard("{Enter}");
+  expect(onPatch).toHaveBeenCalledTimes(4);
+  expect(onPatch).toHaveBeenLastCalledWith({ locale: null });
+  await user.click(timezone);
+  await user.clear(timezone);
+  await user.tab();
+  await user.click(timezone);
+  await user.keyboard("{Enter}");
+  expect(onPatch).toHaveBeenLastCalledWith({ timezoneId: null });
 });
 
 test("Escape inside Locale reaches the enclosing Emulation card", async () => {
