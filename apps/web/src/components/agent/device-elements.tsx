@@ -15,6 +15,11 @@ import {
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
 
 import {
@@ -116,14 +121,94 @@ export const ScreenElements = ({
           Nothing on screen matches “{query.trim()}”.
         </p>
       ) : null}
-      {groups.map((group) => (
-        <section aria-label={group.title} key={group.id}>
-          <h3 className="text-muted-foreground px-1.5 pt-1 text-xs font-medium">
-            {collapsible(group.id) ? (
-              <button
-                aria-expanded={showOther}
+      {groups.map((group) => {
+        const list = (
+          <ul>
+            {group.entries.map(({ label, node }) => {
+              let Icon = node.editable
+                ? TextCursorInputIcon
+                : MousePointerClickIcon;
+              if (onAttach !== undefined) {
+                Icon = CrosshairIcon;
+              }
+              let verb = node.editable ? "Select" : "Activate";
+              if (onAttach !== undefined) {
+                verb = "Attach";
+              }
+              return (
+                <li key={node.target}>
+                  <Button
+                    size="md"
+                    aria-label={`${verb} ${label}`}
+                    className="w-full justify-start gap-2 px-1.5 font-normal"
+                    disabled={disabled}
+                    onBlur={() => hover(null)}
+                    onClick={() => {
+                      if (observation === null) {
+                        return;
+                      }
+                      if (onAttach !== undefined) {
+                        hover(null);
+                        onAttach(node);
+                        return;
+                      }
+                      const tap = elementTap(observation, node);
+                      if (tap !== undefined) {
+                        hover(null);
+                        onActivate(tap);
+                      }
+                    }}
+                    onFocus={() => hover(node)}
+                    onPointerEnter={() => hover(node)}
+                    onPointerLeave={() => hover(null)}
+                    variant="ghost"
+                  >
+                    <Icon
+                      aria-hidden="true"
+                      className="text-muted-foreground"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-left">
+                      {label}
+                    </span>
+                    {/* The heading already says what kind it is. */}
+                    <span
+                      aria-hidden="true"
+                      className="text-muted-foreground shrink-0 font-mono text-xs"
+                    >
+                      {roleWord(node.role)}
+                    </span>
+                  </Button>
+                </li>
+              );
+            })}
+          </ul>
+        );
+        const heading = (
+          <>
+            {group.title} <GroupCount count={group.entries.length} />
+          </>
+        );
+        if (!collapsible(group.id)) {
+          return (
+            <section aria-label={group.title} key={group.id}>
+              <h3 className="text-muted-foreground px-1.5 pt-1 text-xs font-medium">
+                {heading}
+              </h3>
+              {list}
+            </section>
+          );
+        }
+        // The rarely needed group starts folded behind its heading.
+        return (
+          <Collapsible
+            key={group.id}
+            onOpenChange={setShowOther}
+            open={showOther}
+            render={<section aria-label={group.title} />}
+          >
+            <h3 className="text-muted-foreground px-1.5 pt-1 text-xs font-medium">
+              <CollapsibleTrigger
                 className="hover:text-foreground focus-visible:ring-ring inline-flex items-center gap-1 rounded outline-none focus-visible:ring-2"
-                onClick={() => setShowOther((current) => !current)}
                 type="button"
               >
                 {showOther ? (
@@ -131,77 +216,13 @@ export const ScreenElements = ({
                 ) : (
                   <ChevronRightIcon aria-hidden="true" className="size-3" />
                 )}
-                {group.title} <GroupCount count={group.entries.length} />
-              </button>
-            ) : (
-              <>
-                {group.title} <GroupCount count={group.entries.length} />
-              </>
-            )}
-          </h3>
-          {collapsible(group.id) && !showOther ? null : (
-            <ul>
-              {group.entries.map(({ label, node }) => {
-                let Icon = node.editable
-                  ? TextCursorInputIcon
-                  : MousePointerClickIcon;
-                if (onAttach !== undefined) {
-                  Icon = CrosshairIcon;
-                }
-                let verb = node.editable ? "Select" : "Activate";
-                if (onAttach !== undefined) {
-                  verb = "Attach";
-                }
-                return (
-                  <li key={node.target}>
-                    <Button
-                      size="md"
-                      aria-label={`${verb} ${label}`}
-                      className="w-full justify-start gap-2 px-1.5 font-normal"
-                      disabled={disabled}
-                      onBlur={() => hover(null)}
-                      onClick={() => {
-                        if (observation === null) {
-                          return;
-                        }
-                        if (onAttach !== undefined) {
-                          hover(null);
-                          onAttach(node);
-                          return;
-                        }
-                        const tap = elementTap(observation, node);
-                        if (tap !== undefined) {
-                          hover(null);
-                          onActivate(tap);
-                        }
-                      }}
-                      onFocus={() => hover(node)}
-                      onPointerEnter={() => hover(node)}
-                      onPointerLeave={() => hover(null)}
-                      variant="ghost"
-                    >
-                      <Icon
-                        aria-hidden="true"
-                        className="text-muted-foreground"
-                      />
-                      <span className="min-w-0 flex-1 truncate text-left">
-                        {label}
-                      </span>
-                      {/* The heading already says what kind it is. */}
-                      <span
-                        aria-hidden="true"
-                        className="text-muted-foreground shrink-0 font-mono text-xs"
-                      >
-                        {roleWord(node.role)}
-                      </span>
-                    </Button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </section>
-      ))}
+                {heading}
+              </CollapsibleTrigger>
+            </h3>
+            <CollapsibleContent>{list}</CollapsibleContent>
+          </Collapsible>
+        );
+      })}
       {onAttach === undefined && groups.length > 0 ? (
         <p className="text-muted-foreground px-1.5 pt-1 text-xs text-pretty">
           Hover to find it on the screen. Choosing one taps its centre, the same

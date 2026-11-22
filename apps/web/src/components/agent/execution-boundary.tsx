@@ -6,9 +6,14 @@ import type {
 import { useAtom, useAtomSet } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import { ChevronRightIcon, ShieldAlertIcon } from "lucide-react";
-import { useId, useState } from "react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { failureMessage } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
@@ -147,14 +152,13 @@ const actionFields = (
 /**
  * The attempt behind a boundary, behind **Action details**, as a short list
  * rather than its JSON (#776): the attempt id a person may match in the agent
- * conversation, the kind of action, and each of its fields.
+ * conversation, the kind of action, and each of its fields. It is the
+ * disclosure's panel, so it is in the page only while open.
  */
 const ActionDetailsList = ({
   boundary,
-  id,
 }: {
   readonly boundary: AgentExecutionBoundary;
-  readonly id: string;
 }) => {
   const lines: readonly ActionLine[] = [
     ["Attempt", boundary.operationId],
@@ -162,7 +166,9 @@ const ActionDetailsList = ({
     ...actionFields(boundary.action),
   ];
   return (
-    <dl className="grid gap-[3px] px-3 text-[12.5px]" id={id}>
+    <CollapsibleContent
+      render={<dl className="grid gap-[3px] px-3 text-[12.5px]" />}
+    >
       {lines.map(([term, detail]) => (
         <div className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-2" key={term}>
           <dt className="text-muted-foreground">{term}</dt>
@@ -171,31 +177,24 @@ const ActionDetailsList = ({
           </dd>
         </div>
       ))}
-    </dl>
+    </CollapsibleContent>
   );
 };
 
 /**
- * The **Action details** disclosure: a chevron and its label at the start of
- * the decision row, across from Refuse and Allow. Its list opens under the
- * target.
+ * The **Action details** disclosure's trigger: a chevron and its label at the
+ * start of the decision row, across from Refuse and Allow. Its list opens
+ * under the target.
  */
-const ActionDetailsToggle = ({
-  controls,
-  onToggle,
-  open,
-}: {
-  readonly controls: string;
-  readonly onToggle: () => void;
-  readonly open: boolean;
-}) => (
-  <Button
-    aria-controls={open ? controls : undefined}
-    aria-expanded={open}
-    className="text-muted-foreground hover:text-foreground mr-auto -ml-1.5 gap-1 px-1.5 text-xs"
-    onClick={onToggle}
-    size="xs"
-    type="button"
+const ActionDetailsToggle = ({ open }: { readonly open: boolean }) => (
+  <CollapsibleTrigger
+    render={
+      <Button
+        className="text-muted-foreground hover:text-foreground mr-auto -ml-1.5 gap-1 px-1.5 text-xs"
+        size="xs"
+        type="button"
+      />
+    }
   >
     <ChevronRightIcon
       aria-hidden="true"
@@ -205,7 +204,7 @@ const ActionDetailsToggle = ({
       )}
     />
     {open ? "Hide action details" : "Action details"}
-  </Button>
+  </CollapsibleTrigger>
 );
 
 /** The eyebrow over a boundary's question, with its place in the queue. */
@@ -245,7 +244,6 @@ export const ExecutionBoundary = ({
   const [state, setState] = useAtom(stateAtom);
   const [detailsAtom] = useState(() => Atom.make(false));
   const [detailsOpen, setDetailsOpen] = useAtom(detailsAtom);
-  const detailsId = useId();
   const [operations] = useState(() => ({
     allow: OperationId.make(crypto.randomUUID()),
     refuse: OperationId.make(crypto.randomUUID()),
@@ -291,7 +289,15 @@ export const ExecutionBoundary = ({
   const { context, target } = boundaryTarget(boundary);
   const userHolds = session.controller === "user";
   return (
-    <section aria-label="Execution Boundary" className="grid gap-3">
+    // The section is the Action details disclosure, since its trigger and
+    // its list sit apart in the card.
+    <Collapsible
+      onOpenChange={setDetailsOpen}
+      open={detailsOpen}
+      render={
+        <section aria-label="Execution Boundary" className="grid gap-3" />
+      }
+    >
       <RequestHeader
         action={collapse}
         badge={<BoundaryEyebrow queued={queued} />}
@@ -312,9 +318,7 @@ export const ExecutionBoundary = ({
       <p className="bg-island-hover rounded-xl px-3 py-[9px] font-mono text-[12.5px] wrap-break-word whitespace-pre-wrap">
         <Breakable text={target} />
       </p>
-      {detailsOpen ? (
-        <ActionDetailsList boundary={boundary} id={detailsId} />
-      ) : null}
+      <ActionDetailsList boundary={boundary} />
       {/*
         While the person holds the browser, Allow is off until they return
         control (ADR 0052), so the card says why above the buttons.
@@ -325,11 +329,7 @@ export const ExecutionBoundary = ({
         </p>
       ) : null}
       <div className="flex items-center justify-end gap-2">
-        <ActionDetailsToggle
-          controls={detailsId}
-          onToggle={() => setDetailsOpen((current) => !current)}
-          open={detailsOpen}
-        />
+        <ActionDetailsToggle open={detailsOpen} />
         <Button
           className="bg-island-hover text-foreground shadow-[inset_0_0_0_1px_var(--island-border)]"
           disabled={pending === undefined || state.pending || state.answered}
@@ -368,6 +368,6 @@ export const ExecutionBoundary = ({
           {state.error}
         </p>
       )}
-    </section>
+    </Collapsible>
   );
 };

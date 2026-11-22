@@ -300,9 +300,27 @@ test("holds a paused Boundary in the dock and reopens a folded tier for a new on
       .map((button) => button.textContent)
   ).toEqual(["Refuse", "Allow"]);
   expect(boundary).not.toHaveTextContent("submit-boundary-1");
-  await user.click(
-    within(boundary).getByRole("button", { name: "Action details" })
+  const toggle = within(boundary).getByRole("button", {
+    name: "Action details",
+  });
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await user.click(toggle);
+  // The disclosure names its list while open, and its label says so.
+  expect(toggle).toHaveAttribute("aria-expanded", "true");
+  expect(toggle).toHaveAccessibleName("Hide action details");
+  const detailsList = document.querySelector(
+    `[id="${toggle.getAttribute("aria-controls") ?? ""}"]`
   );
+  expect(detailsList?.tagName).toBe("DL");
+  expect(boundary).toContainElement(detailsList);
+  // Enter and Space close and reopen it.
+  toggle.focus();
+  await user.keyboard("{Enter}");
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  expect(toggle).toHaveAccessibleName("Action details");
+  expect(within(boundary).queryByRole("term")).toBeNull();
+  await user.keyboard(" ");
+  expect(toggle).toHaveAttribute("aria-expanded", "true");
   // The attempt reads as a short list, not its JSON.
   const details = Object.fromEntries(
     within(boundary)

@@ -93,6 +93,33 @@ test("lists fields, then controls, then the rest, each label once", async () => 
   expect(screenElementCount(observation)).toBe(7);
 });
 
+test("Other elements is a disclosure that opens and closes by click, Enter and Space", async () => {
+  const user = userEvent.setup();
+  renderElements();
+  const other = screen.getByRole("button", { name: "Other elements 1" });
+  const region = screen.getByRole("region", { name: "Other elements" });
+  expect(other).toHaveAttribute("aria-expanded", "false");
+  expect(within(region).queryByRole("list")).toBeNull();
+
+  await user.click(other);
+  expect(other).toHaveAttribute("aria-expanded", "true");
+  const panel = document.querySelector(
+    `[id="${other.getAttribute("aria-controls") ?? ""}"]`
+  );
+  expect(panel).not.toBeNull();
+  expect(panel).toContainElement(within(region).getByRole("list"));
+
+  other.focus();
+  await user.keyboard("{Enter}");
+  expect(other).toHaveAttribute("aria-expanded", "false");
+  expect(within(region).queryByRole("list")).toBeNull();
+  await user.keyboard(" ");
+  expect(other).toHaveAttribute("aria-expanded", "true");
+  expect(
+    within(region).getByRole("button", { name: "Activate Welcome back" })
+  ).toBeVisible();
+});
+
 test("activating an element taps the device at its centre", async () => {
   const user = userEvent.setup();
   const onActivate = vi.fn<(inputs: readonly NativeInput[]) => void>();
