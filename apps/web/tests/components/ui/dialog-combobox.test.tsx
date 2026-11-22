@@ -226,3 +226,19 @@ test("a defaultOpen combobox starts with its dialog shown", async () => {
     screen.getByRole("combobox", { name: "Agent Session" })
   ).toHaveAttribute("aria-expanded", "true");
 });
+
+const LabelledBy = () => (
+  <DialogCombobox>
+    <span id="session-label">Agent Session</span>
+    <DialogComboboxTrigger aria-labelledby="session-label">
+      Checkout
+    </DialogComboboxTrigger>
+  </DialogCombobox>
+);
+
+test("aria-labelledby names the trigger apart from the choice it shows", () => {
+  render(<LabelledBy />);
+  expect(
+    screen.getByRole("combobox", { name: "Agent Session" })
+  ).toHaveTextContent("Checkout");
+});

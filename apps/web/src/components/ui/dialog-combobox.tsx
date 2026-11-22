@@ -60,17 +60,30 @@ const DialogCombobox = ({
   );
 };
 
+/**
+ * A combobox's name never comes from its text, which shows the current choice,
+ * so the trigger takes `aria-label` or `aria-labelledby`.
+ * https://www.w3.org/WAI/ARIA/apg/patterns/combobox/#wai-ariaroles,states,andproperties
+ */
+type DialogComboboxTriggerName =
+  | { readonly "aria-label": string; readonly "aria-labelledby"?: never }
+  | { readonly "aria-label"?: never; readonly "aria-labelledby": string };
+
 export type DialogComboboxTriggerProps = Omit<
   PartProps<"button", DialogComboboxState>,
-  "render"
-> & {
-  /** The element to render, as on `PopoverTrigger`, like a `Button`. */
-  readonly render?: NonNullable<
-    React.ComponentProps<typeof PopoverTrigger>["render"]
-  >;
-};
+  "aria-label" | "aria-labelledby" | "render"
+> &
+  DialogComboboxTriggerName & {
+    /** The element to render, as on `PopoverTrigger`, like a `Button`. */
+    readonly render?: NonNullable<
+      React.ComponentProps<typeof PopoverTrigger>["render"]
+    >;
+  };
 
-/** The combobox, rendered through the Popover's trigger. */
+/**
+ * The combobox, rendered through the Popover's trigger. Its children show the
+ * current choice; `aria-label` or `aria-labelledby` names it.
+ */
 const DialogComboboxTrigger = ({
   render,
   ...props
