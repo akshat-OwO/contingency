@@ -220,12 +220,13 @@ test("rapid re-copy cancels the pending reset timer", async () => {
 test("a pending retry drops the old success but keeps a shown failure", async () => {
   vi.useFakeTimers();
   const pending = Promise.withResolvers<undefined>();
+  const never = Promise.withResolvers<undefined>();
   const writeText = vi
     .fn<() => Promise<void>>()
     .mockResolvedValueOnce()
     .mockImplementationOnce(() => pending.promise)
     .mockRejectedValueOnce(new Error("denied"))
-    .mockImplementationOnce(() => new Promise<void>(() => {}));
+    .mockImplementationOnce(() => never.promise);
   setClipboard({ writeText });
 
   const view = mount(
