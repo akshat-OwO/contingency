@@ -21,6 +21,12 @@ import { DocsLink } from "@/components/docs-link";
 import { ModeToggle } from "@/components/mode-toggle";
 import { Button } from "@/components/ui/button";
 import {
+  DialogCombobox,
+  DialogComboboxContent,
+  DialogComboboxTitle,
+  DialogComboboxTrigger,
+} from "@/components/ui/dialog-combobox";
+import {
   Popover,
   PopoverContent,
   PopoverTitle,
@@ -61,6 +67,13 @@ export interface SessionDeletion {
 export const dockSessionTriggerClassName =
   "hover:bg-island-hover data-[popup-open]:bg-island-hover h-[34px] min-w-0 max-w-80 shrink justify-start gap-2 rounded-xl pr-2 pl-3 text-sm font-medium";
 
+/** The prototype's session popover: an opaque island, not a plain menu. */
+export const dockSessionPopoverClassName =
+  "bg-island-solid border-island-border shadow-island w-[380px] max-w-[calc(100vw-2rem)] gap-0 rounded-[22px] border p-1.5 ring-0";
+
+export const dockSessionTitleClassName =
+  "text-muted-foreground/70 mx-2.5 my-1.5 text-[11px] font-semibold tracking-[0.04em] uppercase";
+
 /** A dialog popup allows selection and deletion to be separate keyboard targets. */
 export const DockSessionSelect = ({
   className,
@@ -79,21 +92,13 @@ export const DockSessionSelect = ({
   const home = useWorkspaceHome();
   const selected = sessions.find(({ id }) => id === selectedSessionId);
   return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger
+    <DialogCombobox open={open} onOpenChange={setOpen}>
+      <DialogComboboxTrigger
         aria-label="Agent Session"
         // The home's "In progress" heading morphs into this trigger.
         data-vt="switcher"
         // The trigger shows the name's start; hovering shows all of it.
         title={selected === undefined ? undefined : agentSessionLabel(selected)}
-        role="combobox"
-        aria-haspopup="dialog"
-        onKeyDown={(event) => {
-          if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-            event.preventDefault();
-            setOpen(true);
-          }
-        }}
         render={
           <Button
             variant="ghost"
@@ -112,18 +117,16 @@ export const DockSessionSelect = ({
           aria-hidden="true"
           className="text-muted-foreground/70 size-3.5"
         />
-      </PopoverTrigger>
-      <PopoverContent
+      </DialogComboboxTrigger>
+      <DialogComboboxContent
         aria-label="Agent Sessions"
-        align="start"
         side="bottom"
         sideOffset={14}
-        // The prototype's popover: an opaque island, not a plain menu.
-        className="bg-island-solid border-island-border shadow-island w-[380px] max-w-[calc(100vw-2rem)] gap-0 rounded-[22px] border p-1.5 ring-0"
+        className={dockSessionPopoverClassName}
       >
-        <PopoverTitle className="text-muted-foreground/70 mx-2.5 my-1.5 text-[11px] font-semibold tracking-[0.04em] uppercase">
+        <DialogComboboxTitle className={dockSessionTitleClassName}>
           Agent Sessions
-        </PopoverTitle>
+        </DialogComboboxTitle>
         <div className="grid max-h-72 gap-0.5 overflow-y-auto">
           {sessions.map((session) => {
             const label = agentSessionLabel(session);
@@ -200,8 +203,8 @@ export const DockSessionSelect = ({
             </Button>
           </>
         )}
-      </PopoverContent>
-    </Popover>
+      </DialogComboboxContent>
+    </DialogCombobox>
   );
 };
 
