@@ -22,6 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { DraftField } from "@/components/ui/draft-field";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -632,14 +633,16 @@ const EmulationPanelContent = ({
     onPatch({ geolocation: null });
   };
 
-  const applyLocale = () => {
-    const trimmed = locale.trim();
-    onPatch({ locale: trimmed.length === 0 ? null : trimmed });
+  const applyLocale = (nextValue: string) => {
+    const trimmed = nextValue.trim();
+    const nextLocale = trimmed.length === 0 ? null : trimmed;
+    onPatch({ locale: nextLocale });
   };
 
-  const applyTimezone = () => {
-    const trimmed = timezoneId.trim();
-    onPatch({ timezoneId: trimmed.length === 0 ? null : trimmed });
+  const applyTimezone = (nextValue: string) => {
+    const trimmed = nextValue.trim();
+    const nextTimezone = trimmed.length === 0 ? null : trimmed;
+    onPatch({ timezoneId: nextTimezone });
   };
 
   const applyColorScheme = (value: ColorSchemeChoice) => {
@@ -677,36 +680,28 @@ const EmulationPanelContent = ({
           <div className="grid gap-2">
             <label className="block space-y-1 text-xs">
               <span>Locale</span>
-              <Input
+              <DraftField
                 variant="compact"
                 aria-label="Locale"
                 className={cn(devtoolsFieldClassName, "font-mono")}
+                commitOnBlur
                 disabled={disabled}
-                onBlur={applyLocale}
                 onChange={(event) => setLocale(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.currentTarget.blur();
-                  }
-                }}
+                onCommit={applyLocale}
                 placeholder="de-DE"
                 value={locale}
               />
             </label>
             <label className="block space-y-1 text-xs">
               <span>Time zone</span>
-              <Input
+              <DraftField
                 variant="compact"
                 aria-label="Time zone"
                 className={cn(devtoolsFieldClassName, "font-mono")}
+                commitOnBlur
                 disabled={disabled}
-                onBlur={applyTimezone}
                 onChange={(event) => setTimezoneId(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.currentTarget.blur();
-                  }
-                }}
+                onCommit={applyTimezone}
                 placeholder="Europe/Berlin"
                 value={timezoneId}
               />

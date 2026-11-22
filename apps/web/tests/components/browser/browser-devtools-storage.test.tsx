@@ -16,12 +16,13 @@ import {
 import userEvent from "@testing-library/user-event";
 import { Deferred, Effect } from "effect";
 import { Atom } from "effect/reactivity";
-import { createElement } from "react";
+import { createElement, useState } from "react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 
 import { BrowserDevtools } from "@/components/browser/browser-devtools";
 import type { BrowserDevtoolsProps } from "@/components/browser/browser-devtools";
 import { useAgentBrowserTooling } from "@/components/browser/browser-tooling";
+import { DismissableLayer } from "@/components/ui/dismissable-layer";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 
 const rpc = vi.hoisted(() => ({
@@ -280,6 +281,77 @@ test("adds a Web Storage entry inline and disables Refresh while a cookie draft 
   expect(
     screen.getByRole("button", { name: "Refresh storage" })
   ).toBeDisabled();
+});
+
+test("Escape cancels the inline storage draft while keeping the Storage card open, then a second Escape closes the card", async () => {
+  const onCardDismiss = vi.fn();
+  const CardHarness = () => {
+    const [open, setOpen] = useState(true);
+    return open ? (
+      <DismissableLayer
+        onDismiss={() => {
+          onCardDismiss();
+          setOpen(false);
+        }}
+        render={<section aria-label="Storage card" />}
+      >
+        <SessionDevtools
+          consoleEntries={[]}
+          dockSide="right"
+          mutationsLocked={false}
+          networkRequests={[]}
+          onClearConsole={() => {}}
+          onClearNetwork={() => {}}
+          onClose={() => setOpen(false)}
+          onError={() => {}}
+          onRefreshNetwork={() => {}}
+          onSelectPanel={() => {}}
+          onToggleDockSide={() => {}}
+          panel="storage"
+          refreshingNetwork={false}
+          tabId={tabId}
+          tabTitle="App"
+          tabUrl="https://app.example.com/home"
+        />
+      </DismissableLayer>
+    ) : null;
+  };
+
+  render(
+    <RpcDependenciesProvider overrides={rpcOverrides}>
+      <RegistryProvider defaultIdleTTL={400}>
+        <CardHarness />
+      </RegistryProvider>
+    </RpcDependenciesProvider>
+  );
+
+  const user = await openStorage();
+  await user.click(screen.getByRole("radio", { name: "Local" }));
+  await waitFor(() => {
+    expect(screen.getByText("featureFlag")).toBeInTheDocument();
+  });
+  await user.click(screen.getByRole("button", { name: "Add entry" }));
+  const keyInput = screen.getByLabelText("New storage key");
+  await user.click(keyInput);
+  await user.keyboard("{Enter}");
+  expect(keyInput).toHaveAttribute("aria-invalid", "true");
+  expect(rpc.set).not.toHaveBeenCalled();
+  await user.type(keyInput, "temp");
+  expect(keyInput).not.toHaveAttribute("aria-invalid", "true");
+
+  // First Escape cancels the draft without writing or closing the surrounding card.
+  await user.keyboard("{Escape}");
+  expect(screen.queryByLabelText("New storage key")).toBeNull();
+  expect(rpc.set).not.toHaveBeenCalled();
+  expect(
+    screen.getByRole("region", { name: "Storage card" })
+  ).toBeInTheDocument();
+  expect(onCardDismiss).not.toHaveBeenCalled();
+
+  // Second Escape closes the Storage card itself.
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("region", { name: "Storage card" })).toBeNull();
+  expect(onCardDismiss).toHaveBeenCalledTimes(1);
 });
 
 test("lists network requests as a table with durations and switches panels from the header", async () => {

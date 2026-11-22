@@ -14,7 +14,7 @@ import { useState } from "react";
 
 import { shortDecisionId } from "@/components/agent/dock-requests-state";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { DraftField } from "@/components/ui/draft-field";
 import { cn } from "@/lib/utils";
 
 import { CopyFeedback, useCopy } from "./evidence-reference";
@@ -321,7 +321,7 @@ export const VariableField = ({
       </div>
       <div className="flex min-w-0 items-center gap-1.5">
         <div className="relative min-w-0 flex-1">
-          <Input
+          <DraftField
             aria-describedby={describedBy(
               detail !== undefined && `${id}-purpose`,
               (invalid || error !== undefined) && messageId
@@ -335,14 +335,9 @@ export const VariableField = ({
               onValueChange(event.target.value);
               setView((current) => ({ ...current, invalid: false }));
             }}
-            onKeyDown={(event) => {
-              // Supply is off while the field is empty, which blocks the
-              // form's own Enter, so an empty Enter is caught here to say why.
-              if (event.key === "Enter" && value === "") {
-                event.preventDefault();
-                setView((current) => ({ ...current, invalid: true }));
-              }
-            }}
+            onEmptyCommit={() =>
+              setView((current) => ({ ...current, invalid: true }))
+            }
             placeholder="Value"
             spellCheck={false}
             type={masked && !view.shown ? "password" : "text"}

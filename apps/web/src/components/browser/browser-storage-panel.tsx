@@ -70,6 +70,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { DraftField } from "@/components/ui/draft-field";
 import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import {
@@ -394,10 +395,11 @@ const WebStorageInlineAdd = ({
       }}
     >
       <Field invalid={draft.fieldError !== undefined}>
-        <Input
+        <DraftField
           variant="compact"
           aria-label="New storage key"
           className="h-7 font-mono text-xs md:text-xs"
+          onCancel={onCancel}
           onChange={(event) =>
             onDraftChange({
               ...draft,
@@ -405,16 +407,7 @@ const WebStorageInlineAdd = ({
               key: event.target.value,
             })
           }
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              onCommit(draft);
-            }
-            if (event.key === "Escape") {
-              event.preventDefault();
-              onCancel();
-            }
-          }}
+          onCommit={() => onCommit(draft)}
           placeholder="Key"
           value={draft.key}
         />
@@ -422,23 +415,15 @@ const WebStorageInlineAdd = ({
           <FieldError>{draft.fieldError}</FieldError>
         )}
       </Field>
-      <Input
+      <DraftField
         variant="compact"
         aria-label="New storage value"
         className="h-7 font-mono text-xs md:text-xs"
+        onCancel={onCancel}
         onChange={(event) =>
           onDraftChange({ ...draft, value: event.target.value })
         }
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            onCommit(draft);
-          }
-          if (event.key === "Escape") {
-            event.preventDefault();
-            onCancel();
-          }
-        }}
+        onCommit={() => onCommit(draft)}
         placeholder="Value"
         value={draft.value}
       />
