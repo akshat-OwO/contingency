@@ -250,6 +250,28 @@ test("keeps the Emulation card open when Escape dismisses its own dialog", async
   });
   expect(screen.getByRole("region", { name: "Emulation" })).toBeVisible();
   expect(screen.getByLabelText("Latitude")).toHaveValue("52.52");
+  await user.keyboard("{Escape}");
+  expect(
+    screen.queryByRole("region", { name: "Emulation" })
+  ).not.toBeInTheDocument();
+});
+
+test("keeps the Emulation card open when Escape dismisses its Permission select", async () => {
+  renderSetup();
+  expect(await screen.findByText("1280 × 720")).toBeVisible();
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: "Emulation" }));
+  await user.click(screen.getByLabelText("Permission"));
+  expect(await screen.findByRole("option", { name: "camera" })).toBeVisible();
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(screen.queryByRole("option", { name: "camera" })).toBeNull();
+  });
+  expect(screen.getByRole("region", { name: "Emulation" })).toBeVisible();
+  await user.keyboard("{Escape}");
+  expect(
+    screen.queryByRole("region", { name: "Emulation" })
+  ).not.toBeInTheDocument();
 });
 
 test("opens a configuration card over the stage and closes it with Escape", async () => {

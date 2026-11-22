@@ -6,7 +6,7 @@ import type {
 import { make as makeScopedAtom, useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import { XIcon } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { devtoolsFieldClassName } from "@/components/browser/devtools-field";
 import type { EmulationPatch } from "@/components/browser/emulation-patch";
@@ -162,22 +162,6 @@ const LocationPermissionDialogContent = ({
 }) => {
   const { origin } = location;
   const [scope, setScope] = useAtom(LocationPermissionScopeAtom.use());
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      onCancel();
-    };
-
-    globalThis.document.addEventListener("keydown", handleKeyDown, true);
-    return () => {
-      globalThis.document.removeEventListener("keydown", handleKeyDown, true);
-    };
-  }, [onCancel]);
 
   // A new confirmation mounts a fresh dialog, so this default is deliberately
   // local: changing the active Page later must not silently retarget an

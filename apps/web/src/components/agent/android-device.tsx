@@ -22,7 +22,7 @@ import {
   UnplugIcon,
   XIcon,
 } from "lucide-react";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   ComponentType,
   PointerEvent as ReactPointerEvent,
@@ -37,6 +37,7 @@ import {
 import { LocationFields } from "@/components/browser/location-fields";
 import { SegmentedControl } from "@/components/browser/segmented-control";
 import { Button } from "@/components/ui/button";
+import { DismissableLayer } from "@/components/ui/dismissable-layer";
 import { cn } from "@/lib/utils";
 import { useWorkspaceRefreshClock } from "@/lib/workspace-refresh";
 
@@ -754,7 +755,6 @@ export const NativeStage = ({
   const [since] = useState(() => performance.now());
   const active = activePick(pick, observation, setHighlight);
   const stage = useRef<HTMLElement>(null);
-  const cardRef = useRef<HTMLElement>(null);
   // Losing control closes what only the person in control can use. A pick
   // lists the screen's elements beside it.
   let shown = card === "stream" || canAct ? card : null;
@@ -762,32 +762,10 @@ export const NativeStage = ({
     shown = "elements";
   }
   const close = () => {
-    // Closing removes what has focus; it goes back to the card's rail button.
-    const focused = cardRef.current?.contains(document.activeElement) ?? false;
     setCard(null);
     setHighlight(null);
     active?.cancel();
-    if (focused && shown !== null) {
-      stage.current
-        ?.querySelector<HTMLButtonElement>(
-          `nav button[aria-label="${deviceCardTitles[shown]}"]`
-        )
-        ?.focus();
-    }
   };
-  const onEscape = useEffectEvent((event: KeyboardEvent) => {
-    if (event.key === "Escape" && !event.defaultPrevented) {
-      event.preventDefault();
-      close();
-    }
-  });
-  useEffect(() => {
-    if (shown === null) {
-      return;
-    }
-    globalThis.addEventListener("keydown", onEscape);
-    return () => globalThis.removeEventListener("keydown", onEscape);
-  }, [shown]);
   const hasLeading = leading !== undefined && leading !== null;
   const reserve = Math.max(
     hasLeading ? LEADING_SPACE : 0,
@@ -838,10 +816,19 @@ export const NativeStage = ({
           streamLive={stream.state === "live"}
         />
         {shown === null ? null : (
-          <section
-            aria-label={deviceCardTitles[shown]}
-            ref={cardRef}
-            className="island bg-island-solid pointer-events-auto absolute top-1/2 left-full z-30 ml-3 flex max-h-[min(40rem,100cqh)] w-80 -translate-y-1/2 flex-col overflow-hidden rounded-[18px]"
+          <DismissableLayer
+            onDismiss={close}
+            render={
+              <section
+                aria-label={deviceCardTitles[shown]}
+                className="island bg-island-solid pointer-events-auto absolute top-1/2 left-full z-30 ml-3 flex max-h-[min(40rem,100cqh)] w-80 -translate-y-1/2 flex-col overflow-hidden rounded-[18px]"
+              />
+            }
+            restoreFocus={() =>
+              stage.current?.querySelector<HTMLButtonElement>(
+                `nav button[aria-label="${deviceCardTitles[shown]}"]`
+              )
+            }
           >
             <header className="border-island-border flex h-11 shrink-0 items-center border-b pr-1.5 pl-4">
               <h2 className="text-sm font-medium">{deviceCardTitles[shown]}</h2>
@@ -891,7 +878,7 @@ export const NativeStage = ({
                 />
               ) : null}
             </div>
-          </section>
+          </DismissableLayer>
         )}
       </div>
     </section>

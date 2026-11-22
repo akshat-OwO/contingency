@@ -1,0 +1,704 @@
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { checkServer, mount, partAttrs, partState } from "@ui-sdk/core/testing";
+import { useState } from "react";
+import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
+
+import {
+  Combobox,
+  ComboboxContent,
+  ComboboxInput,
+  ComboboxItem,
+  ComboboxList,
+} from "@/components/ui/combobox";
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  DismissableLayer,
+  dismissableLayer,
+} from "@/components/ui/dismissable-layer";
+import type { DismissableLayerDismissReason } from "@/components/ui/dismissable-layer";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+
+declare global {
+  var __UI_SDK_STRICT__: boolean | undefined;
+}
+
+let previousStrict: boolean | undefined;
+
+beforeAll(() => {
+  previousStrict = globalThis.__UI_SDK_STRICT__;
+  globalThis.__UI_SDK_STRICT__ = true;
+});
+
+afterAll(() => {
+  globalThis.__UI_SDK_STRICT__ = previousStrict;
+});
+
+afterEach(cleanup);
+
+test("renders pure attributes and state on the server", () => {
+  const html = checkServer(
+    dismissableLayer,
+    {},
+    "<root><anchor></anchor>Card</root>"
+  );
+  expect(html).toContain('data-slot="dismissable-layer"');
+  expect(html).toContain("data-open");
+  expect(html).toContain('data-slot="dismissable-layer-anchor"');
+  expect(html).toContain('aria-hidden="true"');
+  expect(html).toContain("hidden");
+
+  const instance = dismissableLayer({});
+  try {
+    const root = instance.part("root", {});
+    expect(partAttrs(root)).toMatchObject({ "data-open": "" });
+    expect(partState(root)).toEqual({ open: true });
+    const anchor = instance.part("anchor", {});
+    expect(partAttrs(anchor)).toMatchObject({
+      "aria-hidden": "true",
+      hidden: "",
+    });
+  } finally {
+    instance.destroy();
+  }
+});
+
+test("leading anchor stays hidden from layout and ARIA tree and mounts only while open", () => {
+  const { rerender } = render(
+    <DismissableLayer open render={<section aria-label="Surface" />}>
+      <button type="button">Action</button>
+    </DismissableLayer>
+  );
+
+  const region = screen.getByRole("region", { name: "Surface" });
+  const anchor = region.querySelector('[data-slot="dismissable-layer-anchor"]');
+  expect(anchor).toBeInstanceOf(HTMLSpanElement);
+  expect(anchor).toBe(region.firstElementChild);
+  expect(anchor).toHaveAttribute("aria-hidden", "true");
+  expect(anchor).toHaveAttribute("hidden");
+  expect(anchor).not.toHaveAttribute("role");
+  expect(anchor).toHaveTextContent("");
+
+  rerender(
+    <DismissableLayer open={false} render={<section aria-label="Surface" />}>
+      <button type="button">Action</button>
+    </DismissableLayer>
+  );
+  expect(
+    region.querySelector('[data-slot="dismissable-layer-anchor"]')
+  ).toBeNull();
+});
+
+test("dismisses on Escape, ignores outside press by default, and cleans up on unmount", async () => {
+  const outside = document.createElement("button");
+  outside.type = "button";
+  outside.textContent = "Outside";
+  document.body.append(outside);
+
+  const onDismiss = vi.fn();
+  const view = mount(
+    dismissableLayer,
+    { onDismiss },
+    "<root><button type='button'>Inside</button></root>"
+  );
+  try {
+    await view.click(outside);
+    expect(onDismiss).not.toHaveBeenCalled();
+    expect(view.state.open).toBe(true);
+
+    await view.keys("Escape");
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onDismiss).toHaveBeenCalledWith(
+      "escape-key",
+      expect.objectContaining({
+        reason: "escape-key",
+        source: "keyboard",
+      })
+    );
+    expect(view.state.open).toBe(false);
+    expect(view.root).toHaveAttribute("data-closed");
+  } finally {
+    view.unmount();
+    outside.remove();
+  }
+
+  // Unmounting removes the layer from the stack; later Escape keys do nothing.
+  const secondDismiss = vi.fn();
+  const ephemeral = mount(
+    dismissableLayer,
+    { onDismiss: secondDismiss },
+    "<root>Ephemeral</root>"
+  );
+  ephemeral.unmount();
+  document.dispatchEvent(
+    new KeyboardEvent("keydown", { bubbles: true, key: "Escape" })
+  );
+  expect(secondDismiss).not.toHaveBeenCalled();
+});
+
+test("supports outside-press opt-in, contains exclusions, and cancelable onDismiss", async () => {
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.textContent = "Trigger";
+  const outside = document.createElement("button");
+  outside.type = "button";
+  outside.textContent = "Outside";
+  document.body.append(trigger, outside);
+
+  let cancelNext = true;
+  const onDismiss = vi.fn(
+    (
+      _reason: DismissableLayerDismissReason,
+      details: { cancel: () => void }
+    ) => {
+      if (cancelNext) {
+        details.cancel();
+      }
+    }
+  );
+  const view = mount(
+    dismissableLayer,
+    {
+      contains: (target) => trigger.contains(target),
+      dismissOnOutsidePress: true,
+      onDismiss,
+    },
+    "<root><button type='button'>Inside</button></root>"
+  );
+  try {
+    await view.click(trigger);
+    expect(onDismiss).not.toHaveBeenCalled();
+    expect(view.state.open).toBe(true);
+
+    await view.click(outside);
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onDismiss).toHaveBeenLastCalledWith(
+      "outside-press",
+      expect.objectContaining({ reason: "outside-press" })
+    );
+    expect(view.state.open).toBe(true);
+
+    cancelNext = false;
+    await view.click(outside);
+    expect(onDismiss).toHaveBeenCalledTimes(2);
+    expect(view.state.open).toBe(false);
+  } finally {
+    view.unmount();
+    trigger.remove();
+    outside.remove();
+  }
+});
+
+test("stacked dismissable layers receive Escape from top to bottom", async () => {
+  const outerDismiss = vi.fn();
+  const innerDismiss = vi.fn();
+  const outer = mount(
+    dismissableLayer,
+    { onDismiss: outerDismiss },
+    "<root>Outer</root>"
+  );
+  const inner = mount(
+    dismissableLayer,
+    { onDismiss: innerDismiss },
+    "<root>Inner</root>"
+  );
+  try {
+    await inner.keys("Escape");
+    expect(innerDismiss).toHaveBeenCalledTimes(1);
+    expect(outerDismiss).not.toHaveBeenCalled();
+
+    await outer.keys("Escape");
+    expect(outerDismiss).toHaveBeenCalledTimes(1);
+  } finally {
+    inner.unmount();
+    outer.unmount();
+  }
+});
+
+test("nested Select, Combobox, Menu, and Dialog popups receive Escape before the outer DismissableLayer", async () => {
+  const user = userEvent.setup();
+  const onDismiss = vi.fn();
+
+  const Harness = () => {
+    const [open, setOpen] = useState(true);
+    return open ? (
+      <DismissableLayer
+        onDismiss={() => {
+          onDismiss();
+          setOpen(false);
+        }}
+        render={<section aria-label="Surface" />}
+      >
+        <Select defaultValue="desktop">
+          <SelectTrigger aria-label="Viewport">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="desktop">Desktop</SelectItem>
+            <SelectItem value="phone">Phone</SelectItem>
+          </SelectContent>
+        </Select>
+        <Combobox>
+          <ComboboxInput aria-label="Target App" />
+          <ComboboxContent>
+            <ComboboxList>
+              <ComboboxItem value="shop">Shop</ComboboxItem>
+              <ComboboxItem value="cart">Cart</ComboboxItem>
+            </ComboboxList>
+          </ComboboxContent>
+        </Combobox>
+        <DropdownMenu>
+          <DropdownMenuTrigger>Actions</DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem>Reset</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Dialog>
+          <DialogTrigger>Confirm</DialogTrigger>
+          <DialogContent>
+            <DialogTitle>Confirm action</DialogTitle>
+          </DialogContent>
+        </Dialog>
+      </DismissableLayer>
+    ) : null;
+  };
+
+  render(<Harness />);
+
+  // 1. Nested Select
+  await user.click(screen.getByRole("combobox", { name: "Viewport" }));
+  expect(await screen.findByRole("option", { name: "Phone" })).toBeVisible();
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(screen.queryByRole("option", { name: "Phone" })).toBeNull();
+  });
+  expect(screen.getByRole("region", { name: "Surface" })).toBeVisible();
+  expect(onDismiss).not.toHaveBeenCalled();
+
+  // 2. Nested Combobox
+  await user.click(screen.getByRole("combobox", { name: "Target App" }));
+  expect(await screen.findByRole("option", { name: "Shop" })).toBeVisible();
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(screen.queryByRole("option", { name: "Shop" })).toBeNull();
+  });
+  expect(screen.getByRole("region", { name: "Surface" })).toBeVisible();
+  expect(onDismiss).not.toHaveBeenCalled();
+
+  // 3. Nested DropdownMenu
+  await user.click(screen.getByRole("button", { name: "Actions" }));
+  expect(await screen.findByRole("menuitem", { name: "Reset" })).toBeVisible();
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(screen.queryByRole("menuitem", { name: "Reset" })).toBeNull();
+  });
+  expect(screen.getByRole("region", { name: "Surface" })).toBeVisible();
+  expect(onDismiss).not.toHaveBeenCalled();
+
+  // 4. Nested Dialog
+  await user.click(screen.getByRole("button", { name: "Confirm" }));
+  expect(
+    await screen.findByRole("dialog", { name: "Confirm action" })
+  ).toBeVisible();
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(screen.queryByRole("dialog", { name: "Confirm action" })).toBeNull();
+  });
+  expect(screen.getByRole("region", { name: "Surface" })).toBeVisible();
+  expect(onDismiss).not.toHaveBeenCalled();
+
+  // 5. Next Escape dismisses the outer DismissableLayer
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("region", { name: "Surface" })).toBeNull();
+  expect(onDismiss).toHaveBeenCalledTimes(1);
+});
+
+const RestoreFocusHarness = () => {
+  const [open, setOpen] = useState(false);
+  return (
+    <div>
+      <button onClick={() => setOpen(true)} type="button">
+        Open card
+      </button>
+      <button type="button">Other control</button>
+      {open ? (
+        <DismissableLayer
+          onDismiss={() => setOpen(false)}
+          render={<section aria-label="Card" />}
+          restoreFocus
+        >
+          <button onClick={() => setOpen(false)} type="button">
+            Close card
+          </button>
+        </DismissableLayer>
+      ) : null}
+    </div>
+  );
+};
+
+test("restoreFocus returns focus to the previously focused element or target only when focus was inside", async () => {
+  const user = userEvent.setup();
+
+  render(<RestoreFocusHarness />);
+  const opener = screen.getByRole("button", { name: "Open card" });
+  const other = screen.getByRole("button", { name: "Other control" });
+
+  // Closing while focus is inside restores focus to the opener.
+  await user.click(opener);
+  await user.click(screen.getByRole("button", { name: "Close card" }));
+  expect(opener).toHaveFocus();
+
+  // Closing while focus is elsewhere leaves focus untouched.
+  await user.click(opener);
+  await user.click(other);
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("region", { name: "Card" })).toBeNull();
+  expect(other).toHaveFocus();
+});
+
+test("controlled open={false} unregisters the layer and restores focus when configured", async () => {
+  const user = userEvent.setup();
+  const onDismiss = vi.fn();
+
+  const Harness = () => {
+    const [open, setOpen] = useState(true);
+    return (
+      <div>
+        <button id="return-target" type="button">
+          Rail button
+        </button>
+        <DismissableLayer
+          onDismiss={() => {
+            onDismiss();
+            setOpen(false);
+          }}
+          open={open}
+          render={<section aria-label="Panel" />}
+          restoreFocus={() =>
+            document.querySelector<HTMLElement>("#return-target")
+          }
+        >
+          <button type="button">Inside action</button>
+        </DismissableLayer>
+      </div>
+    );
+  };
+
+  render(<Harness />);
+  await user.click(screen.getByRole("button", { name: "Inside action" }));
+  expect(screen.getByRole("button", { name: "Inside action" })).toHaveFocus();
+
+  await user.keyboard("{Escape}");
+  expect(onDismiss).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("button", { name: "Rail button" })).toHaveFocus();
+
+  // Subsequent Escape while open={false} does not fire onDismiss again.
+  await user.keyboard("{Escape}");
+  expect(onDismiss).toHaveBeenCalledTimes(1);
+});
+
+test("already-open child Dialog mounted in the same render receives Escape before its parent DismissableLayer", async () => {
+  const user = userEvent.setup();
+  const outerDismiss = vi.fn();
+
+  const Harness = () => {
+    const [open, setOpen] = useState(true);
+    return open ? (
+      <DismissableLayer
+        onDismiss={() => {
+          outerDismiss();
+          setOpen(false);
+        }}
+        render={<section aria-label="Surface" />}
+      >
+        <Dialog defaultOpen>
+          <DialogContent>
+            <DialogTitle>Confirm on mount</DialogTitle>
+          </DialogContent>
+        </Dialog>
+      </DismissableLayer>
+    ) : null;
+  };
+
+  render(<Harness />);
+  expect(
+    screen.getByRole("dialog", { name: "Confirm on mount" })
+  ).toBeVisible();
+
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(
+      screen.queryByRole("dialog", { name: "Confirm on mount" })
+    ).toBeNull();
+  });
+  expect(screen.getByRole("region", { name: "Surface" })).toBeVisible();
+  expect(outerDismiss).not.toHaveBeenCalled();
+
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("region", { name: "Surface" })).toBeNull();
+  expect(outerDismiss).toHaveBeenCalledTimes(1);
+});
+
+// Pins a known @ui-sdk/core 0.1.0-beta.5 limitation. Only the top layer gets
+// Escape, and a non-modal Dialog calls `preventDefault()` before ignoring an
+// Escape pressed outside it (`popup.js` `onEscape`), so nothing beneath it can
+// tell the key went unhandled. A non-modal Dialog inside UI SDK's own Popover
+// behaves the same. If this test fails after an upgrade, the parent can now
+// take that Escape: flip the expectation.
+test("an open non-modal Dialog keeps Escape pressed beside it from its parent", async () => {
+  const user = userEvent.setup();
+  const outerDismiss = vi.fn();
+
+  render(
+    <DismissableLayer
+      onDismiss={outerDismiss}
+      render={<section aria-label="Surface" />}
+    >
+      <button type="button">Beside</button>
+      <Dialog closeOnOutsidePress={false} defaultOpen modal={false}>
+        <DialogContent showOverlay={false}>
+          <DialogTitle>Non-modal note</DialogTitle>
+        </DialogContent>
+      </Dialog>
+    </DismissableLayer>
+  );
+  expect(screen.getByRole("dialog", { name: "Non-modal note" })).toBeVisible();
+
+  await user.click(screen.getByRole("button", { name: "Beside" }));
+  await user.keyboard("{Escape}");
+  expect(screen.getByRole("dialog", { name: "Non-modal note" })).toBeVisible();
+  expect(outerDismiss).not.toHaveBeenCalled();
+});
+
+test("reopening a mounted parent with a Dialog defaultOpen child dismisses the dialog first", async () => {
+  const user = userEvent.setup();
+  const outerDismiss = vi.fn();
+
+  const Harness = () => {
+    const [open, setOpen] = useState(false);
+    return (
+      <div>
+        <button onClick={() => setOpen(true)} type="button">
+          Open surface
+        </button>
+        <DismissableLayer
+          onDismiss={() => {
+            outerDismiss();
+            setOpen(false);
+          }}
+          open={open}
+          render={<section aria-label="Surface" />}
+        >
+          {open ? (
+            <Dialog defaultOpen>
+              <DialogContent>
+                <DialogTitle>Confirm on reopen</DialogTitle>
+              </DialogContent>
+            </Dialog>
+          ) : null}
+        </DismissableLayer>
+      </div>
+    );
+  };
+
+  render(<Harness />);
+
+  // First false -> true transition with Dialog defaultOpen mounted in the same update.
+  await user.click(screen.getByRole("button", { name: "Open surface" }));
+  expect(
+    screen.getByRole("dialog", { name: "Confirm on reopen" })
+  ).toBeVisible();
+
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(
+      screen.queryByRole("dialog", { name: "Confirm on reopen" })
+    ).toBeNull();
+  });
+  expect(outerDismiss).not.toHaveBeenCalled();
+
+  await user.keyboard("{Escape}");
+  expect(outerDismiss).toHaveBeenCalledTimes(1);
+
+  // Second true -> false -> true reopen cycle keeps child-first order.
+  await user.click(screen.getByRole("button", { name: "Open surface" }));
+  expect(
+    screen.getByRole("dialog", { name: "Confirm on reopen" })
+  ).toBeVisible();
+
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(
+      screen.queryByRole("dialog", { name: "Confirm on reopen" })
+    ).toBeNull();
+  });
+  expect(outerDismiss).toHaveBeenCalledTimes(1);
+
+  await user.keyboard("{Escape}");
+  expect(outerDismiss).toHaveBeenCalledTimes(2);
+});
+
+test("nested DismissableLayers mounted in the same render dismiss inner before outer", async () => {
+  const user = userEvent.setup();
+  const outerDismiss = vi.fn();
+  const innerDismiss = vi.fn();
+
+  const Harness = () => {
+    const [outerOpen, setOuterOpen] = useState(true);
+    const [innerOpen, setInnerOpen] = useState(true);
+    return outerOpen ? (
+      <DismissableLayer
+        onDismiss={() => {
+          outerDismiss();
+          setOuterOpen(false);
+        }}
+        render={<section aria-label="Outer surface" />}
+      >
+        {innerOpen ? (
+          <DismissableLayer
+            onDismiss={() => {
+              innerDismiss();
+              setInnerOpen(false);
+            }}
+            render={<section aria-label="Inner surface" />}
+          >
+            <button type="button">Inner action</button>
+          </DismissableLayer>
+        ) : null}
+      </DismissableLayer>
+    ) : null;
+  };
+
+  render(<Harness />);
+  await user.keyboard("{Escape}");
+  expect(innerDismiss).toHaveBeenCalledTimes(1);
+  expect(outerDismiss).not.toHaveBeenCalled();
+  expect(screen.getByRole("region", { name: "Outer surface" })).toBeVisible();
+
+  await user.keyboard("{Escape}");
+  expect(outerDismiss).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("region", { name: "Outer surface" })).toBeNull();
+});
+
+test("already-open child Dialog in an explicit portal mounted in the same render dismisses first", async () => {
+  const user = userEvent.setup();
+  const outerDismiss = vi.fn();
+  const portal = document.createElement("div");
+  document.body.append(portal);
+
+  const Harness = () => {
+    const [open, setOpen] = useState(true);
+    return open ? (
+      <DismissableLayer
+        onDismiss={() => {
+          outerDismiss();
+          setOpen(false);
+        }}
+        render={<section aria-label="Surface" />}
+      >
+        <Dialog defaultOpen>
+          <DialogContent container={portal}>
+            <DialogTitle>Portaled confirm</DialogTitle>
+          </DialogContent>
+        </Dialog>
+      </DismissableLayer>
+    ) : null;
+  };
+
+  try {
+    render(<Harness />);
+    expect(
+      screen.getByRole("dialog", { name: "Portaled confirm" })
+    ).toBeVisible();
+
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("dialog", { name: "Portaled confirm" })
+      ).toBeNull();
+    });
+    expect(screen.getByRole("region", { name: "Surface" })).toBeVisible();
+    expect(outerDismiss).not.toHaveBeenCalled();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("region", { name: "Surface" })).toBeNull();
+    expect(outerDismiss).toHaveBeenCalledTimes(1);
+  } finally {
+    portal.remove();
+  }
+});
+
+test("unmounting removes all document and window listeners", () => {
+  const active = new Map<string, Set<EventListenerOrEventListenerObject>>();
+  const track = (target: EventTarget, prefix: string) => {
+    const origAdd = target.addEventListener.bind(target);
+    const origRemove = target.removeEventListener.bind(target);
+    const addSpy = vi
+      .spyOn(target, "addEventListener")
+      .mockImplementation((type, listener, options) => {
+        if (listener !== null) {
+          const key = `${prefix}:${type}`;
+          let set = active.get(key);
+          if (set === undefined) {
+            set = new Set();
+            active.set(key, set);
+          }
+          set.add(listener);
+        }
+        origAdd(type, listener, options);
+      });
+    const removeSpy = vi
+      .spyOn(target, "removeEventListener")
+      .mockImplementation((type, listener, options) => {
+        if (listener !== null) {
+          active.get(`${prefix}:${type}`)?.delete(listener);
+        }
+        origRemove(type, listener, options);
+      });
+    return () => {
+      addSpy.mockRestore();
+      removeSpy.mockRestore();
+    };
+  };
+
+  const restoreDoc = track(document, "doc");
+  const restoreWin = track(globalThis, "win");
+  try {
+    const layer = render(
+      <DismissableLayer
+        onDismiss={vi.fn()}
+        render={<section aria-label="Surface" />}
+      >
+        <button type="button">Action</button>
+      </DismissableLayer>
+    );
+    screen.getByRole("button", { name: "Action" }).focus();
+
+    layer.unmount();
+
+    const remaining = [...active.entries()]
+      .filter(([, listeners]) => listeners.size > 0)
+      .map(([key, listeners]) => [key, listeners.size]);
+    expect(remaining).toEqual([]);
+  } finally {
+    restoreDoc();
+    restoreWin();
+  }
+});
