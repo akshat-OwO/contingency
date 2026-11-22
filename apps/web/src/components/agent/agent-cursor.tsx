@@ -1,10 +1,10 @@
 import type { BrowserAgentPointer } from "@contingency/protocol";
 import {
+  AGENT_CURSOR_GLYPH,
   AGENT_POINTER_ENTRY_OFFSET,
   cursorPointAt,
   planCursorPath,
 } from "@contingency/protocol";
-import { MousePointer2Icon } from "lucide-react";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 
 import type {
@@ -22,11 +22,8 @@ import { useCanvasBox } from "@/components/agent/use-canvas-box";
  */
 const STALE_POINTER_MS = 1500;
 
-/**
- * How long the cursor stays fully drawn after it lands before it dims, so it
- * marks where the agent is without covering the Page between actions.
- */
-const ACTIVE_MS = 700;
+/** CSS pixels per unit of the arrow's 24-unit box. */
+const GLYPH_SCALE = AGENT_CURSOR_GLYPH.size / 24;
 
 const prefersReducedMotion = (): boolean =>
   globalThis.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
@@ -63,6 +60,19 @@ const pulse = (glyph: HTMLElement, ring: HTMLElement) => {
     { duration: 420, easing: "cubic-bezier(0.2, 0, 0, 1)" }
   );
 };
+
+/**
+ * The "Agent" label beside the agent's cursor and touch, in the same amber
+ * outline and fill, so it reads as Contingency's and never as the Page's own
+ * UI.
+ */
+export const AgentTag = ({ className }: { readonly className: string }) => (
+  <span
+    className={`bg-brand/60 border-brand text-agent-ink absolute rounded-[7px] border px-1.5 py-px text-[11px] leading-4 font-semibold whitespace-nowrap shadow-[0_1px_2px_oklch(0_0_0/0.35)] ${className}`}
+  >
+    Agent
+  </span>
+);
 
 /**
  * The agent's cursor over the live frame. It travels to each point the agent
@@ -129,9 +139,7 @@ export const AgentCursor = ({
       pointer.durationMs
     );
     const glyph = glyphRef.current;
-    delete glyph?.dataset.resting;
     let frame = 0;
-    let rest: ReturnType<typeof setTimeout> | undefined;
     let startedAt: number | undefined;
     const step = (now: number) => {
       startedAt ??= now;
@@ -145,16 +153,10 @@ export const AgentCursor = ({
       if (pointer.action === "click" && glyph !== null && ring !== null) {
         pulse(glyph, ring);
       }
-      rest = setTimeout(() => {
-        if (glyph !== null) {
-          glyph.dataset.resting = "";
-        }
-      }, ACTIVE_MS);
     };
     frame = requestAnimationFrame(step);
     return () => {
       cancelAnimationFrame(frame);
-      clearTimeout(rest);
     };
   }, [pointer]);
 
@@ -173,16 +175,27 @@ export const AgentCursor = ({
         ref={cursorRef}
       >
         <span
-          className="absolute -top-3 -left-3 block size-6 rounded-full bg-blue-600/25 opacity-0 dark:bg-blue-400/25"
+          className="bg-brand/45 absolute -top-[15px] -left-[15px] block size-[30px] rounded-full opacity-0"
           ref={ringRef}
         />
-        <div
-          className="transition-opacity duration-300 data-resting:opacity-40"
-          ref={glyphRef}
-        >
-          {/* The pointer's tip sits at (3.4, 3.9) in its box, on the point. */}
-          <MousePointer2Icon className="fill-background absolute -top-[3.9px] -left-[3.4px] size-5 text-blue-600 drop-shadow-sm dark:text-blue-400" />
+        <div ref={glyphRef}>
+          <svg
+            className="fill-brand/60 stroke-brand absolute drop-shadow-[0_1px_2px_oklch(0_0_0/0.35)]"
+            height={AGENT_CURSOR_GLYPH.size}
+            // The tip sits on the point.
+            style={{
+              left: -AGENT_CURSOR_GLYPH.tip.x * GLYPH_SCALE,
+              top: -AGENT_CURSOR_GLYPH.tip.y * GLYPH_SCALE,
+            }}
+            strokeLinejoin="round"
+            strokeWidth={AGENT_CURSOR_GLYPH.stroke / GLYPH_SCALE}
+            viewBox="0 0 24 24"
+            width={AGENT_CURSOR_GLYPH.size}
+          >
+            <path d={AGENT_CURSOR_GLYPH.path} />
+          </svg>
         </div>
+        <AgentTag className="top-[23px] left-[21px]" />
       </div>
     </div>
   );

@@ -232,6 +232,8 @@
 
   --color-brand-ink: var(--brand-ink);
 
+  --color-agent-ink: var(--agent-ink);
+
   --color-status-ready: var(--status-ready);
 
   --color-status-running: var(--status-running);
@@ -364,6 +366,12 @@
 
   /* Text and outlines in the brand hue: at least 4.5:1 on white. */
   --brand-ink: oklch(0.42 0.1 80);
+
+  /*
+   * The agent's ink: the text of the "Agent" tag beside its cursor and
+   * touch. One value in both themes, since it always sits on amber.
+   */
+  --agent-ink: oklch(0.2 0.01 85);
 
   --radius: 0.625rem;
 

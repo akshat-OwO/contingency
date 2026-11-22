@@ -1,3 +1,5 @@
+import { AGENT_CURSOR_GLYPH } from "@contingency/protocol";
+
 /** What the compositor draws over one footage frame. */
 export interface CompositorFrame {
   /** Where the footage is sought to, in seconds. */
@@ -17,9 +19,9 @@ export interface CompositorFrame {
 /**
  * The page the compositor runs: the footage in a `<video>`, a canvas the
  * frame is drawn onto, and the drawing for the agent's cursor and the
- * fast-forward badge. The cursor matches the Workspace's: lucide's
- * `MousePointer2` at 20px, its tip on the point, blue-600 over the page
- * background, with the press ring beneath it.
+ * fast-forward badge. The cursor matches the Workspace's: the shared
+ * `AGENT_CURSOR_GLYPH`, outlined in amber over a translucent amber fill, its
+ * tip on the point, with the press ring beneath it.
  */
 export const compositorPage = (
   width: number,
@@ -32,12 +34,15 @@ export const compositorPage = (
 <script>
 const WIDTH = ${width};
 const HEIGHT = ${height};
-const BLUE = "oklch(54.6% 0.245 262.881)";
+const BRAND = "#ffc400";
+const BRAND_FILL = "rgb(255 196 0 / 0.6)";
 const video = document.getElementById("footage");
 const canvas = document.getElementById("frame");
 const context = canvas.getContext("2d");
-const glyph = new Path2D("M4.037 4.688a.495.495 0 0 1 .651-.651l16 6.5a.5.5 0 0 1-.063.947l-6.124 1.58a2 2 0 0 0-1.438 1.435l-1.579 6.126a.5.5 0 0 1-.947.063z");
-const GLYPH_SCALE = 20 / 24;
+const glyph = new Path2D(${JSON.stringify(AGENT_CURSOR_GLYPH.path)});
+const GLYPH_SCALE = ${AGENT_CURSOR_GLYPH.size} / 24;
+const GLYPH_TIP = ${JSON.stringify(AGENT_CURSOR_GLYPH.tip)};
+const GLYPH_STROKE = ${AGENT_CURSOR_GLYPH.stroke};
 const ui = Math.min(2, Math.max(0.75, Math.min(WIDTH, HEIGHT) / 600));
 
 window.footageReady = new Promise((resolve, reject) => {
@@ -87,29 +92,27 @@ const drawCursor = (cursor) => {
   context.translate(cursor.x, cursor.y);
   if (cursor.ringOpacity > 0) {
     context.save();
-    // The ring is blue-600 at 25% before the press animates its opacity.
-    context.globalAlpha = cursor.ringOpacity * 0.25;
+    // The ring is amber at 45% before the press animates its opacity.
+    context.globalAlpha = cursor.ringOpacity * 0.45;
     context.scale(cursor.ringScale, cursor.ringScale);
     context.beginPath();
-    context.arc(0, 0, 12, 0, Math.PI * 2);
-    context.fillStyle = BLUE;
+    context.arc(0, 0, 15, 0, Math.PI * 2);
+    context.fillStyle = BRAND;
     context.fill();
     context.restore();
   }
   context.globalAlpha = cursor.opacity;
   context.scale(cursor.glyphScale, cursor.glyphScale);
-  context.translate(-3.4, -3.9);
   context.scale(GLYPH_SCALE, GLYPH_SCALE);
-  context.shadowColor = "rgb(0 0 0 / 0.15)";
+  context.translate(-GLYPH_TIP.x, -GLYPH_TIP.y);
+  context.lineWidth = GLYPH_STROKE / GLYPH_SCALE;
+  context.lineJoin = "round";
+  context.fillStyle = BRAND_FILL;
+  context.fill(glyph);
+  context.shadowColor = "rgb(0 0 0 / 0.35)";
   context.shadowBlur = 2;
   context.shadowOffsetY = 1;
-  context.fillStyle = "#ffffff";
-  context.fill(glyph);
-  context.shadowColor = "transparent";
-  context.lineWidth = 2;
-  context.lineCap = "round";
-  context.lineJoin = "round";
-  context.strokeStyle = BLUE;
+  context.strokeStyle = BRAND;
   context.stroke(glyph);
   context.restore();
 };

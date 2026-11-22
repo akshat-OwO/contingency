@@ -30,8 +30,8 @@ describe("cursorAt", () => {
     expect(cursorAt(strokes, [], 1900)?.ringOpacity).toBe(0);
   });
 
-  it("dims once it has rested, and brightens on the next stroke", () => {
-    expect(cursorAt(strokes, [], 3000)?.opacity).toBeCloseTo(0.4);
+  it("stays fully drawn between strokes, as the Workspace's does", () => {
+    expect(cursorAt(strokes, [], 3000)?.opacity).toBe(1);
     const next = cursorAt(strokes, [], 4300);
     expect(next?.opacity).toBe(1);
     expect(next).toMatchObject({ x: 400, y: 300 });

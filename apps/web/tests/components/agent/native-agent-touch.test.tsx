@@ -84,7 +84,7 @@ const position = () => {
 
 beforeEach(() => {
   subscriptions = [];
-  // Animation frames, the resting timer, and `Date.now` run on virtual time.
+  // Animation frames and `Date.now` run on virtual time.
   vi.useFakeTimers({ now: NOW });
   // jsdom has no Web Animations; the landing pulse is only counted.
   pulses = 0;
