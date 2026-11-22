@@ -88,7 +88,11 @@ export const stubResizableLayout = ({
     value: getBoundingClientRect,
   });
   return () => {
-    if (original !== undefined) {
+    // jsdom defines it on Element.prototype, so HTMLElement usually has no
+    // own descriptor to put back.
+    if (original === undefined) {
+      Reflect.deleteProperty(HTMLElement.prototype, "getBoundingClientRect");
+    } else {
       Object.defineProperty(
         HTMLElement.prototype,
         "getBoundingClientRect",

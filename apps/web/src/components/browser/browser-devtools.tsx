@@ -621,13 +621,22 @@ const useRequestDetailSplit = (dockSide: DevtoolsDockSide) => {
     ) => {
       const [, share] = layout;
       // Only a person's drag or key moves the split; the group fitting its
-      // panels to a new size leaves the size they chose.
-      if (share !== undefined && (reason === "drag" || reason === "step-key")) {
-        setSplit((current) => ({
-          ...current,
-          [side]: shareSize(share, shared),
-        }));
+      // panels to a new size leaves the size they chose. When the list and
+      // the detail can't both keep their room, the detail keeps its minimum
+      // and the size they chose waits for a wider split.
+      if (
+        share === undefined ||
+        (reason !== "drag" && reason !== "step-key") ||
+        maxDetail < bounds.detail
+      ) {
+        return;
       }
+      setSplit((current) => ({
+        ...current,
+        [side]: Math.round(
+          Math.min(Math.max(shareSize(share, shared), bounds.detail), maxDetail)
+        ),
+      }));
     },
     ref,
     side,

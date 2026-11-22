@@ -615,3 +615,71 @@ test("opens a request's detail beside the list and resizes it from the keyboard"
     screen.queryByRole("separator", { name: "Resize request details" })
   ).not.toBeInTheDocument();
 });
+
+test("keeps the detail at its minimum when the split can't fit both panes", async () => {
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(300);
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(600);
+  // 600px leaves the panes 594px: less than the list's 400px and the
+  // detail's 320px together.
+  const restoreLayout = stubResizableLayout({
+    handle: 6,
+    height: 300,
+    width: 600,
+  });
+  const restoreObserver = stubResizeObserver();
+  onTestFinished(() => {
+    restoreObserver();
+    restoreLayout();
+  });
+  rpc.detailAvailable.mockReturnValue(true);
+  renderDevtools(false, {
+    dockSide: "bottom",
+    networkRequests: [
+      {
+        method: "GET",
+        requestId: BrowserRequestId.make("compact-detail"),
+        resourceType: "fetch",
+        tabId,
+        timestamp: 1,
+        url: "https://app.example.com/compact-detail",
+      },
+    ],
+    panel: "network",
+  });
+  const user = userEvent.setup();
+  await user.click(screen.getByRole("button", { name: /compact-detail/u }));
+  const handle = screen.getByRole("separator", {
+    name: "Resize request details",
+  });
+  const detailWidth = () =>
+    Math.round(detailPanel()?.getBoundingClientRect().width ?? 0);
+  await waitFor(() => {
+    expect(detailWidth()).toBe(320);
+  });
+
+  // A drag toward the detail can't take it below its minimum.
+  const pointer = {
+    bubbles: true,
+    isPrimary: true,
+    pointerId: 1,
+    pointerType: "mouse",
+  };
+  const at = (type: string, clientX: number, buttons: number) =>
+    new PointerEvent(type, { ...pointer, buttons, clientX, clientY: 100 });
+  act(() => {
+    handle.dispatchEvent(at("pointerdown", 274, 1));
+  });
+  act(() => {
+    document.dispatchEvent(at("pointermove", 500, 1));
+  });
+  act(() => {
+    document.dispatchEvent(at("pointerup", 500, 0));
+  });
+  await waitFor(() => {
+    expect(detailWidth()).toBe(320);
+  });
+
+  handle.focus();
+  await user.keyboard("{ArrowRight}");
+  expect(detailWidth()).toBe(320);
+});

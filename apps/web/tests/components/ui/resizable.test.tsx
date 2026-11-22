@@ -206,6 +206,17 @@ test("a pointer drag moves the handle, stops at the bounds, and commits once", a
   );
 });
 
+test("the layout stub puts jsdom's geometry back", () => {
+  const restore = stubResizableLayout({ height: 600, width: 1000 });
+  restore();
+  expect(
+    Object.hasOwn(HTMLElement.prototype, "getBoundingClientRect")
+  ).toBeFalsy();
+  const root = document.createElement("div");
+  root.dataset.slot = "resizable";
+  expect(root.getBoundingClientRect().width).toBe(0);
+});
+
 test("converts a size in pixels to a share of the room and back", () => {
   expect(pixelShare(432, 1080)).toBe(40);
   expect(shareSize(40, 1080)).toBe(432);
