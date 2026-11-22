@@ -779,6 +779,36 @@ test("Escape folds the card away, but only closes the confirmation over it", asy
   expect(onClose).toHaveBeenCalledTimes(1);
 });
 
+test("Escape closes an open Device select or Target App combobox before folding the card", async () => {
+  const user = userEvent.setup();
+  const onClose = vi.fn();
+  render(<Card onClose={onClose} />);
+  await vi.waitFor(() => expect(targetApp()).toBeEnabled());
+
+  await user.click(screen.getByRole("combobox", { name: "Device" }));
+  expect(await screen.findByRole("option", { name: /Pixel_9/u })).toBeVisible();
+  await user.keyboard("{Escape}");
+  await vi.waitFor(() =>
+    expect(screen.queryByRole("option", { name: /Pixel_9/u })).toBeNull()
+  );
+  expect(onClose).not.toHaveBeenCalled();
+
+  await user.click(targetApp());
+  expect(
+    await screen.findByRole("option", { name: "Shop dev.shop · build 1" })
+  ).toBeVisible();
+  await user.keyboard("{Escape}");
+  await vi.waitFor(() =>
+    expect(
+      screen.queryByRole("option", { name: "Shop dev.shop · build 1" })
+    ).toBeNull()
+  );
+  expect(onClose).not.toHaveBeenCalled();
+
+  await user.keyboard("{Escape}");
+  expect(onClose).toHaveBeenCalledTimes(1);
+});
+
 test("closing the card discards an upload no session claimed", async () => {
   const user = userEvent.setup({ pointerEventsCheck: 0 });
   const discard = vi.fn(() => Effect.void);

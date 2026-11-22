@@ -1,5 +1,5 @@
 import { ChevronRightIcon, CircleAlertIcon, XIcon } from "lucide-react";
-import type { KeyboardEvent, ReactNode, Ref } from "react";
+import type { ReactNode, Ref } from "react";
 import { useId } from "react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -9,6 +9,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { DismissableLayer } from "@/components/ui/dismissable-layer";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
@@ -178,36 +179,25 @@ export const StartCard = ({
   readonly submitDisabled: boolean;
 }) => {
   const ids = useId();
-  const onKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (
-      event.key !== "Escape" ||
-      event.defaultPrevented ||
-      // An open list, or a combobox whose list is open, closes first.
-      (event.target instanceof Element &&
-        event.target.closest(
-          '[role="listbox"], [role="combobox"][aria-expanded="true"]'
-        ) !== null)
-    ) {
-      return;
-    }
-    event.preventDefault();
-    onClose();
-  };
   return (
     <div className="grid w-full justify-items-center gap-3.5">
-      <form
-        aria-labelledby={`${ids}-title`}
-        className="island shadow-island-lift grid w-full max-w-[540px] grid-cols-1 gap-1 p-5 [--island-radius:28px]"
-        data-vt="start-card"
-        noValidate
-        onKeyDown={onKeyDown}
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!submitDisabled) {
-            onSubmit(event.currentTarget);
-          }
-        }}
-        ref={formRef}
+      <DismissableLayer
+        onDismiss={onClose}
+        render={
+          <form
+            aria-labelledby={`${ids}-title`}
+            className="island shadow-island-lift grid w-full max-w-[540px] grid-cols-1 gap-1 p-5 [--island-radius:28px]"
+            data-vt="start-card"
+            noValidate
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!submitDisabled) {
+                onSubmit(event.currentTarget);
+              }
+            }}
+            ref={formRef}
+          />
+        }
       >
         <header className="mb-3 flex items-center gap-3">
           <TileIcon platform={platform} small />
@@ -250,7 +240,7 @@ export const StartCard = ({
             <AlertDescription>{error}</AlertDescription>
           </Alert>
         )}
-      </form>
+      </DismissableLayer>
       {outside}
       {platforms.length === 0 ? null : (
         <div aria-label="Other platforms" className="flex gap-2" role="group">

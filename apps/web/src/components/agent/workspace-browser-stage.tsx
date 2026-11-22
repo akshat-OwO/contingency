@@ -57,6 +57,7 @@ import {
 } from "@/components/browser/inspector-rail";
 import { UserAgentList } from "@/components/browser/user-agent-list";
 import { Button } from "@/components/ui/button";
+import { DismissableLayer } from "@/components/ui/dismissable-layer";
 import { useElementSize } from "@/hooks/use-element-size";
 import type { ElementSize } from "@/hooks/use-element-size";
 import { usePresence } from "@/hooks/use-presence";
@@ -138,10 +139,6 @@ const inspectorStateAtom = Atom.make<InspectorState>({
   panel: undefined,
   rightWidth: DEFAULT_RIGHT_WIDTH,
 });
-
-/** Surfaces that own their own Escape, so it never also closes the card. */
-const ESCAPE_OWNERS =
-  '[role="dialog"], [data-slot="select-content"], [role="menu"]';
 
 const cardTitles: Readonly<Record<InspectorCard, string>> = {
   emulation: "Emulation",
@@ -555,11 +552,17 @@ const InspectorCardSurface = ({
   readonly lockedReason: string | undefined;
   readonly onClose: () => void;
 }) => (
-  <section
-    aria-label={cardTitles[card]}
-    className="island bg-island-solid absolute top-2 right-20 z-30 flex max-h-[min(44rem,calc(100%-1rem))] w-88 max-w-[calc(100%-6rem)] origin-right flex-col overflow-hidden rounded-[18px]"
-    inert={leaving}
-    ref={cardRef}
+  <DismissableLayer
+    onDismiss={onClose}
+    open={!leaving}
+    render={
+      <section
+        aria-label={cardTitles[card]}
+        className="island bg-island-solid absolute top-2 right-20 z-30 flex max-h-[min(44rem,calc(100%-1rem))] w-88 max-w-[calc(100%-6rem)] origin-right flex-col overflow-hidden rounded-[18px]"
+        inert={leaving}
+        ref={cardRef}
+      />
+    }
   >
     <header className="border-island-border flex h-11 shrink-0 items-center border-b pr-1.5 pl-4">
       <h2 className="text-sm font-medium">{cardTitles[card]}</h2>
@@ -581,7 +584,7 @@ const InspectorCardSurface = ({
       )}
       {children}
     </InspectorCardBody>
-  </section>
+  </DismissableLayer>
 );
 
 /**
@@ -781,30 +784,9 @@ const useBrowserSetup = (sessionId: AgentSessionId) => {
 const useInspector = (ended: boolean) => {
   const [inspector, setInspector] = useAtom(inspectorStateAtom);
   const { ref: bodyRef, size: body } = useElementSize<HTMLDivElement>();
-  const closeCard = useEffectEvent(() => {
+  const closeCard = () => {
     setInspector((current) => ({ ...current, card: undefined }));
-  });
-  useEffect(() => {
-    if (inspector.card === undefined) {
-      return;
-    }
-    const onKeyDown = (event: KeyboardEvent) => {
-      // Escape meant for something the card opened — the location
-      // permission dialog, a Select's list — dismisses that alone. Closing
-      // the card too would discard what the author had typed into it.
-      if (
-        event.key !== "Escape" ||
-        event.defaultPrevented ||
-        (event.target instanceof Element &&
-          event.target.closest(ESCAPE_OWNERS) !== null)
-      ) {
-        return;
-      }
-      closeCard();
-    };
-    globalThis.addEventListener("keydown", onKeyDown);
-    return () => globalThis.removeEventListener("keydown", onKeyDown);
-  }, [inspector.card]);
+  };
   const { inspectorSize, regionLength, side } = inspectorLayout(
     inspector,
     body
