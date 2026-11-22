@@ -19,7 +19,7 @@ import {
   RequestHeader,
   requestIconClassName,
 } from "@/components/agent/dock-request-parts";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   DialogCombobox,
   DialogComboboxContent,
@@ -27,11 +27,17 @@ import {
   DialogComboboxTrigger,
 } from "@/components/ui/dialog-combobox";
 import {
+  Listbox,
+  ListboxItem,
+  ListboxItemIndicator,
+} from "@/components/ui/listbox";
+import {
   Popover,
   PopoverContent,
   PopoverTitle,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { cn } from "@/lib/utils";
 
 import {
   androidDockPresentation,
@@ -57,6 +63,7 @@ import { clockTime } from "./run-detail-state";
 import { elapsedClock } from "./teaching-recording-state";
 import {
   DockState,
+  dockSessionOptionClassName,
   dockSessionPopoverClassName,
   dockSessionTitleClassName,
   dockSessionTriggerClassName,
@@ -316,61 +323,98 @@ export const NativeSessionSelect = ({
         <DialogComboboxTitle className={dockSessionTitleClassName}>
           Agent Sessions
         </DialogComboboxTitle>
-        <div className="grid max-h-72 gap-0.5 overflow-y-auto">
-          {sessions.map((session) => {
-            const name = label(session);
-            const shown = session.id === current?.id;
-            return (
-              <div className="flex items-center gap-1" key={session.id}>
-                <Button
-                  size="md"
-                  aria-label={name}
-                  aria-pressed={shown}
-                  className="hover:bg-island-hover aria-pressed:bg-island-hover grid h-auto min-w-0 flex-1 grid-cols-[32px_minmax(0,1fr)_auto] items-center justify-start gap-3 rounded-[14px] py-[7px] pr-2 pl-[7px] text-left font-normal"
-                  onClick={() => {
-                    setOpen(false);
-                    onSelect(session.id);
-                  }}
-                  variant="ghost"
-                >
-                  <span className="bg-island-hover ring-island-border grid size-8 place-items-center rounded-[10px] ring-1 ring-inset">
-                    <PlatformIcon className="size-[17px]" platform={platform} />
+        {/*
+          The sessions are one listbox: one tab stop, with arrows between
+          them. A listbox holds only options, so Close sits in a column
+          beside the shown session, on its row through subgrid.
+        */}
+        <div
+          className={cn(
+            "grid max-h-72 gap-x-1 gap-y-0.5 overflow-y-auto",
+            close === undefined
+              ? "grid-cols-1"
+              : "grid-cols-[minmax(0,1fr)_auto]"
+          )}
+          style={{
+            gridTemplateRows: `repeat(${sessions.length}, auto)`,
+          }}
+        >
+          <Listbox
+            activation="manual"
+            aria-label="Agent Sessions"
+            className="row-span-full grid grid-rows-subgrid"
+            // Choosing the shown session asks to unchoose it; it stays
+            // chosen, and the picker closes as for any choice.
+            deselectable
+            onValueChange={(next) => {
+              setOpen(false);
+              const chosen = next ?? current?.id;
+              if (chosen !== undefined) {
+                onSelect(chosen);
+              }
+            }}
+            value={current?.id ?? null}
+          >
+            {sessions.map((session) => (
+              <ListboxItem
+                aria-label={label(session)}
+                className={buttonVariants({
+                  className: dockSessionOptionClassName,
+                  size: "md",
+                  variant: "ghost",
+                })}
+                key={session.id}
+                value={session.id}
+              >
+                <span className="bg-island-hover ring-island-border grid size-8 place-items-center rounded-[10px] ring-1 ring-inset">
+                  <PlatformIcon className="size-[17px]" platform={platform} />
+                </span>
+                <span className="grid min-w-0">
+                  <span className="truncate font-medium">
+                    {session.flowName}
                   </span>
-                  <span className="grid min-w-0">
-                    <span className="truncate font-medium">
-                      {session.flowName}
-                    </span>
-                    <span className="text-muted-foreground text-xs">
-                      {NATIVE_KIND_LABEL[session.kind]} · {platformName}
-                    </span>
+                  <span className="text-muted-foreground text-xs">
+                    {NATIVE_KIND_LABEL[session.kind]} · {platformName}
                   </span>
-                  {shown ? (
-                    <CheckIcon
-                      aria-hidden="true"
-                      className="text-muted-foreground"
-                    />
-                  ) : null}
-                </Button>
-                {shown && close !== undefined ? (
-                  // A word, not a power glyph: it closes the session, not the
-                  // device.
-                  <Button
-                    aria-label="Close session"
-                    disabled={close.pending}
-                    onClick={() => {
-                      setOpen(false);
-                      close.onClose();
-                    }}
-                    size="sm"
-                    title={`Close session ${name}`}
-                    variant="ghost"
-                  >
-                    Close
-                  </Button>
-                ) : null}
-              </div>
-            );
-          })}
+                </span>
+                <ListboxItemIndicator>
+                  <CheckIcon
+                    aria-hidden="true"
+                    className="text-muted-foreground"
+                  />
+                </ListboxItemIndicator>
+              </ListboxItem>
+            ))}
+          </Listbox>
+          {close === undefined ? null : (
+            <div className="row-span-full grid grid-rows-subgrid">
+              {sessions.map((session) =>
+                session.id === current?.id ? (
+                  <div className="grid place-items-center" key={session.id}>
+                    {/*
+                      A word, not a power glyph: it closes the session, not
+                      the device.
+                    */}
+                    <Button
+                      aria-label="Close session"
+                      disabled={close.pending}
+                      onClick={() => {
+                        setOpen(false);
+                        close.onClose();
+                      }}
+                      size="sm"
+                      title={`Close session ${label(session)}`}
+                      variant="ghost"
+                    >
+                      Close
+                    </Button>
+                  </div>
+                ) : (
+                  <span aria-hidden="true" key={session.id} />
+                )
+              )}
+            </div>
+          )}
         </div>
         {onNew === undefined ? null : (
           <>

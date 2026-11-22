@@ -637,9 +637,9 @@ const sessionPicker = () =>
 const openSessionPicker = async (user: ReturnType<typeof userEvent.setup>) => {
   await user.click(sessionPicker());
   const dialog = await screen.findByRole("dialog", { name: "Agent Sessions" });
-  return within(dialog)
-    .getAllByRole("button")
-    .filter((button) => button.hasAttribute("aria-pressed"));
+  return within(
+    within(dialog).getByRole("listbox", { name: "Agent Sessions" })
+  ).getAllByRole("option");
 };
 
 const chooseSessionAt = async (
@@ -1630,7 +1630,7 @@ test("gives a Dry Run the dock, the flow it rehearses, and its changed inputs", 
   expect(sessionPicker()).toHaveTextContent("add-anvil");
   await openSessionPicker(user);
   expect(
-    screen.getByRole("button", { name: "add-anvil · Dry Run" })
+    screen.getByRole("option", { name: "add-anvil · Dry Run" })
   ).toBeVisible();
   expect(screen.queryByRole("heading", { name: "Session status" })).toBeNull();
 });
@@ -1640,7 +1640,7 @@ test("labels an Interactive Run without exposing a raw session id", async () => 
   renderWorkspace(resultFor([runningSession]), session.id);
   await screen.findByRole("region", { name: "Session status" });
   await openSessionPicker(user);
-  const option = await screen.findByRole("button", {
+  const option = await screen.findByRole("option", {
     name: "browse-catalogue · Interactive Run",
   });
   expect(option).toBeVisible();

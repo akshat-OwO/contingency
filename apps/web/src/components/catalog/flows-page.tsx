@@ -74,6 +74,7 @@ import { OutcomeChip } from "@/components/catalog/flows-parts";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Listbox, ListboxItem } from "@/components/ui/listbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Toggle } from "@/components/ui/toggle";
 import {
@@ -1082,61 +1083,48 @@ const RUN_LIST_MAX = "max-h-[calc(4*3.125rem+3*0.125rem+1rem)]";
 const hasMoreBelow = (element: HTMLElement): boolean =>
   element.scrollTop + element.clientHeight < element.scrollHeight - 1;
 
-const RunRow = ({
-  entry,
-  onShow,
-  shown,
-}: {
-  readonly entry: Entry;
-  readonly onShow: (entry: Entry) => void;
-  readonly shown: boolean;
-}) => (
-  <li className="col-span-3 grid grid-cols-subgrid">
-    <button
-      aria-pressed={shown}
-      className={cn(
-        "hover:bg-island-hover aria-pressed:bg-island-hover aria-pressed:ring-island-border focus-visible:outline-brand-ink col-span-3 grid grid-cols-subgrid items-center rounded-xl pr-2.5 pl-2 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 aria-pressed:ring-1 aria-pressed:ring-inset",
-        RUN_ROW
-      )}
-      onClick={() => {
-        onShow(entry);
-      }}
-      type="button"
-    >
-      {entry.kind === "run" ? (
-        <>
-          <OutcomeChip className="justify-self-start" run={entry.run} />
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-medium">
-              {entry.run.title}
-            </span>
-            <span className="text-muted-foreground block truncate text-xs">
-              {runKindLabel(entry.run)} · {when(entry.run.startedAt)}
-            </span>
+/** One Run or recording in the list; choosing it shows it below. */
+const RunRow = ({ entry }: { readonly entry: Entry }) => (
+  <ListboxItem
+    className={cn(
+      "hover:bg-island-hover data-selected:bg-island-hover data-selected:ring-island-border focus-visible:outline-brand-ink col-span-3 grid grid-cols-subgrid items-center rounded-xl pr-2.5 pl-2 text-left focus-visible:outline-2 focus-visible:-outline-offset-2 data-selected:ring-1 data-selected:ring-inset",
+      RUN_ROW
+    )}
+    value={entryId(entry)}
+  >
+    {entry.kind === "run" ? (
+      <>
+        <OutcomeChip className="justify-self-start" run={entry.run} />
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium">
+            {entry.run.title}
           </span>
-          <span className="text-muted-foreground justify-self-end font-mono text-xs tabular-nums">
-            {runDuration(entry.run)}
+          <span className="text-muted-foreground block truncate text-xs">
+            {runKindLabel(entry.run)} · {when(entry.run.startedAt)}
           </span>
-        </>
-      ) : (
-        <>
-          <Chip className="justify-self-start">
-            <CircleDotIcon aria-hidden="true" />
-            Recording
-          </Chip>
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-medium">
-              {recordingPhaseLabel(entry.recording)}
-            </span>
-            <span className="text-muted-foreground block truncate text-xs">
-              Teaching · {when(entry.recording.createdAt)}
-            </span>
+        </span>
+        <span className="text-muted-foreground justify-self-end font-mono text-xs tabular-nums">
+          {runDuration(entry.run)}
+        </span>
+      </>
+    ) : (
+      <>
+        <Chip className="justify-self-start">
+          <CircleDotIcon aria-hidden="true" />
+          Recording
+        </Chip>
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium">
+            {recordingPhaseLabel(entry.recording)}
           </span>
-          <span />
-        </>
-      )}
-    </button>
-  </li>
+          <span className="text-muted-foreground block truncate text-xs">
+            Teaching · {when(entry.recording.createdAt)}
+          </span>
+        </span>
+        <span />
+      </>
+    )}
+  </ListboxItem>
 );
 
 /**
@@ -1166,7 +1154,12 @@ const RunList = ({
   const capped = hidden > 0 && !expanded;
   return (
     <div className="border-island-border shrink-0 border-b">
-      <ul
+      {/*
+        Arrows browse the rows; Enter, Space or a press shows one, since
+        each choice loads its Run Summary and moves the URL.
+      */}
+      <Listbox
+        activation="manual"
         aria-label="Runs and recordings"
         className={cn(
           "grid [scrollbar-width:thin] grid-cols-[auto_minmax(0,1fr)_auto] gap-x-2.5 gap-y-0.5 overflow-y-auto p-2",
@@ -1176,19 +1169,21 @@ const RunList = ({
             "[mask-image:linear-gradient(to_bottom,black_calc(100%-2rem),transparent)]"
         )}
         id={listId}
-        onScroll={(event: UIEvent<HTMLUListElement>) => {
+        onScroll={(event: UIEvent<HTMLDivElement>) => {
           setMoreBelow(hasMoreBelow(event.currentTarget));
         }}
+        onValueChange={(id) => {
+          const entry = entries.find((candidate) => entryId(candidate) === id);
+          if (entry !== undefined) {
+            onShow(entry);
+          }
+        }}
+        value={shownId ?? null}
       >
         {entries.map((entry) => (
-          <RunRow
-            entry={entry}
-            key={entryId(entry)}
-            onShow={onShow}
-            shown={shownId === entryId(entry)}
-          />
+          <RunRow entry={entry} key={entryId(entry)} />
         ))}
-      </ul>
+      </Listbox>
       {hidden > 0 ? (
         <Button
           aria-controls={listId}

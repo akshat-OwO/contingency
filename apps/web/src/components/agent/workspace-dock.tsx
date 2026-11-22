@@ -19,13 +19,18 @@ import { agentSessionLabel } from "@/components/agent/agent-workspace-state";
 import { RunSummaryPill } from "@/components/agent/run-summary-dock";
 import { DocsLink } from "@/components/docs-link";
 import { ModeToggle } from "@/components/mode-toggle";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   DialogCombobox,
   DialogComboboxContent,
   DialogComboboxTitle,
   DialogComboboxTrigger,
 } from "@/components/ui/dialog-combobox";
+import {
+  Listbox,
+  ListboxItem,
+  ListboxItemIndicator,
+} from "@/components/ui/listbox";
 import {
   Popover,
   PopoverContent,
@@ -73,6 +78,14 @@ export const dockSessionPopoverClassName =
 
 export const dockSessionTitleClassName =
   "text-muted-foreground/70 mx-2.5 my-1.5 text-[11px] font-semibold tracking-[0.04em] uppercase";
+
+/**
+ * A session in the picker: its platform glyph, its name over its kind, and a
+ * check while it is the one shown. Laid over the ghost Button look, it keeps
+ * the look the rows had before they became options.
+ */
+export const dockSessionOptionClassName =
+  "hover:bg-island-hover data-selected:bg-island-hover focus-visible:ring-ring grid h-auto min-w-0 grid-cols-[32px_minmax(0,1fr)_auto] items-center justify-start gap-3 rounded-[14px] py-[7px] pr-2 pl-[7px] text-left font-normal";
 
 /** A dialog popup allows selection and deletion to be separate keyboard targets. */
 export const DockSessionSelect = ({
@@ -127,26 +140,55 @@ export const DockSessionSelect = ({
         <DialogComboboxTitle className={dockSessionTitleClassName}>
           Agent Sessions
         </DialogComboboxTitle>
-        <div className="grid max-h-72 gap-0.5 overflow-y-auto">
-          {sessions.map((session) => {
-            const label = agentSessionLabel(session);
-            const separator = label.lastIndexOf(" · ");
-            const name = separator === -1 ? label : label.slice(0, separator);
-            const kind =
-              separator === -1 ? "Teaching" : label.slice(separator + 3);
-            const current = session.id === selectedSessionId;
-            return (
-              <div key={session.id} className="flex items-center gap-1">
-                <Button
-                  size="md"
+        {/*
+          The sessions are one listbox: one tab stop, with arrows between
+          them. A listbox holds only options, so each session's Delete
+          button sits in a column beside it, on the same row through
+          subgrid.
+        */}
+        <div
+          className={cn(
+            "grid max-h-72 gap-x-1 gap-y-0.5 overflow-y-auto",
+            deletion === undefined
+              ? "grid-cols-1"
+              : "grid-cols-[minmax(0,1fr)_auto]"
+          )}
+          style={{
+            gridTemplateRows: `repeat(${sessions.length}, auto)`,
+          }}
+        >
+          <Listbox
+            activation="manual"
+            aria-label="Agent Sessions"
+            className="row-span-full grid grid-rows-subgrid"
+            // Choosing the shown session asks to unchoose it; it stays
+            // chosen, and the picker closes as for any choice.
+            deselectable
+            onValueChange={(next) => {
+              const chosen = next ?? selectedSessionId;
+              if (chosen !== undefined) {
+                onSelect(chosen);
+              }
+              setOpen(false);
+            }}
+            value={selectedSessionId ?? null}
+          >
+            {sessions.map((session) => {
+              const label = agentSessionLabel(session);
+              const separator = label.lastIndexOf(" · ");
+              const name = separator === -1 ? label : label.slice(0, separator);
+              const kind =
+                separator === -1 ? "Teaching" : label.slice(separator + 3);
+              return (
+                <ListboxItem
                   aria-label={label}
-                  aria-pressed={current}
-                  className="hover:bg-island-hover aria-pressed:bg-island-hover grid h-auto min-w-0 flex-1 grid-cols-[32px_minmax(0,1fr)_auto] items-center justify-start gap-3 rounded-[14px] py-[7px] pr-2 pl-[7px] text-left font-normal"
-                  onClick={() => {
-                    onSelect(session.id);
-                    setOpen(false);
-                  }}
-                  variant="ghost"
+                  className={buttonVariants({
+                    className: dockSessionOptionClassName,
+                    size: "md",
+                    variant: "ghost",
+                  })}
+                  key={session.id}
+                  value={session.id}
                 >
                   <span className="bg-island-hover ring-island-border grid size-8 place-items-center rounded-[10px] ring-1 ring-inset">
                     <GlobeIcon aria-hidden="true" className="size-[17px]" />
@@ -157,28 +199,37 @@ export const DockSessionSelect = ({
                       {kind} · Web
                     </span>
                   </span>
-                  {current ? (
+                  <ListboxItemIndicator>
                     <CheckIcon
                       aria-hidden="true"
                       className="text-muted-foreground"
                     />
-                  ) : null}
-                </Button>
-                {deletion === undefined ? null : (
-                  <Button
-                    aria-label={`Delete session ${label}`}
-                    title={`Delete session ${label}`}
-                    size="icon-sm"
-                    variant="ghost"
-                    disabled={deletion.pending}
-                    onClick={() => deletion.onDelete(session.id)}
-                  >
-                    <Trash2Icon aria-hidden="true" />
-                  </Button>
-                )}
-              </div>
-            );
-          })}
+                  </ListboxItemIndicator>
+                </ListboxItem>
+              );
+            })}
+          </Listbox>
+          {deletion === undefined ? null : (
+            <div className="row-span-full grid grid-rows-subgrid">
+              {sessions.map((session) => {
+                const label = agentSessionLabel(session);
+                return (
+                  <div className="grid place-items-center" key={session.id}>
+                    <Button
+                      aria-label={`Delete session ${label}`}
+                      title={`Delete session ${label}`}
+                      size="icon-sm"
+                      variant="ghost"
+                      disabled={deletion.pending}
+                      onClick={() => deletion.onDelete(session.id)}
+                    >
+                      <Trash2Icon aria-hidden="true" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
         {deletion?.error === undefined ? null : (
           <p role="alert" className="text-destructive px-2.5 py-1 text-xs">

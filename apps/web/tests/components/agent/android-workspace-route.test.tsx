@@ -125,7 +125,7 @@ test("a session picked before the route moved on does not take it back", async (
   await user.click(
     within(
       await screen.findByRole("dialog", { name: "Agent Sessions" })
-    ).getByRole("button", { name: /finished-checkout/u })
+    ).getByRole("option", { name: /finished-checkout/u })
   );
   // History moves the route to another session before that read answers.
   rerender(view(later));
