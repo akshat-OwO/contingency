@@ -5,7 +5,7 @@ import {
   cursorPointAt,
   planCursorPath,
 } from "@contingency/protocol";
-import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useId, useRef, useState } from "react";
 
 import type {
   CanvasBox,
@@ -62,13 +62,14 @@ const pulse = (glyph: HTMLElement, ring: HTMLElement) => {
 };
 
 /**
- * The "Agent" label beside the agent's cursor and touch, in the same amber
- * outline and fill, so it reads as Contingency's and never as the Page's own
- * UI.
+ * The "Agent" label beside the agent's cursor and touch, in the same amber, so
+ * it reads as Contingency's and never as the Page's own UI. Its fill is
+ * opaque: a translucent one would let the footage under it set the text's
+ * contrast.
  */
 export const AgentTag = ({ className }: { readonly className: string }) => (
   <span
-    className={`bg-brand/60 border-brand text-agent-ink absolute rounded-[7px] border px-1.5 py-px text-[11px] leading-4 font-semibold whitespace-nowrap shadow-[0_1px_2px_oklch(0_0_0/0.35)] ${className}`}
+    className={`bg-brand border-brand text-agent-ink absolute rounded-[7px] border px-1.5 py-px text-[11px] leading-4 font-semibold whitespace-nowrap shadow-[0_1px_2px_oklch(0_0_0/0.35)] ${className}`}
   >
     Agent
   </span>
@@ -98,6 +99,8 @@ export const AgentCursor = ({
   const cursorRef = useRef<HTMLDivElement | null>(null);
   const glyphRef = useRef<HTMLDivElement | null>(null);
   const ringRef = useRef<HTMLSpanElement | null>(null);
+  // The keyline's mask is referenced by id, so each cursor needs its own.
+  const keylineMask = `agent-cursor-keyline-${useId().replaceAll(/[^\w-]/gu, "")}`;
   // Page viewport coordinates, so a resized column only rescales them.
   const positionRef = useRef<Point | null>(null);
 
@@ -180,7 +183,7 @@ export const AgentCursor = ({
         />
         <div ref={glyphRef}>
           <svg
-            className="fill-brand/60 stroke-brand absolute drop-shadow-[0_1px_2px_oklch(0_0_0/0.35)]"
+            className="absolute drop-shadow-[0_1px_2px_oklch(0_0_0/0.35)]"
             height={AGENT_CURSOR_GLYPH.size}
             // The tip sits on the point.
             style={{
@@ -188,11 +191,29 @@ export const AgentCursor = ({
               top: -AGENT_CURSOR_GLYPH.tip.y * GLYPH_SCALE,
             }}
             strokeLinejoin="round"
-            strokeWidth={AGENT_CURSOR_GLYPH.stroke / GLYPH_SCALE}
             viewBox="0 0 24 24"
             width={AGENT_CURSOR_GLYPH.size}
           >
-            <path d={AGENT_CURSOR_GLYPH.path} />
+            {/* The keyline is masked to outside the arrow, so it never shows
+                through the translucent fill as a second, inner outline. */}
+            <mask id={keylineMask} maskUnits="userSpaceOnUse">
+              <rect fill="white" height="24" width="24" />
+              <path d={AGENT_CURSOR_GLYPH.path} fill="black" />
+            </mask>
+            <path
+              className="stroke-agent-ink fill-none"
+              d={AGENT_CURSOR_GLYPH.path}
+              mask={`url(#${keylineMask})`}
+              strokeWidth={
+                (AGENT_CURSOR_GLYPH.stroke + AGENT_CURSOR_GLYPH.keyline * 2) /
+                GLYPH_SCALE
+              }
+            />
+            <path
+              className="fill-brand/60 stroke-brand"
+              d={AGENT_CURSOR_GLYPH.path}
+              strokeWidth={AGENT_CURSOR_GLYPH.stroke / GLYPH_SCALE}
+            />
           </svg>
         </div>
         <AgentTag className="top-[23px] left-[21px]" />

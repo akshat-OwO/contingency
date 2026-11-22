@@ -207,7 +207,7 @@ export const NativeAgentTouch = ({
           ref={ringRef}
         />
         <span
-          className="bg-brand/60 border-brand absolute -top-3 -left-3 block size-6 rounded-full border-[3px] shadow-[0_1px_2px_oklch(0_0_0/0.35)]"
+          className="bg-brand/60 border-brand absolute -top-3 -left-3 block size-6 rounded-full border-[3px] shadow-[0_0_0_1px_var(--agent-ink),0_1px_2px_oklch(0_0_0/0.35)]"
           ref={dotRef}
         />
         <AgentTag className="top-[13px] left-[13px]" />

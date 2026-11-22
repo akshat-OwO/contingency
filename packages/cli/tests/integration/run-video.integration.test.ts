@@ -265,6 +265,8 @@ it.live(
       // The arrow's amber lifts red over the green frame (red 40), and would
       // lift green over the red frame (green 40) before it is drawn.
       expect(cursor?.mean[0]).toBeGreaterThan(80);
+      // Its dark keyline, which no frame is as dark as.
+      expect(cursor?.darkShare).toBeGreaterThan(0.02);
       expect(beforeCursor?.mean[1]).toBeLessThan(60);
       expect(beforeCursor?.mean[0]).toBeGreaterThan(150);
       // The dark pill over the green frame, absent in real time.

@@ -20,8 +20,9 @@ export interface CompositorFrame {
  * The page the compositor runs: the footage in a `<video>`, a canvas the
  * frame is drawn onto, and the drawing for the agent's cursor and the
  * fast-forward badge. The cursor matches the Workspace's: the shared
- * `AGENT_CURSOR_GLYPH`, outlined in amber over a translucent amber fill, its
- * tip on the point, with the press ring beneath it.
+ * `AGENT_CURSOR_GLYPH`, outlined in amber over a translucent amber fill with
+ * a dark keyline outside, its tip on the point, with the press ring beneath
+ * it.
  */
 export const compositorPage = (
   width: number,
@@ -36,6 +37,7 @@ const WIDTH = ${width};
 const HEIGHT = ${height};
 const BRAND = "#ffc400";
 const BRAND_FILL = "rgb(255 196 0 / 0.6)";
+const AGENT_INK = "oklch(0.2 0.01 85)";
 const video = document.getElementById("footage");
 const canvas = document.getElementById("frame");
 const context = canvas.getContext("2d");
@@ -43,6 +45,12 @@ const glyph = new Path2D(${JSON.stringify(AGENT_CURSOR_GLYPH.path)});
 const GLYPH_SCALE = ${AGENT_CURSOR_GLYPH.size} / 24;
 const GLYPH_TIP = ${JSON.stringify(AGENT_CURSOR_GLYPH.tip)};
 const GLYPH_STROKE = ${AGENT_CURSOR_GLYPH.stroke};
+const GLYPH_KEYLINE = ${AGENT_CURSOR_GLYPH.keyline};
+// Everything but the arrow: the keyline is clipped to it, so it never shows
+// through the translucent fill as a second, inner outline.
+const outsideGlyph = new Path2D();
+outsideGlyph.rect(-8, -8, 40, 40);
+outsideGlyph.addPath(glyph);
 const ui = Math.min(2, Math.max(0.75, Math.min(WIDTH, HEIGHT) / 600));
 
 window.footageReady = new Promise((resolve, reject) => {
@@ -105,8 +113,14 @@ const drawCursor = (cursor) => {
   context.scale(cursor.glyphScale, cursor.glyphScale);
   context.scale(GLYPH_SCALE, GLYPH_SCALE);
   context.translate(-GLYPH_TIP.x, -GLYPH_TIP.y);
-  context.lineWidth = GLYPH_STROKE / GLYPH_SCALE;
   context.lineJoin = "round";
+  context.save();
+  context.clip(outsideGlyph, "evenodd");
+  context.lineWidth = (GLYPH_STROKE + GLYPH_KEYLINE * 2) / GLYPH_SCALE;
+  context.strokeStyle = AGENT_INK;
+  context.stroke(glyph);
+  context.restore();
+  context.lineWidth = GLYPH_STROKE / GLYPH_SCALE;
   context.fillStyle = BRAND_FILL;
   context.fill(glyph);
   context.shadowColor = "rgb(0 0 0 / 0.35)";
