@@ -413,11 +413,12 @@ test("lists network requests as a table with durations and switches panels from 
   await user.keyboard("{ArrowRight}");
   expect(within(panels).getByRole("button", { name: "Storage" })).toHaveFocus();
   expect(onSelectPanel).not.toHaveBeenCalled();
-  // Pressing the open panel again leaves it open.
+  // Pressing the open panel selects it again and leaves it pressed.
   await user.click(network);
-  expect(onSelectPanel).not.toHaveBeenCalled();
+  expect(onSelectPanel).toHaveBeenLastCalledWith("network");
+  expect(network).toHaveAttribute("aria-pressed", "true");
   await user.click(within(panels).getByRole("button", { name: "Console" }));
-  expect(onSelectPanel).toHaveBeenCalledWith("console");
+  expect(onSelectPanel).toHaveBeenLastCalledWith("console");
 });
 
 test("shows a failed detail fetch instead of reporting empty headers or payload", async () => {

@@ -150,6 +150,11 @@ test("a group is one tab stop, roves with the arrow keys, and keeps one toggle p
   await user.keyboard("{ArrowRight}");
   expect(storage).toHaveFocus();
   expect(storage).toHaveAttribute("aria-disabled", "true");
+  // Tab later returns to the toggle focused last, not the pressed one.
+  await user.tab();
+  await user.tab({ shift: true });
+  expect(storage).toHaveFocus();
+  expect(network).toHaveAttribute("aria-pressed", "true");
   await user.keyboard(" ");
   expect(storage).toHaveAttribute("aria-pressed", "false");
   await user.keyboard("{ArrowRight}");

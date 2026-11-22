@@ -1020,12 +1020,10 @@ const renderDevtoolsHeader = ({
     <ToggleGroup
       aria-label="DevTools panels"
       className="shrink-0 gap-0.5"
-      deselectable={false}
-      onValueChange={([choice]) => {
-        if (choice !== undefined) {
-          onSelectPanel(choice);
-        }
-      }}
+      // Pressing the open panel asks to unpress it. The value stays the open
+      // panel, so the panel stays pressed, and selecting it again dismisses
+      // any card over the stage, as choosing a panel always does.
+      onValueChange={([choice]) => onSelectPanel(choice ?? panel)}
       value={[panel]}
     >
       {devtoolsPanels.map((choice) => (

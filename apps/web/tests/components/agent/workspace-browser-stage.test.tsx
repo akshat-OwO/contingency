@@ -290,6 +290,24 @@ test("opens a configuration card over the stage and closes it with Escape", asyn
   ).not.toBeInTheDocument();
 });
 
+test("pressing the open DevTools panel keeps it open and dismisses a card", async () => {
+  renderSetup();
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Console" }));
+  expect(await screen.findByRole("region", { name: "Console" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "Emulation" }));
+  expect(screen.getByRole("region", { name: "Emulation" })).toBeVisible();
+
+  const panels = screen.getByRole("group", { name: "DevTools panels" });
+  const consolePanel = within(panels).getByRole("button", { name: "Console" });
+  await user.click(consolePanel);
+  expect(
+    screen.queryByRole("region", { name: "Emulation" })
+  ).not.toBeInTheDocument();
+  expect(screen.getByRole("region", { name: "Console" })).toBeVisible();
+  expect(consolePanel).toHaveAttribute("aria-pressed", "true");
+});
+
 test("inspects the storage of the tab the Agent Session is showing", async () => {
   renderSetup();
   const user = userEvent.setup();
