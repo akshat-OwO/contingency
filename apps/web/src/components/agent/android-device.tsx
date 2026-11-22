@@ -35,9 +35,12 @@ import {
   RailDot,
 } from "@/components/browser/inspector-rail";
 import { LocationFields } from "@/components/browser/location-fields";
-import { SegmentedControl } from "@/components/browser/segmented-control";
 import { Button } from "@/components/ui/button";
 import { DismissableLayer } from "@/components/ui/dismissable-layer";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
 import { cn } from "@/lib/utils";
 import { useWorkspaceRefreshClock } from "@/lib/workspace-refresh";
 
@@ -433,18 +436,18 @@ const DeviceSettings = ({
     <div className="space-y-4 text-xs">
       <div className="flex min-h-[34px] items-center justify-between gap-3">
         <span className="text-muted-foreground font-medium">Appearance</span>
-        <SegmentedControl
+        <SegmentedControl<"dark" | "light">
+          aria-label="Appearance"
           disabled={!canAct}
-          label="Appearance"
-          onChange={(appearance) =>
+          onValueChange={(appearance) =>
             onEmulate({ _tag: "appearance", appearance })
           }
-          options={[
-            { label: "Light", value: "light" },
-            { label: "Dark", value: "dark" },
-          ]}
-          value={emulation?.appearance}
-        />
+          size="sm"
+          value={emulation?.appearance ?? null}
+        >
+          <SegmentedControlItem value="light">Light</SegmentedControlItem>
+          <SegmentedControlItem value="dark">Dark</SegmentedControlItem>
+        </SegmentedControl>
       </div>
       <fieldset className="min-w-0 space-y-2">
         <legend className="text-muted-foreground mb-2 font-medium">

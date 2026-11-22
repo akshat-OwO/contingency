@@ -12,8 +12,11 @@ import {
   devicePresets,
   RESPONSIVE_PRESET_ID,
 } from "@/components/browser/browser-device-presets";
-import { SegmentedControl } from "@/components/browser/segmented-control";
 import { Button } from "@/components/ui/button";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
 import {
   Select,
   SelectContent,
@@ -88,12 +91,11 @@ const DEVICE_SCALE_FACTORS: readonly string[] = ["1", "2", "3"];
  * having no ratio at all.
  */
 const scaleFactorOptions = (applied: string | undefined) =>
-  (applied === undefined || DEVICE_SCALE_FACTORS.includes(applied)
+  applied === undefined || DEVICE_SCALE_FACTORS.includes(applied)
     ? DEVICE_SCALE_FACTORS
     : [...DEVICE_SCALE_FACTORS, applied].toSorted(
         (left, right) => Number(left) - Number(right)
-      )
-  ).map((value) => ({ label: `${value}×`, value }));
+      );
 
 /**
  * The Web session's device bar: an island at the top centre with the browser's
@@ -199,19 +201,24 @@ export const BrowserDeviceBar = ({
             <RotateCcwSquareIcon />
           </Button>
           <SegmentedControl
+            aria-label="Device pixel ratio"
             disabled={disabled}
-            label="Device pixel ratio"
-            onChange={(value) =>
+            onValueChange={(value) =>
               onViewportChange({
                 deviceScaleFactor: Number(value),
                 height: applied.height,
                 width: applied.width,
               })
             }
-            options={scaleFactorOptions(scaleFactor)}
             size="xs"
-            value={scaleFactor}
-          />
+            value={scaleFactor ?? null}
+          >
+            {scaleFactorOptions(scaleFactor).map((value) => (
+              <SegmentedControlItem key={value} value={value}>
+                {value}×
+              </SegmentedControlItem>
+            ))}
+          </SegmentedControl>
         </>
       )}
       {lockedReason === undefined ? null : (

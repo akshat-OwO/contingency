@@ -10,11 +10,16 @@ import {
 } from "@/components/browser/browser-stream-metrics";
 import type { BrowserStreamStatus } from "@/components/browser/browser-stream-metrics";
 import { browserStreamTransportAtom } from "@/components/browser/browser-stream-settings";
-import { SegmentedControl } from "@/components/browser/segmented-control";
-import type { SegmentedOption } from "@/components/browser/segmented-control";
+import {
+  SegmentedControl,
+  SegmentedControlItem,
+} from "@/components/ui/segmented-control";
 import { cn } from "@/lib/utils";
 
-const transportOptions: readonly SegmentedOption<"binary" | "json">[] = [
+const transportOptions: readonly {
+  readonly label: string;
+  readonly value: "binary" | "json";
+}[] = [
   { label: "Local performance", value: "json" },
   { label: "Lower bandwidth", value: "binary" },
 ];
@@ -78,12 +83,18 @@ export const BrowserStreamDiagnostics = ({
       </div>
       <div className="flex min-h-[34px] items-center justify-between gap-3">
         <span>Streaming preference</span>
-        <SegmentedControl
-          label="Streaming preference"
-          onChange={setTransport}
-          options={transportOptions}
+        <SegmentedControl<"binary" | "json">
+          aria-label="Streaming preference"
+          onValueChange={setTransport}
+          size="sm"
           value={transport}
-        />
+        >
+          {transportOptions.map((option) => (
+            <SegmentedControlItem key={option.value} value={option.value}>
+              {option.label}
+            </SegmentedControlItem>
+          ))}
+        </SegmentedControl>
       </div>
       <dl
         className="[&_dt]:text-muted-foreground grid grid-cols-[1fr_auto] gap-x-3 gap-y-1.5 [&_dd]:text-right [&_dd]:font-mono [&_dd]:tabular-nums"
