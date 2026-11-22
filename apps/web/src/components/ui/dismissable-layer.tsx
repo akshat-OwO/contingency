@@ -41,7 +41,6 @@ const DismissableLayer = ({
   open,
   render,
   restoreFocus,
-  scope,
   ...props
 }: DismissableLayerProps) => {
   const baseOptions = {
@@ -50,7 +49,6 @@ const DismissableLayer = ({
     onDismiss,
     open,
     restoreFocus,
-    scope,
   };
   const handle = usePrimitive(
     dismissableLayer,
@@ -86,5 +84,4 @@ export type {
   DismissableLayerDismissReason,
   DismissableLayerOptions,
   DismissableLayerRootState,
-  DismissableLayerScope,
 } from "./dismissable-layer-primitive";

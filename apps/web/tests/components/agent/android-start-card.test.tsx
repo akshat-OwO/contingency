@@ -85,17 +85,46 @@ const targetApp = () => screen.getByRole("combobox", { name: "Target App" });
 
 /** Picks the installed Shop once the device's apps are listed. */
 const chooseShop = async (user: ReturnType<typeof userEvent.setup>) => {
+  const picker = targetApp();
   // The picker waits, disabled, until the apps are read.
-  await vi.waitFor(() => expect(targetApp()).toBeEnabled());
-  await user.click(targetApp());
+  await vi.waitFor(() => expect(picker).toBeEnabled());
+  await user.click(picker);
   await user.click(
     await screen.findByRole("option", { name: "Shop dev.shop · build 1" })
   );
+  return picker;
 };
 
 /** Opens the collapsed Setup section of the card. */
 const openSetup = (user: ReturnType<typeof userEvent.setup>) =>
   user.click(screen.getByRole("button", { name: /^Setup/u }));
+
+test("waits for a choice when more than one device is ready", async () => {
+  const user = userEvent.setup();
+  const [emulator] = await Effect.runPromise(discovery.devices);
+  render(
+    <Card
+      discovery={{
+        ...discovery,
+        devices: Effect.succeed([
+          emulator,
+          { ...emulator, avd: "Pixel_8", serial: "emulator-5556" },
+        ]),
+      }}
+    />
+  );
+  const field = await screen.findByRole("combobox", { name: "Device" });
+  expect(field).toHaveTextContent("Choose a device");
+  expect(targetApp()).toBeDisabled();
+  await user.click(field);
+  await user.click(
+    await screen.findByRole("option", {
+      name: "Pixel_8 · Android 16 emulator-5556",
+    })
+  );
+  expect(field).toHaveTextContent("Pixel_8");
+  await vi.waitFor(() => expect(targetApp()).toBeEnabled());
+});
 
 test("unlocks setup sequentially and submits selectable permission decisions with automatic helper setup", async () => {
   const user = userEvent.setup();
@@ -104,9 +133,10 @@ test("unlocks setup sequentially and submits selectable permission decisions wit
   await openSetup(user);
   // Setup waits for the Target App and says so; its controls stay disabled.
   expect(screen.getByText("Choose the Target App first.")).toBeVisible();
-  expect(
-    screen.getByRole("textbox", { name: "Starting screen element" })
-  ).toBeDisabled();
+  const startElement = screen.getByRole("textbox", {
+    name: "Starting screen element",
+  });
+  expect(startElement).toBeDisabled();
   // The one ready device is the device: Target App opens without a click.
   expect(
     await screen.findByRole("group", { name: "Pixel_9" })
@@ -115,26 +145,26 @@ test("unlocks setup sequentially and submits selectable permission decisions wit
   expect(screen.getByRole("combobox", { name: "Device" })).toHaveTextContent(
     /^Pixel_9 · Android 16$/u
   );
-  await chooseShop(user);
-  expect(targetApp()).toHaveValue("Shop");
+  const picker = await chooseShop(user);
+  expect(picker).toHaveValue("Shop");
+  expect(startElement).toBeEnabled();
+  const cameraPermission = screen.getByRole("radiogroup", {
+    name: "Camera permission",
+  });
   expect(
-    screen.getByRole("textbox", { name: "Starting screen element" })
-  ).toBeEnabled();
-  expect(
-    screen.getByRole("radio", { name: "Camera: Ask in app" })
+    within(cameraPermission).getByRole("radio", { name: "Camera: Ask in app" })
   ).toBeChecked();
-  await user.type(
-    screen.getByRole("textbox", { name: "Starting screen element" }),
-    "Sign in"
-  );
-  await user.type(
-    screen.getByRole("textbox", { name: "Done when element" }),
-    "Done"
-  );
+  await user.click(startElement);
+  await user.paste("Sign in");
+  const doneElement = screen.getByRole("textbox", {
+    name: "Done when element",
+  });
+  await user.click(doneElement);
+  await user.paste("Done");
   await user.click(
-    within(
-      screen.getByRole("radiogroup", { name: "Camera permission" })
-    ).getByRole("radio", { name: "Camera: Deny before start" })
+    within(cameraPermission).getByRole("radio", {
+      name: "Camera: Deny before start",
+    })
   );
   expect(
     screen.queryByRole("textbox", { name: "Additional permission decisions" })
@@ -168,33 +198,6 @@ test("unlocks setup sequentially and submits selectable permission decisions wit
       },
     })
   );
-});
-
-test("waits for a choice when more than one device is ready", async () => {
-  const user = userEvent.setup();
-  const [emulator] = await Effect.runPromise(discovery.devices);
-  render(
-    <Card
-      discovery={{
-        ...discovery,
-        devices: Effect.succeed([
-          emulator,
-          { ...emulator, avd: "Pixel_8", serial: "emulator-5556" },
-        ]),
-      }}
-    />
-  );
-  const field = await screen.findByRole("combobox", { name: "Device" });
-  expect(field).toHaveTextContent("Choose a device");
-  expect(targetApp()).toBeDisabled();
-  await user.click(field);
-  await user.click(
-    await screen.findByRole("option", {
-      name: "Pixel_8 · Android 16 emulator-5556",
-    })
-  );
-  expect(field).toHaveTextContent("Pixel_8");
-  await vi.waitFor(() => expect(targetApp()).toBeEnabled());
 });
 
 test("asks for a new choice when the picked device leaves, rather than taking another", async () => {
@@ -797,12 +800,14 @@ test("Escape closes an open Device select or Target App combobox before folding 
   expect(
     await screen.findByRole("option", { name: "Shop dev.shop · build 1" })
   ).toBeVisible();
+  expect(targetApp()).toHaveAttribute("aria-expanded", "true");
   await user.keyboard("{Escape}");
   await vi.waitFor(() =>
     expect(
       screen.queryByRole("option", { name: "Shop dev.shop · build 1" })
     ).toBeNull()
   );
+  expect(targetApp()).toHaveAttribute("aria-expanded", "false");
   expect(onClose).not.toHaveBeenCalled();
 
   await user.keyboard("{Escape}");
@@ -839,23 +844,6 @@ test("closing the card discards an upload no session claimed", async () => {
   expect(discard).not.toHaveBeenCalled();
   view.unmount();
   expect(discard).toHaveBeenCalledWith("22222222-2222-2222-2222-222222222222");
-});
-
-test("Escape closes the open Target App list before it folds the card", async () => {
-  const user = userEvent.setup();
-  const onClose = vi.fn();
-  render(<Card onClose={onClose} />);
-  await vi.waitFor(() => expect(targetApp()).toBeEnabled());
-  await user.click(targetApp());
-  expect(
-    await screen.findByRole("option", { name: "Shop dev.shop · build 1" })
-  ).toBeVisible();
-  expect(targetApp()).toHaveAttribute("aria-expanded", "true");
-  await user.keyboard("{Escape}");
-  expect(targetApp()).toHaveAttribute("aria-expanded", "false");
-  expect(onClose).not.toHaveBeenCalled();
-  await user.keyboard("{Escape}");
-  expect(onClose).toHaveBeenCalledTimes(1);
 });
 
 test("Escape with focus outside the start form leaves the card and its unclaimed upload open", async () => {

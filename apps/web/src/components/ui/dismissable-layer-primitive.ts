@@ -9,8 +9,6 @@ import type { ChangeDetails, PrimitiveOptions, PropSpec } from "@ui-sdk/core";
 
 export type DismissableLayerDismissReason = "escape-key" | "outside-press";
 
-export type DismissableLayerScope = "document" | "focus-within";
-
 export type DismissableLayerDetails =
   ChangeDetails<DismissableLayerDismissReason>;
 
@@ -28,7 +26,6 @@ export interface DismissableLayerOptions extends PrimitiveOptions {
     | boolean
     | (() => HTMLElement | null | undefined)
     | undefined;
-  readonly scope?: DismissableLayerScope | undefined;
 }
 
 export interface DismissableLayerRootState {
@@ -55,31 +52,6 @@ const composedContains = (container: Node, target: Node | null): boolean => {
     current = root instanceof ShadowRoot ? root.host : null;
   }
   return false;
-};
-
-const isOutsideFocusTarget = (node: Node, doc: Document): boolean =>
-  node === doc || node === doc.body || node === doc.documentElement;
-
-const isWithinFocusScope = (
-  el: HTMLElement,
-  node: Node | null,
-  contains: (target: Node) => boolean
-): boolean => {
-  if (node === null || isOutsideFocusTarget(node, el.ownerDocument)) {
-    return false;
-  }
-  return composedContains(el, node) || contains(node);
-};
-
-const eventTargetNode = (event: Event | undefined): Node | null => {
-  if (event === undefined) {
-    return null;
-  }
-  const path = event.composedPath();
-  if (path[0] instanceof Node) {
-    return path[0];
-  }
-  return event.target instanceof Node ? event.target : null;
 };
 
 const definedDismissableLayer = definePrimitive({
@@ -132,23 +104,6 @@ const definedDismissableLayer = definePrimitive({
         !context.options().dismissOnOutsidePress
       ) {
         return false;
-      }
-      // `bindLayer` calls `preventDefault()` on Escape before `onDismiss`; a
-      // focus-scoped layer accepts consuming that Escape (the start card is the
-      // bottom layer on the home page, so nothing beneath it loses Escape).
-      if (
-        reason === "escape-key" &&
-        context.store.get().scope === "focus-within" &&
-        hostEl !== null
-      ) {
-        const target = eventTargetNode(event);
-        const active = activeElementIn(hostEl.ownerDocument);
-        if (
-          !isWithinFocusScope(hostEl, target, contains) &&
-          !isWithinFocusScope(hostEl, active, contains)
-        ) {
-          return false;
-        }
       }
       const canceled = dispatch(
         context,
@@ -266,7 +221,6 @@ const definedDismissableLayer = definePrimitive({
     onDismiss: "callback",
     open: "boolean",
     restoreFocus: "value",
-    scope: "string",
   },
   slots: (slot) => ({
     // Rendered as the root's first child while open so its ref attaches before
@@ -302,14 +256,8 @@ const definedDismissableLayer = definePrimitive({
   }),
   state: (options: DismissableLayerOptions) => ({
     open: options.open ?? true,
-    scope: options.scope ?? "document",
   }),
-  sync: (options) => {
-    const base = {
-      scope: options.scope ?? "document",
-    };
-    return options.open === undefined ? base : { ...base, open: options.open };
-  },
+  sync: (options) => (options.open === undefined ? {} : { open: options.open }),
 });
 
 // SAFETY: `@ui-sdk/core` 0.1.0-beta.5 types `definePrimitive`'s `options` as
