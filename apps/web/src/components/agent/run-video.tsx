@@ -33,6 +33,7 @@ import {
 import type { RunVideoChapter } from "@/components/agent/run-video-timeline";
 import { WatcherLoader } from "@/components/brand";
 import { Button } from "@/components/ui/button";
+import { CopyButton, CopyButtonTrigger } from "@/components/ui/copy-button";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 import { cn } from "@/lib/utils";
 
@@ -51,7 +52,6 @@ const ariaSeconds = (ms: number): number => Math.round(ms / 100) / 10;
 const PLAYBACK_RATES = [1, 1.5, 2, 0.5] as const;
 /** One bar per this many pixels of scrubber. */
 const BAR_PITCH_PX = 5;
-const COPIED_FOR_MS = 1500;
 /** How far the hover tip stays from either end of the scrubber. */
 const TIP_INSET_PX = 88;
 
@@ -597,64 +597,52 @@ const VideoPath = ({
 }: {
   readonly className?: string;
   readonly path: string;
-}) => {
-  const [copy, setCopy] = useState<"idle" | "copied" | "failed">("idle");
-  useEffect(() => {
-    if (copy === "idle") {
-      return;
-    }
-    const timer = setTimeout(() => setCopy("idle"), COPIED_FOR_MS);
-    return () => clearTimeout(timer);
-  }, [copy]);
-  const label = {
-    copied: "Copied",
-    failed: "Couldn't copy",
-    idle: "Copy path",
-  }[copy];
-  return (
-    <div className={cn("flex items-center gap-2", className)}>
-      <FileVideoIcon
-        aria-hidden="true"
-        className="text-muted-foreground size-3.5 shrink-0"
-      />
-      {/*
-        One path: the folder gives way, the file name stays whole beside it.
-      */}
-      <span className="flex min-w-0 flex-1 font-mono text-xs" title={path}>
-        <code className="text-muted-foreground min-w-0 truncate select-text">
-          {tailOfPath(path).slice(0, -fileName(path).length)}
-        </code>
-        <code className="text-muted-foreground shrink-0 select-text">
-          {fileName(path)}
-        </code>
-      </span>
-      <Button
+}) => (
+  <div className={cn("flex items-center gap-2", className)}>
+    <FileVideoIcon
+      aria-hidden="true"
+      className="text-muted-foreground size-3.5 shrink-0"
+    />
+    {/*
+      One path: the folder gives way, the file name stays whole beside it.
+    */}
+    <span className="flex min-w-0 flex-1 font-mono text-xs" title={path}>
+      <code className="text-muted-foreground min-w-0 truncate select-text">
+        {tailOfPath(path).slice(0, -fileName(path).length)}
+      </code>
+      <code className="text-muted-foreground shrink-0 select-text">
+        {fileName(path)}
+      </code>
+    </span>
+    <CopyButton className="contents" value={path}>
+      <CopyButtonTrigger
         aria-label="Copy video path"
-        className={cn(
-          copy === "copied" && "text-emerald-700 dark:text-emerald-400"
-        )}
-        onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(path);
-            setCopy("copied");
-          } catch {
-            setCopy("failed");
-          }
-        }}
+        className="data-[copied]:text-emerald-700 dark:data-[copied]:text-emerald-400"
         size="xs"
-        type="button"
         variant="ghost"
       >
-        {copy === "copied" ? (
-          <CheckIcon aria-hidden="true" />
-        ) : (
-          <CopyIcon aria-hidden="true" />
+        {({ copied, status }) => (
+          <>
+            {copied ? (
+              <CheckIcon aria-hidden="true" />
+            ) : (
+              <CopyIcon aria-hidden="true" />
+            )}
+            <span aria-live="polite">
+              {
+                {
+                  copied: "Copied",
+                  failed: "Couldn't copy",
+                  idle: "Copy path",
+                }[status]
+              }
+            </span>
+          </>
         )}
-        <span aria-live="polite">{label}</span>
-      </Button>
-    </div>
-  );
-};
+      </CopyButtonTrigger>
+    </CopyButton>
+  </div>
+);
 
 /** The video element's state, and what the controls do to it. */
 const usePlayback = () => {
