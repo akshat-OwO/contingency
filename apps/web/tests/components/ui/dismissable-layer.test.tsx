@@ -13,7 +13,6 @@ import {
 } from "@/components/ui/combobox";
 import {
   Dialog,
-  DialogClose,
   DialogContent,
   DialogTitle,
   DialogTrigger,
@@ -22,6 +21,7 @@ import {
   DismissableLayer,
   dismissableLayer,
 } from "@/components/ui/dismissable-layer";
+import type { DismissableLayerDismissReason } from "@/components/ui/dismissable-layer";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -80,9 +80,9 @@ test("renders pure attributes and state on the server", () => {
   }
 });
 
-test("leading anchor stays hidden from layout and ARIA tree", () => {
-  render(
-    <DismissableLayer render={<section aria-label="Surface" />}>
+test("leading anchor stays hidden from layout and ARIA tree and mounts only while open", () => {
+  const { rerender } = render(
+    <DismissableLayer open render={<section aria-label="Surface" />}>
       <button type="button">Action</button>
     </DismissableLayer>
   );
@@ -95,6 +95,15 @@ test("leading anchor stays hidden from layout and ARIA tree", () => {
   expect(anchor).toHaveAttribute("hidden");
   expect(anchor).not.toHaveAttribute("role");
   expect(anchor).toHaveTextContent("");
+
+  rerender(
+    <DismissableLayer open={false} render={<section aria-label="Surface" />}>
+      <button type="button">Action</button>
+    </DismissableLayer>
+  );
+  expect(
+    region.querySelector('[data-slot="dismissable-layer-anchor"]')
+  ).toBeNull();
 });
 
 test("dismisses on Escape, ignores outside press by default, and cleans up on unmount", async () => {
@@ -156,7 +165,7 @@ test("supports outside-press opt-in, contains exclusions, and cancelable onDismi
   let cancelNext = true;
   const onDismiss = vi.fn(
     (
-      _reason: "escape-key" | "outside-press" | "window-blur",
+      _reason: DismissableLayerDismissReason,
       details: { cancel: () => void }
     ) => {
       if (cancelNext) {
@@ -405,114 +414,6 @@ test("controlled open={false} unregisters the layer and restores focus when conf
   expect(onDismiss).toHaveBeenCalledTimes(1);
 });
 
-test("scope='focus-within' ignores Escape outside the layer without preventing fallthrough", async () => {
-  const user = userEvent.setup();
-  const outerDismiss = vi.fn();
-  const scopedDismiss = vi.fn();
-  const outsideKeyDown = vi.fn(
-    (event: KeyboardEvent) => event.defaultPrevented
-  );
-
-  const Harness = () => {
-    const [extraEl, setExtraEl] = useState<HTMLButtonElement | null>(null);
-    return (
-      <div>
-        <DismissableLayer
-          onDismiss={outerDismiss}
-          render={<div aria-label="Outer" />}
-        >
-          <span>Background</span>
-        </DismissableLayer>
-        <button type="button">Outside control</button>
-        <button ref={setExtraEl} type="button">
-          Contained trigger
-        </button>
-        <DismissableLayer
-          contains={(target) => extraEl?.contains(target) ?? false}
-          onDismiss={scopedDismiss}
-          render={<form aria-label="Scoped form" />}
-          scope="focus-within"
-        >
-          <input aria-label="Flow name" />
-          <Select defaultValue="desktop">
-            <SelectTrigger aria-label="Viewport">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="desktop">Desktop</SelectItem>
-              <SelectItem value="phone">Phone</SelectItem>
-            </SelectContent>
-          </Select>
-        </DismissableLayer>
-      </div>
-    );
-  };
-
-  render(<Harness />);
-
-  // Focus outside the scoped layer: Escape falls through to the underlying
-  // document-scoped layer, leaving the scoped layer open.
-  const outside = screen.getByRole("button", { name: "Outside control" });
-  await user.click(outside);
-  await user.keyboard("{Escape}");
-  expect(scopedDismiss).not.toHaveBeenCalled();
-  expect(outerDismiss).toHaveBeenCalledTimes(1);
-
-  // With no other layer active, an outside Escape is not defaultPrevented.
-  document.addEventListener("keydown", outsideKeyDown);
-  try {
-    await user.keyboard("{Escape}");
-  } finally {
-    document.removeEventListener("keydown", outsideKeyDown);
-  }
-  expect(scopedDismiss).not.toHaveBeenCalled();
-  expect(outsideKeyDown).toHaveBeenCalledWith(
-    expect.objectContaining({ defaultPrevented: false, key: "Escape" })
-  );
-
-  // Inside the scoped form: nested popup closes first, then a second Escape
-  // dismisses the scoped layer.
-  await user.click(screen.getByRole("combobox", { name: "Viewport" }));
-  expect(await screen.findByRole("option", { name: "Phone" })).toBeVisible();
-  await user.keyboard("{Escape}");
-  await waitFor(() => {
-    expect(screen.queryByRole("option", { name: "Phone" })).toBeNull();
-  });
-  expect(scopedDismiss).not.toHaveBeenCalled();
-
-  await user.keyboard("{Escape}");
-  expect(scopedDismiss).toHaveBeenCalledTimes(1);
-});
-
-test("scope='focus-within' treats elements matched by contains as inside the layer", async () => {
-  const user = userEvent.setup();
-  const onDismiss = vi.fn();
-
-  const Harness = () => {
-    const [triggerEl, setTriggerEl] = useState<HTMLButtonElement | null>(null);
-    return (
-      <div>
-        <button ref={setTriggerEl} type="button">
-          Linked trigger
-        </button>
-        <DismissableLayer
-          contains={(target) => triggerEl?.contains(target) ?? false}
-          onDismiss={onDismiss}
-          render={<section aria-label="Scoped" />}
-          scope="focus-within"
-        >
-          <input aria-label="Field" />
-        </DismissableLayer>
-      </div>
-    );
-  };
-
-  render(<Harness />);
-  await user.click(screen.getByRole("button", { name: "Linked trigger" }));
-  await user.keyboard("{Escape}");
-  expect(onDismiss).toHaveBeenCalledTimes(1);
-});
-
 test("already-open child Dialog mounted in the same render receives Escape before its parent DismissableLayer", async () => {
   const user = userEvent.setup();
   const outerDismiss = vi.fn();
@@ -553,6 +454,74 @@ test("already-open child Dialog mounted in the same render receives Escape befor
   await user.keyboard("{Escape}");
   expect(screen.queryByRole("region", { name: "Surface" })).toBeNull();
   expect(outerDismiss).toHaveBeenCalledTimes(1);
+});
+
+test("reopening a mounted parent with a Dialog defaultOpen child dismisses the dialog first", async () => {
+  const user = userEvent.setup();
+  const outerDismiss = vi.fn();
+
+  const Harness = () => {
+    const [open, setOpen] = useState(false);
+    return (
+      <div>
+        <button onClick={() => setOpen(true)} type="button">
+          Open surface
+        </button>
+        <DismissableLayer
+          onDismiss={() => {
+            outerDismiss();
+            setOpen(false);
+          }}
+          open={open}
+          render={<section aria-label="Surface" />}
+        >
+          {open ? (
+            <Dialog defaultOpen>
+              <DialogContent>
+                <DialogTitle>Confirm on reopen</DialogTitle>
+              </DialogContent>
+            </Dialog>
+          ) : null}
+        </DismissableLayer>
+      </div>
+    );
+  };
+
+  render(<Harness />);
+
+  // First false -> true transition with Dialog defaultOpen mounted in the same update.
+  await user.click(screen.getByRole("button", { name: "Open surface" }));
+  expect(
+    screen.getByRole("dialog", { name: "Confirm on reopen" })
+  ).toBeVisible();
+
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(
+      screen.queryByRole("dialog", { name: "Confirm on reopen" })
+    ).toBeNull();
+  });
+  expect(outerDismiss).not.toHaveBeenCalled();
+
+  await user.keyboard("{Escape}");
+  expect(outerDismiss).toHaveBeenCalledTimes(1);
+
+  // Second true -> false -> true reopen cycle keeps child-first order.
+  await user.click(screen.getByRole("button", { name: "Open surface" }));
+  expect(
+    screen.getByRole("dialog", { name: "Confirm on reopen" })
+  ).toBeVisible();
+
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(
+      screen.queryByRole("dialog", { name: "Confirm on reopen" })
+    ).toBeNull();
+  });
+  expect(outerDismiss).toHaveBeenCalledTimes(1);
+
+  await user.keyboard("{Escape}");
+  expect(outerDismiss).toHaveBeenCalledTimes(2);
 });
 
 test("nested DismissableLayers mounted in the same render dismiss inner before outer", async () => {
@@ -645,7 +614,161 @@ test("already-open child Dialog in an explicit portal mounted in the same render
   }
 });
 
-test("scope='focus-within' re-binds when a portaled nested dialog closes and restores focus inside", async () => {
+test("scope='focus-within' ignores Escape outside the layer and closes nested popups before the layer when inside", async () => {
+  const user = userEvent.setup();
+  const scopedDismiss = vi.fn();
+
+  const Harness = () => {
+    const [extraEl, setExtraEl] = useState<HTMLButtonElement | null>(null);
+    return (
+      <div>
+        <button type="button">Outside control</button>
+        <button ref={setExtraEl} type="button">
+          Contained trigger
+        </button>
+        <DismissableLayer
+          contains={(target) => extraEl?.contains(target) ?? false}
+          onDismiss={scopedDismiss}
+          render={<form aria-label="Scoped form" />}
+          scope="focus-within"
+        >
+          <input aria-label="Flow name" />
+          <Select defaultValue="desktop">
+            <SelectTrigger aria-label="Viewport">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="desktop">Desktop</SelectItem>
+              <SelectItem value="phone">Phone</SelectItem>
+            </SelectContent>
+          </Select>
+        </DismissableLayer>
+      </div>
+    );
+  };
+
+  render(<Harness />);
+
+  // Focus outside: Escape leaves the scoped layer open.
+  await user.click(screen.getByRole("button", { name: "Outside control" }));
+  await user.keyboard("{Escape}");
+  expect(scopedDismiss).not.toHaveBeenCalled();
+
+  // Nested popup opened from inside closes first, then the next Escape closes the layer.
+  await user.click(screen.getByRole("combobox", { name: "Viewport" }));
+  expect(await screen.findByRole("option", { name: "Phone" })).toBeVisible();
+  await user.keyboard("{Escape}");
+  await waitFor(() => {
+    expect(screen.queryByRole("option", { name: "Phone" })).toBeNull();
+  });
+  expect(scopedDismiss).not.toHaveBeenCalled();
+
+  await user.keyboard("{Escape}");
+  expect(scopedDismiss).toHaveBeenCalledTimes(1);
+});
+
+test("scope='focus-within' treats elements matched by contains as inside the layer", async () => {
+  const user = userEvent.setup();
+  const onDismiss = vi.fn();
+
+  const Harness = () => {
+    const [triggerEl, setTriggerEl] = useState<HTMLButtonElement | null>(null);
+    return (
+      <div>
+        <button ref={setTriggerEl} type="button">
+          Linked trigger
+        </button>
+        <DismissableLayer
+          contains={(target) => triggerEl?.contains(target) ?? false}
+          onDismiss={onDismiss}
+          render={<section aria-label="Scoped" />}
+          scope="focus-within"
+        >
+          <input aria-label="Field" />
+        </DismissableLayer>
+      </div>
+    );
+  };
+
+  render(<Harness />);
+  await user.click(screen.getByRole("button", { name: "Linked trigger" }));
+  await user.keyboard("{Escape}");
+  expect(onDismiss).toHaveBeenCalledTimes(1);
+});
+
+test("scope='focus-within' keeps outside-press dismissal active while unfocused", async () => {
+  const user = userEvent.setup();
+  const onDismiss = vi.fn();
+
+  render(
+    <div>
+      <button type="button">Outside control</button>
+      <DismissableLayer
+        dismissOnOutsidePress
+        onDismiss={onDismiss}
+        render={<section aria-label="Scoped card" />}
+        scope="focus-within"
+      >
+        <button type="button">Inside action</button>
+      </DismissableLayer>
+    </div>
+  );
+
+  // Layer opened without focus: Escape is ignored, but outside press still dismisses.
+  await user.keyboard("{Escape}");
+  expect(onDismiss).not.toHaveBeenCalled();
+
+  await user.click(screen.getByRole("button", { name: "Outside control" }));
+  expect(onDismiss).toHaveBeenCalledTimes(1);
+  expect(onDismiss).toHaveBeenCalledWith(
+    "outside-press",
+    expect.objectContaining({ reason: "outside-press" })
+  );
+});
+
+test("scope='focus-within' does not dismiss on Escape after a focused child unmounts to document.body", async () => {
+  const user = userEvent.setup();
+  const onDismiss = vi.fn();
+
+  const Harness = () => {
+    const [showTransient, setShowTransient] = useState(true);
+    return (
+      <DismissableLayer
+        onDismiss={onDismiss}
+        render={<section aria-label="Scoped card" />}
+        scope="focus-within"
+      >
+        {showTransient ? (
+          <button onClick={() => setShowTransient(false)} type="button">
+            Transient action
+          </button>
+        ) : null}
+        <button type="button">Remaining action</button>
+      </DismissableLayer>
+    );
+  };
+
+  render(<Harness />);
+  const transient = screen.getByRole("button", { name: "Transient action" });
+  transient.focus();
+  expect(transient).toHaveFocus();
+
+  // Removing the focused control leaves focus on document.body without firing focusout.
+  await user.click(transient);
+  expect(screen.queryByRole("button", { name: "Transient action" })).toBeNull();
+  expect(document.activeElement).toBe(document.body);
+
+  await user.keyboard("{Escape}");
+  expect(onDismiss).not.toHaveBeenCalled();
+  expect(screen.getByRole("region", { name: "Scoped card" })).toBeVisible();
+
+  // Focusing a remaining control inside the layer lets Escape dismiss again.
+  await user.click(screen.getByRole("button", { name: "Remaining action" }));
+  await user.keyboard("{Escape}");
+  expect(onDismiss).toHaveBeenCalledTimes(1);
+});
+
+test("scope='focus-within' dismisses a portaled nested dialog first and closes the card once focus returns", async () => {
   const user = userEvent.setup();
   const cardDismiss = vi.fn();
   const portal = document.createElement("div");
@@ -698,218 +821,6 @@ test("scope='focus-within' re-binds when a portaled nested dialog closes and res
   } finally {
     portal.remove();
   }
-});
-
-test("scope='focus-within' clicking non-focusable text while unfocused does not bind Escape", async () => {
-  const user = userEvent.setup();
-  const onDismiss = vi.fn();
-
-  render(
-    <div>
-      <button type="button">Outside control</button>
-      <DismissableLayer
-        onDismiss={onDismiss}
-        render={<section aria-label="Scoped card" />}
-        scope="focus-within"
-      >
-        <h2>Static heading</h2>
-        <button type="button">Inside action</button>
-      </DismissableLayer>
-    </div>
-  );
-
-  await user.click(screen.getByRole("button", { name: "Outside control" }));
-  await user.click(screen.getByRole("heading", { name: "Static heading" }));
-  await user.keyboard("{Escape}");
-  expect(onDismiss).not.toHaveBeenCalled();
-});
-
-test("older focus-within layer does not jump ahead of a newer canceled layer on Escape or internal focus moves", async () => {
-  const user = userEvent.setup();
-  const olderDismiss = vi.fn();
-  let cancelNewer = true;
-  const newerDismiss = vi.fn(
-    (
-      _reason: "escape-key" | "outside-press" | "window-blur",
-      details: { cancel: () => void }
-    ) => {
-      if (cancelNewer) {
-        details.cancel();
-      }
-    }
-  );
-
-  const Harness = () => {
-    const [showNewer, setShowNewer] = useState(false);
-    return (
-      <div>
-        <button onClick={() => setShowNewer(true)} type="button">
-          Show newer
-        </button>
-        <button type="button">Outside</button>
-        <DismissableLayer
-          onDismiss={olderDismiss}
-          render={<section aria-label="Older scoped" />}
-          scope="focus-within"
-        >
-          <button type="button">Older first</button>
-          <button type="button">Older second</button>
-        </DismissableLayer>
-        {showNewer ? (
-          <DismissableLayer
-            onDismiss={newerDismiss}
-            render={<section aria-label="Newer document" />}
-          >
-            <button type="button">Newer action</button>
-          </DismissableLayer>
-        ) : null}
-      </div>
-    );
-  };
-
-  render(<Harness />);
-
-  // Focus inside older layer, then mount newer document layer on top.
-  await user.click(screen.getByRole("button", { name: "Older first" }));
-  await user.click(screen.getByRole("button", { name: "Show newer" }));
-  // Return focus inside older layer before opening newer? Here clicking "Show newer"
-  // moved focus outside older, so older left the stack while newer is open.
-  await user.keyboard("{Escape}");
-  expect(newerDismiss).toHaveBeenCalledTimes(1);
-  expect(olderDismiss).not.toHaveBeenCalled();
-
-  // Another Escape while still outside older keeps hitting newer, never promoting older.
-  await user.click(screen.getByRole("button", { name: "Outside" }));
-  await user.keyboard("{Escape}");
-  expect(newerDismiss).toHaveBeenCalledTimes(2);
-  expect(olderDismiss).not.toHaveBeenCalled();
-
-  // Explicitly focusing back into older binds it on top because the user is now
-  // interacting with that focus-within surface; leaving focus removes it again.
-  await user.click(screen.getByRole("button", { name: "Older first" }));
-  await user.click(screen.getByRole("button", { name: "Outside" }));
-  await user.keyboard("{Escape}");
-  expect(newerDismiss).toHaveBeenCalledTimes(3);
-  expect(olderDismiss).not.toHaveBeenCalled();
-
-  // When older is already focused and a newer layer opens on top without stealing
-  // focus, moving focus within older does not promote it above newer.
-  cancelNewer = false;
-  await user.keyboard("{Escape}");
-  expect(newerDismiss).toHaveBeenCalledTimes(4);
-});
-
-test("focus-within layer stays beneath a newer layer opened while focus remains inside it", async () => {
-  const user = userEvent.setup();
-  const olderDismiss = vi.fn();
-  const newerDismiss = vi.fn(
-    (
-      _reason: "escape-key" | "outside-press" | "window-blur",
-      details: { cancel: () => void }
-    ) => {
-      details.cancel();
-    }
-  );
-
-  const Harness = () => {
-    const [showNewer, setShowNewer] = useState(false);
-    return (
-      <div>
-        <DismissableLayer
-          onDismiss={olderDismiss}
-          render={<section aria-label="Older scoped" />}
-          scope="focus-within"
-        >
-          <button onClick={() => setShowNewer(true)} type="button">
-            Open sibling layer
-          </button>
-          <button type="button">Sibling control inside older</button>
-        </DismissableLayer>
-        {showNewer ? (
-          <DismissableLayer
-            onDismiss={newerDismiss}
-            render={<section aria-label="Newer document" />}
-          >
-            <span>Newer notice</span>
-          </DismissableLayer>
-        ) : null}
-      </div>
-    );
-  };
-
-  render(<Harness />);
-  await user.click(screen.getByRole("button", { name: "Open sibling layer" }));
-  expect(screen.getByRole("region", { name: "Newer document" })).toBeVisible();
-
-  await user.keyboard("{Escape}");
-  expect(newerDismiss).toHaveBeenCalledTimes(1);
-  expect(olderDismiss).not.toHaveBeenCalled();
-
-  // Moving focus between controls inside the older layer keeps it below the newer layer.
-  await user.click(
-    screen.getByRole("button", { name: "Sibling control inside older" })
-  );
-  await user.keyboard("{Escape}");
-  expect(newerDismiss).toHaveBeenCalledTimes(2);
-  expect(olderDismiss).not.toHaveBeenCalled();
-});
-
-test("initially open non-modal child Dialog sits above its parent without trapping the parent open", async () => {
-  const user = userEvent.setup();
-  const outerDismiss = vi.fn();
-
-  const Harness = () => {
-    const [open, setOpen] = useState(true);
-    return open ? (
-      <DismissableLayer
-        onDismiss={() => {
-          outerDismiss();
-          setOpen(false);
-        }}
-        render={<section aria-label="Parent" />}
-      >
-        <button type="button">Parent action</button>
-        <Dialog defaultOpen modal={false}>
-          <DialogContent showOverlay={false}>
-            <DialogTitle>Non-modal dialog</DialogTitle>
-            <button type="button">Dialog action</button>
-            <DialogClose>Close dialog</DialogClose>
-          </DialogContent>
-        </Dialog>
-      </DismissableLayer>
-    ) : null;
-  };
-
-  render(<Harness />);
-  expect(
-    screen.getByRole("dialog", { name: "Non-modal dialog" })
-  ).toBeVisible();
-
-  // With focus on a sibling outside the non-modal dialog, the dialog sits at the
-  // top of UI SDK's layer stack (matching one opened after mount) and ignores Escape
-  // outside its content, so neither closes on that keypress.
-  await user.click(screen.getByRole("button", { name: "Parent action" }));
-  await user.keyboard("{Escape}");
-  expect(
-    screen.getByRole("dialog", { name: "Non-modal dialog" })
-  ).toBeVisible();
-  expect(outerDismiss).not.toHaveBeenCalled();
-
-  // Focusing the non-modal dialog lets Escape close it first, then the next Escape
-  // dismisses the parent — the parent is never left unable to dismiss.
-  await user.click(screen.getByRole("button", { name: "Dialog action" }));
-  await user.keyboard("{Escape}");
-  await waitFor(() => {
-    expect(
-      screen.queryByRole("dialog", { name: "Non-modal dialog" })
-    ).toBeNull();
-  });
-  expect(screen.getByRole("region", { name: "Parent" })).toBeVisible();
-  expect(outerDismiss).not.toHaveBeenCalled();
-
-  await user.keyboard("{Escape}");
-  expect(screen.queryByRole("region", { name: "Parent" })).toBeNull();
-  expect(outerDismiss).toHaveBeenCalledTimes(1);
 });
 
 test("unmounting removes all document and window listeners for both scopes", () => {

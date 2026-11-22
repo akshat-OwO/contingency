@@ -19,54 +19,38 @@ export type DismissableLayerProps = DismissableLayerOptions &
   >;
 
 const DismissableLayerAnchor = () =>
-  usePart(dismissableLayer, "anchor", {}, undefined, "span");
+  usePart(dismissableLayer, "anchor", { open: true }, undefined, "span");
 
-const prependAnchor = (
-  children: DismissableLayerProps["children"]
-): DismissableLayerProps["children"] =>
-  Predicate.isFunction(children) ? (
-    (state: DismissableLayerRootState) => (
-      <>
-        <DismissableLayerAnchor />
-        {children(state)}
-      </>
-    )
-  ) : (
+const prependAnchor =
+  (
+    children: DismissableLayerProps["children"]
+  ): ((state: DismissableLayerRootState) => ReactNode) =>
+  (state) => (
     <>
-      <DismissableLayerAnchor />
-      {children}
+      {state.open ? <DismissableLayerAnchor /> : null}
+      {Predicate.isFunction(children) ? children(state) : children}
     </>
   );
 
 const DismissableLayer = ({
   children,
-  closeOnBlur,
   contains,
   debug,
-  defaultOpen,
   dismissOnOutsidePress,
-  modal,
   onDismiss,
-  onOpenChange,
   open,
   render,
   restoreFocus,
   scope,
-  topLayer,
   ...props
 }: DismissableLayerProps) => {
   const baseOptions = {
-    closeOnBlur,
     contains,
-    defaultOpen,
     dismissOnOutsidePress,
-    modal,
     onDismiss,
-    onOpenChange,
     open,
     restoreFocus,
     scope,
-    topLayer,
   };
   const handle = usePrimitive(
     dismissableLayer,
@@ -98,10 +82,8 @@ const DismissableLayer = ({
 export { DismissableLayer };
 export { dismissableLayer } from "./dismissable-layer-primitive";
 export type {
-  DismissableLayerCloseReason,
   DismissableLayerDetails,
   DismissableLayerDismissReason,
-  DismissableLayerOpenChangeDetails,
   DismissableLayerOptions,
   DismissableLayerRootState,
   DismissableLayerScope,
