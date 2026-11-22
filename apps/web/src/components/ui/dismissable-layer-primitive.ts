@@ -4,7 +4,6 @@ import {
   createFocusRecovery,
   definePrimitive,
   dispatch,
-  isComposing,
   isDismissal,
   openAttrs,
 } from "@ui-sdk/core";
@@ -55,72 +54,56 @@ export interface DismissableLayerRootState {
   readonly open: boolean;
 }
 
-const OPEN_POPUP_DESCENDANT_SELECTOR =
-  '[popover][data-open], [popover]:not([hidden]) > [data-open][data-presentation="sheet"]';
-const OPEN_DISMISSABLE_LAYER_SELECTOR =
-  '[data-slot="dismissable-layer"][data-open]';
+type HostSource = "anchor" | "root";
 
-const layerAcceptsEscape = new WeakMap<
-  HTMLElement,
-  (event: KeyboardEvent) => boolean
->();
+const activeElementIn = (doc: Document): Node | null => {
+  let current: Element | null = doc.activeElement;
+  while (current?.shadowRoot?.activeElement) {
+    current = current.shadowRoot.activeElement;
+  }
+  return current;
+};
+
+const composedContains = (container: Node, target: Node | null): boolean => {
+  let current: Node | null = target;
+  while (current !== null) {
+    if (container.contains(current)) {
+      return true;
+    }
+    const root = current.getRootNode();
+    current = root instanceof ShadowRoot ? root.host : null;
+  }
+  return false;
+};
 
 const isNodeWithinLayer = (
   el: HTMLElement,
   node: Node | null,
   contains: (target: Node) => boolean
-): boolean => node !== null && (el.contains(node) || contains(node));
+): boolean => node !== null && (composedContains(el, node) || contains(node));
 
-const isEscapeWithinLayer = (
-  el: HTMLElement,
-  event: KeyboardEvent,
-  contains: (target: Node) => boolean
-): boolean => {
-  const doc = el.ownerDocument;
+const eventTargetNode = (event: Event, doc: Document): Node | null => {
   const path = event.composedPath();
-  const target = path[0] instanceof Node ? path[0] : event.target;
-  if (
-    target instanceof Node &&
-    target !== doc &&
-    target !== doc.body &&
-    target !== doc.documentElement
-  ) {
-    return path.length > 0
-      ? path.some(
-          (hop) => hop instanceof Node && isNodeWithinLayer(el, hop, contains)
-        )
-      : isNodeWithinLayer(el, target, contains);
+  if (path[0] instanceof Node) {
+    return path[0];
   }
-  return isNodeWithinLayer(el, doc.activeElement, contains);
-};
-
-const hasOpenDescendantLayer = (
-  el: HTMLElement,
-  event: KeyboardEvent
-): boolean => {
-  if (el.querySelector(OPEN_POPUP_DESCENDANT_SELECTOR) !== null) {
-    return true;
+  if (event.target instanceof Node) {
+    return event.target;
   }
-  for (const child of el.querySelectorAll(OPEN_DISMISSABLE_LAYER_SELECTOR)) {
-    if (!(child instanceof HTMLElement)) {
-      continue;
-    }
-    const accepts = layerAcceptsEscape.get(child);
-    if (accepts === undefined || accepts(event)) {
-      return true;
-    }
-  }
-  return false;
+  return activeElementIn(doc);
 };
 
 const definedDismissableLayer = definePrimitive({
   api: (context) => {
     const change = createChange(context);
     let previousFocus: HTMLElement | null = null;
+    let hostEl: HTMLElement | null = null;
+    let teardownHost: (() => void) | undefined;
+    const hostSources = new Set<HostSource>();
 
     const captureFocus = (doc: Document) => {
-      previousFocus =
-        doc.activeElement instanceof HTMLElement ? doc.activeElement : null;
+      const active = activeElementIn(doc);
+      previousFocus = active instanceof HTMLElement ? active : null;
     };
 
     const resolveRestoreTarget = (): HTMLElement | undefined => {
@@ -139,6 +122,9 @@ const definedDismissableLayer = definePrimitive({
       fallback: () =>
         context.store.get().open ? resolveRestoreTarget() : undefined,
     });
+
+    const contains = (target: Node): boolean =>
+      context.options().contains?.(target) ?? false;
 
     const close = (
       reason: DismissableLayerCloseReason = "imperative",
@@ -178,20 +164,200 @@ const definedDismissableLayer = definePrimitive({
       );
     };
 
+    const restoreFocus = () => {
+      resolveRestoreTarget()?.focus();
+    };
+
+    const mountHost = (el: HTMLElement): (() => void) => {
+      const doc = el.ownerDocument;
+      let unbindLayer: (() => void) | undefined;
+      let boundKey: string | undefined;
+      let wasOpen = false;
+      let disposed = false;
+      let listeningFocus = false;
+      let preboundByPointer = false;
+
+      const attachLayer = () => {
+        const state = context.store.get();
+        if (!state.open || disposed) {
+          return;
+        }
+        const nextKey = `${state.modal}:${state.topLayer}:${state.closeOnBlur}`;
+        if (boundKey === nextKey && unbindLayer !== undefined) {
+          return;
+        }
+        if (unbindLayer !== undefined) {
+          unbindLayer();
+        }
+        boundKey = nextKey;
+        unbindLayer = bindLayer(el, {
+          closeOnBlur: state.closeOnBlur,
+          contains,
+          modal: state.modal,
+          onDismiss: (reason, event) => close(reason, event),
+          topLayer: state.topLayer,
+        });
+      };
+
+      const detachLayer = () => {
+        preboundByPointer = false;
+        if (unbindLayer !== undefined) {
+          unbindLayer();
+          unbindLayer = undefined;
+          boundKey = undefined;
+        }
+      };
+
+      const onFocusIn = (event: FocusEvent) => {
+        const target = eventTargetNode(event, doc);
+        if (isNodeWithinLayer(el, target, contains)) {
+          preboundByPointer = false;
+          attachLayer();
+        } else {
+          detachLayer();
+        }
+      };
+
+      const onFocusOut = (event: FocusEvent) => {
+        const next =
+          event.relatedTarget instanceof Node ? event.relatedTarget : null;
+        if (isNodeWithinLayer(el, next, contains)) {
+          return;
+        }
+        detachLayer();
+      };
+
+      // UI SDK Select and Menu open on pointerdown before mousedown moves focus;
+      // pre-bind on capture so this layer registers beneath a nested popup opened
+      // by clicking directly from outside, and undo on pointerup if focus did not enter.
+      const onPointerDownCapture = (event: PointerEvent) => {
+        if (unbindLayer !== undefined) {
+          return;
+        }
+        if (isNodeWithinLayer(el, eventTargetNode(event, doc), contains)) {
+          preboundByPointer = true;
+          attachLayer();
+        }
+      };
+
+      const onPointerEnd = () => {
+        if (!preboundByPointer) {
+          return;
+        }
+        preboundByPointer = false;
+        if (!isNodeWithinLayer(el, activeElementIn(doc), contains)) {
+          detachLayer();
+        }
+      };
+
+      const attachFocusListeners = () => {
+        if (listeningFocus) {
+          return;
+        }
+        listeningFocus = true;
+        doc.addEventListener("focusin", onFocusIn);
+        doc.addEventListener("focusout", onFocusOut);
+        doc.addEventListener("pointerdown", onPointerDownCapture, {
+          capture: true,
+        });
+        doc.addEventListener("pointerup", onPointerEnd, { capture: true });
+        doc.addEventListener("pointercancel", onPointerEnd, { capture: true });
+      };
+
+      const detachFocusListeners = () => {
+        if (!listeningFocus) {
+          return;
+        }
+        listeningFocus = false;
+        preboundByPointer = false;
+        doc.removeEventListener("focusin", onFocusIn);
+        doc.removeEventListener("focusout", onFocusOut);
+        doc.removeEventListener("pointerdown", onPointerDownCapture, {
+          capture: true,
+        });
+        doc.removeEventListener("pointerup", onPointerEnd, { capture: true });
+        doc.removeEventListener("pointercancel", onPointerEnd, {
+          capture: true,
+        });
+      };
+
+      const syncLayer = () => {
+        const state = context.store.get();
+        if (!state.open) {
+          if (wasOpen) {
+            wasOpen = false;
+            const hadFocus = composedContains(el, activeElementIn(doc));
+            detachFocusListeners();
+            detachLayer();
+            if (hadFocus) {
+              restoreFocus();
+            }
+          }
+          return;
+        }
+        if (!wasOpen) {
+          wasOpen = true;
+          captureFocus(doc);
+        }
+        if (state.scope === "focus-within") {
+          attachFocusListeners();
+          if (isNodeWithinLayer(el, activeElementIn(doc), contains)) {
+            attachLayer();
+          } else {
+            detachLayer();
+          }
+          return;
+        }
+        detachFocusListeners();
+        attachLayer();
+      };
+
+      syncLayer();
+      const unsubscribe = context.store.subscribe(syncLayer);
+
+      return () => {
+        disposed = true;
+        detachFocusListeners();
+        unsubscribe();
+        detachLayer();
+      };
+    };
+
+    const bindHost = (source: HostSource, el: HTMLElement): (() => void) => {
+      if (hostEl === el) {
+        hostSources.add(source);
+      } else {
+        teardownHost?.();
+        hostSources.clear();
+        hostEl = el;
+        hostSources.add(source);
+        teardownHost = mountHost(el);
+      }
+      return () => {
+        if (hostEl !== el) {
+          return;
+        }
+        hostSources.delete(source);
+        if (hostSources.size === 0) {
+          teardownHost?.();
+          teardownHost = undefined;
+          hostEl = null;
+        }
+      };
+    };
+
     return {
+      bindHost,
       bindRecovery: (
         el: HTMLElement,
         part: { readonly key: string; readonly props: object }
       ) => recovery.bind(el, part),
-      captureFocus,
       close,
-      contains: (target: Node) => context.options().contains?.(target) ?? false,
+      contains,
       dismiss: (reason: DismissableLayerDismissReason, event?: Event) =>
         close(reason, event),
       open: () => change("open", true, { reason: "imperative" }),
-      restoreFocus: () => {
-        resolveRestoreTarget()?.focus();
-      },
+      restoreFocus,
     };
   },
   controlled: ["open"],
@@ -210,163 +376,28 @@ const definedDismissableLayer = definePrimitive({
     topLayer: "boolean",
   },
   slots: (slot) => ({
+    // Rendered as the root's first child so its ref attaches before sibling
+    // descendants (such as a same-render defaultOpen Dialog) push onto UI SDK's stack.
+    anchor: slot({
+      attrs: () => ({
+        "aria-hidden": "true",
+        hidden: "",
+      }),
+      bind: (el, part) => {
+        const root = el.parentElement;
+        if (root === null) {
+          return;
+        }
+        return part.api.bindHost("anchor", root);
+      },
+    }),
     root: slot({
       attrs: (state) => openAttrs(state.open),
       bind: (el, part) => {
         const unbindRecovery = part.api.bindRecovery(el, part);
-        const doc = el.ownerDocument;
-        const win = doc.defaultView;
-        let unbindLayer: (() => void) | undefined;
-        let boundKey: string | undefined;
-        let wasOpen = false;
-        let disposed = false;
-        let yielding = false;
-        let cancelRestore: (() => void) | undefined;
-
-        const acceptsEscape = (event: KeyboardEvent): boolean =>
-          part.store.get().scope !== "focus-within" ||
-          isEscapeWithinLayer(el, event, part.api.contains);
-
-        layerAcceptsEscape.set(el, acceptsEscape);
-
-        const attachLayer = (capturePreviousFocus: boolean) => {
-          const state = part.store.get();
-          if (!state.open || disposed || yielding) {
-            return;
-          }
-          const nextKey = `${state.modal}:${state.topLayer}:${state.closeOnBlur}`;
-          if (boundKey === nextKey && unbindLayer !== undefined) {
-            return;
-          }
-          if (capturePreviousFocus) {
-            part.api.captureFocus(doc);
-          }
-          if (unbindLayer !== undefined) {
-            unbindLayer();
-          }
-          boundKey = nextKey;
-          unbindLayer = bindLayer(el, {
-            closeOnBlur: state.closeOnBlur,
-            contains: (target) => part.api.contains(target),
-            modal: state.modal,
-            onDismiss: (reason, event) => part.api.dismiss(reason, event),
-            topLayer: state.topLayer,
-          });
-        };
-
-        const syncLayer = () => {
-          const state = part.store.get();
-          if (state.open) {
-            const opening = !wasOpen;
-            wasOpen = true;
-            attachLayer(opening);
-            return;
-          }
-          wasOpen = false;
-          cancelRestore?.();
-          cancelRestore = undefined;
-          yielding = false;
-          if (unbindLayer !== undefined) {
-            const hadFocus = el.contains(doc.activeElement);
-            unbindLayer();
-            unbindLayer = undefined;
-            boundKey = undefined;
-            if (hadFocus) {
-              part.api.restoreFocus();
-            }
-          }
-        };
-
-        // UI SDK's layer stack (`layers.js`) is append-only and dispatches Escape
-        // only to its top active layer on `document` bubble, where `bindLayer`
-        // calls `preventDefault()` before `onDismiss`. Pop temporarily during
-        // window capture so same-render open children (bound before this parent
-        // ref) or outside `focus-within` Escapes fall through untouched.
-        const onKeyDownCapture = (event: KeyboardEvent) => {
-          if (
-            unbindLayer === undefined ||
-            event.key !== "Escape" ||
-            event.defaultPrevented ||
-            isComposing(event)
-          ) {
-            return;
-          }
-          const shouldYield =
-            !acceptsEscape(event) || hasOpenDescendantLayer(el, event);
-          if (!shouldYield) {
-            return;
-          }
-          yielding = true;
-          const prevUnbind = unbindLayer;
-          unbindLayer = undefined;
-          boundKey = undefined;
-          prevUnbind();
-
-          let restored = false;
-          let restoreTimer: ReturnType<typeof setTimeout> | undefined;
-          const restore = () => {
-            if (restored) {
-              return;
-            }
-            restored = true;
-            cancelRestore = undefined;
-            if (restoreTimer !== undefined) {
-              clearTimeout(restoreTimer);
-              restoreTimer = undefined;
-            }
-            win?.removeEventListener("keydown", restore);
-            yielding = false;
-            if (!disposed) {
-              attachLayer(false);
-            }
-          };
-          cancelRestore = () => {
-            if (restored) {
-              return;
-            }
-            restored = true;
-            if (restoreTimer !== undefined) {
-              clearTimeout(restoreTimer);
-              restoreTimer = undefined;
-            }
-            win?.removeEventListener("keydown", restore);
-          };
-          // Restore on window bubble (after document bubble finishes) with a
-          // macrotask fallback if propagation stops. Never use queueMicrotask:
-          // real browsers flush microtasks between capture and bubble listeners
-          // on native events.
-          win?.addEventListener("keydown", restore, { once: true });
-          restoreTimer = setTimeout(restore, 0);
-        };
-
-        if (win === null) {
-          doc.addEventListener("keydown", onKeyDownCapture, { capture: true });
-        } else {
-          win.addEventListener("keydown", onKeyDownCapture, { capture: true });
-        }
-
-        syncLayer();
-        const unsubscribe = part.store.subscribe(syncLayer);
-
+        const unbindHost = part.api.bindHost("root", el);
         return () => {
-          disposed = true;
-          cancelRestore?.();
-          cancelRestore = undefined;
-          yielding = false;
-          if (win === null) {
-            doc.removeEventListener("keydown", onKeyDownCapture, {
-              capture: true,
-            });
-          } else {
-            win.removeEventListener("keydown", onKeyDownCapture, {
-              capture: true,
-            });
-          }
-          layerAcceptsEscape.delete(el);
-          unsubscribe();
-          unbindLayer?.();
-          unbindLayer = undefined;
-          boundKey = undefined;
+          unbindHost();
           unbindRecovery();
         };
       },
