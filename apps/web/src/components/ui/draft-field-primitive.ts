@@ -29,6 +29,8 @@ const hasModifier = (event: KeyboardEvent): boolean =>
 const definedDraftField = definePrimitive({
   api: (context) => {
     let baseline: string | undefined;
+    // True only while Enter's own blur runs, so that blur can't commit again.
+    let leavingOnEnter = false;
 
     const dispatchDetail = <Reason extends string>(
       name: `on${string}`,
@@ -102,7 +104,11 @@ const definedDraftField = definePrimitive({
     };
 
     const focusout = (event: FocusEvent) => {
-      if (!context.options().commitOnBlur || !isDraftInput(event.target)) {
+      if (
+        leavingOnEnter ||
+        !context.options().commitOnBlur ||
+        !isDraftInput(event.target)
+      ) {
         return;
       }
       if (baseline !== undefined && event.target.value === baseline) {
@@ -123,12 +129,17 @@ const definedDraftField = definePrimitive({
       if (event.key === "Enter") {
         // Enter always commits, even unchanged: in a blank Emulation field it
         // is how a person clears an applied override. A blur-committed field
-        // then leaves the field; the commit set the baseline, so that blur
-        // doesn't apply the same value again.
+        // then leaves the field without a second commit, even when the first
+        // was empty or canceled.
         if (context.options().commitOnBlur) {
           commit(event.target.value, "enter-key", event);
           event.preventDefault();
-          event.target.blur();
+          leavingOnEnter = true;
+          try {
+            event.target.blur();
+          } finally {
+            leavingOnEnter = false;
+          }
           return;
         }
         if (commit(event.target.value, "enter-key", event)) {

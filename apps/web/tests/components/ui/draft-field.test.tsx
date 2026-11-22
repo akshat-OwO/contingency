@@ -294,6 +294,58 @@ test("Enter on a blur-committed field commits, even unchanged, and leaves the fi
   }
 });
 
+test("Enter on a blur-committed field dispatches once when the commit is empty or canceled", () => {
+  const onEmptyCommit = vi.fn();
+  const onCommit = vi.fn((_value: string, details: { cancel: () => void }) => {
+    details.cancel();
+  });
+  const view = mount(
+    draftField,
+    { commitOnBlur: true, onCommit, onEmptyCommit },
+    '<root><input aria-label="Locale" value="de-DE" /></root>'
+  );
+  try {
+    const input = view.root.querySelector("input");
+    if (!(input instanceof HTMLInputElement)) {
+      throw new Error("Expected input element");
+    }
+    const enter = () =>
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          bubbles: true,
+          cancelable: true,
+          key: "Enter",
+        })
+      );
+
+    // Clearing a filled draft and pressing Enter reports the empty commit once.
+    input.focus();
+    input.value = "";
+    enter();
+    expect(onEmptyCommit).toHaveBeenCalledTimes(1);
+    expect(onCommit).not.toHaveBeenCalled();
+
+    // A canceled Enter commit is not reapplied by the blur Enter causes.
+    input.focus();
+    input.value = "fr-FR";
+    enter();
+    expect(onCommit).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).not.toBe(input);
+
+    // A separate blur of a new edit still commits.
+    input.focus();
+    input.value = "it-IT";
+    input.blur();
+    expect(onCommit).toHaveBeenCalledTimes(2);
+    expect(onCommit).toHaveBeenLastCalledWith(
+      "it-IT",
+      expect.objectContaining({ reason: "blur" })
+    );
+  } finally {
+    view.unmount();
+  }
+});
+
 test("onEmptyCommit catches empty Enter and lets non-empty Enter pass through when onCommit is unset", async () => {
   const onEmptyCommit = vi.fn();
   const view = mount(
