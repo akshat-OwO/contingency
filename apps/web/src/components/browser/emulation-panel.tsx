@@ -6,7 +6,7 @@ import type {
 import { make as makeScopedAtom, useAtom } from "@effect/atom-react";
 import { Atom } from "effect/reactivity";
 import { XIcon } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { devtoolsFieldClassName } from "@/components/browser/devtools-field";
 import type { EmulationPatch } from "@/components/browser/emulation-patch";
@@ -22,6 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { DraftField } from "@/components/ui/draft-field";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -581,6 +582,10 @@ const EmulationPanelContent = ({
   const appliedEmulation =
     applied.status === "known" ? applied.emulation : undefined;
   const appliedLocation = appliedEmulation?.geolocation;
+  const lastLocaleRef = useRef<string | null>(appliedEmulation?.locale ?? null);
+  const lastTimezoneRef = useRef<string | null>(
+    appliedEmulation?.timezoneId ?? null
+  );
 
   const applyLocation = (geolocation: {
     readonly latitude: number;
@@ -632,14 +637,24 @@ const EmulationPanelContent = ({
     onPatch({ geolocation: null });
   };
 
-  const applyLocale = () => {
-    const trimmed = locale.trim();
-    onPatch({ locale: trimmed.length === 0 ? null : trimmed });
+  const applyLocale = (nextValue: string) => {
+    const trimmed = nextValue.trim();
+    const nextLocale = trimmed.length === 0 ? null : trimmed;
+    if (nextLocale === lastLocaleRef.current) {
+      return;
+    }
+    lastLocaleRef.current = nextLocale;
+    onPatch({ locale: nextLocale });
   };
 
-  const applyTimezone = () => {
-    const trimmed = timezoneId.trim();
-    onPatch({ timezoneId: trimmed.length === 0 ? null : trimmed });
+  const applyTimezone = (nextValue: string) => {
+    const trimmed = nextValue.trim();
+    const nextTimezone = trimmed.length === 0 ? null : trimmed;
+    if (nextTimezone === lastTimezoneRef.current) {
+      return;
+    }
+    lastTimezoneRef.current = nextTimezone;
+    onPatch({ timezoneId: nextTimezone });
   };
 
   const applyColorScheme = (value: ColorSchemeChoice) => {
@@ -677,36 +692,28 @@ const EmulationPanelContent = ({
           <div className="grid gap-2">
             <label className="block space-y-1 text-xs">
               <span>Locale</span>
-              <Input
+              <DraftField
                 variant="compact"
                 aria-label="Locale"
                 className={cn(devtoolsFieldClassName, "font-mono")}
+                commitOnBlur
                 disabled={disabled}
-                onBlur={applyLocale}
                 onChange={(event) => setLocale(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.currentTarget.blur();
-                  }
-                }}
+                onCommit={applyLocale}
                 placeholder="de-DE"
                 value={locale}
               />
             </label>
             <label className="block space-y-1 text-xs">
               <span>Time zone</span>
-              <Input
+              <DraftField
                 variant="compact"
                 aria-label="Time zone"
                 className={cn(devtoolsFieldClassName, "font-mono")}
+                commitOnBlur
                 disabled={disabled}
-                onBlur={applyTimezone}
                 onChange={(event) => setTimezoneId(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.currentTarget.blur();
-                  }
-                }}
+                onCommit={applyTimezone}
                 placeholder="Europe/Berlin"
                 value={timezoneId}
               />

@@ -1,8 +1,10 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
 
 import { EmulationPanel } from "@/components/browser/emulation-panel";
+import { DismissableLayer } from "@/components/ui/dismissable-layer";
 
 afterEach(cleanup);
 
@@ -464,4 +466,70 @@ test("reads applied scale and submits bounded percentages", async () => {
     screen.getByRole("button", { name: "Apply text scale" })
   );
   expect(onPatch).toHaveBeenCalledWith({ textScale: 300 });
+});
+
+test("Locale and Time zone commit on Enter and blur without double-applying unchanged values", async () => {
+  const user = userEvent.setup();
+  const onPatch = renderPanel(locationPicker);
+  const locale = screen.getByRole("textbox", { name: "Locale" });
+  const timezone = screen.getByRole("textbox", { name: "Time zone" });
+
+  // Focusing and blurring without editing sends no patch.
+  await user.click(locale);
+  await user.click(timezone);
+  expect(onPatch).not.toHaveBeenCalled();
+
+  // Enter commits once; repeated Enter and blurring afterward do not send another patch.
+  await user.click(locale);
+  await user.paste("de-DE");
+  await user.keyboard("{Enter}{Enter}");
+  expect(onPatch).toHaveBeenCalledTimes(1);
+  expect(onPatch).toHaveBeenLastCalledWith({ locale: "de-DE" });
+  await user.tab();
+  expect(onPatch).toHaveBeenCalledTimes(1);
+
+  // Blur commits Time zone; refocusing and blurring unchanged sends nothing more.
+  await user.click(timezone);
+  await user.paste("Europe/Berlin");
+  await user.tab();
+  expect(onPatch).toHaveBeenCalledTimes(2);
+  expect(onPatch).toHaveBeenLastCalledWith({ timezoneId: "Europe/Berlin" });
+  await user.click(timezone);
+  await user.tab();
+  expect(onPatch).toHaveBeenCalledTimes(2);
+
+  // Clearing Locale back to empty sends null once.
+  await user.clear(locale);
+  await user.tab();
+  expect(onPatch).toHaveBeenCalledTimes(3);
+  expect(onPatch).toHaveBeenLastCalledWith({ locale: null });
+});
+
+test("Escape inside Locale reaches the enclosing Emulation card", async () => {
+  const user = userEvent.setup();
+  const onDismiss = vi.fn();
+  const Harness = () => {
+    const [open, setOpen] = useState(true);
+    return open ? (
+      <DismissableLayer
+        onDismiss={() => {
+          onDismiss();
+          setOpen(false);
+        }}
+        render={<section aria-label="Emulation" />}
+      >
+        <EmulationPanel
+          applied={locationPicker}
+          disabled={false}
+          onPatch={vi.fn()}
+        />
+      </DismissableLayer>
+    ) : null;
+  };
+
+  render(<Harness />);
+  await user.click(screen.getByRole("textbox", { name: "Locale" }));
+  await user.keyboard("{Escape}");
+  expect(screen.queryByRole("region", { name: "Emulation" })).toBeNull();
+  expect(onDismiss).toHaveBeenCalledTimes(1);
 });

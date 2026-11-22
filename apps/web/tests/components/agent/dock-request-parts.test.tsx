@@ -1,4 +1,10 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { afterEach, expect, test, vi } from "vitest";
@@ -7,6 +13,7 @@ import {
   AnsweredVariables,
   VariableField,
 } from "@/components/agent/dock-request-parts";
+import { DismissableLayer } from "@/components/ui/dismissable-layer";
 
 afterEach(cleanup);
 
@@ -51,6 +58,28 @@ test("an empty value is marked instead of sent", async () => {
   expect(field).not.toHaveAttribute("aria-invalid");
   await user.keyboard("{Enter}");
   expect(onSubmit).toHaveBeenCalledOnce();
+});
+
+test("IME Enter does not mark an empty Variable invalid, and Escape bubbles to enclosing layers", async () => {
+  const user = userEvent.setup();
+  const onDismiss = vi.fn();
+  const onSubmit = vi.fn<() => void>();
+  render(
+    <DismissableLayer
+      onDismiss={onDismiss}
+      render={<section aria-label="Requests" />}
+    >
+      <Field onSubmit={onSubmit} />
+    </DismissableLayer>
+  );
+  const field = screen.getByLabelText("PASSWORD");
+  await user.click(field);
+  fireEvent.keyDown(field, { isComposing: true, key: "Enter" });
+  expect(field).not.toHaveAttribute("aria-invalid");
+  expect(onSubmit).not.toHaveBeenCalled();
+
+  await user.keyboard("{Escape}");
+  expect(onDismiss).toHaveBeenCalledTimes(1);
 });
 
 test("a value that can only be supplied asks only for a value", async () => {
