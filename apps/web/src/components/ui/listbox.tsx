@@ -33,6 +33,10 @@ const Listbox = ListboxPrimitive;
 /**
  * One option. Style the chosen one with `data-selected:`, the focused one
  * with `focus-visible:`, and an unavailable one with `data-disabled:`.
+ *
+ * It hides the browser's focus outline with a bare `outline-style`, not
+ * `outline-none`: Tailwind's `outline-none` also clears the variable that
+ * `focus-visible:outline-2` draws with, so an option could never show one.
  */
 const ListboxItem = <T = string,>({
   className,
@@ -40,7 +44,7 @@ const ListboxItem = <T = string,>({
 }: Styled<React.ComponentProps<typeof ListboxItemPrimitive<T>>>) => (
   <ListboxItemPrimitive<T>
     className={cn(
-      "cursor-default outline-none select-none data-disabled:pointer-events-none data-disabled:opacity-50",
+      "cursor-default select-none [outline-style:none] data-disabled:pointer-events-none data-disabled:opacity-50",
       className
     )}
     {...props}

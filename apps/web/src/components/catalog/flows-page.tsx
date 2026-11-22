@@ -1156,7 +1156,11 @@ const RunList = ({
     <div className="border-island-border shrink-0 border-b">
       {/*
         Arrows browse the rows; Enter, Space or a press shows one, since
-        each choice loads its Run Summary and moves the URL.
+        each choice loads its Run Summary and moves the URL. The folder's
+        default Run is already selected, so choosing it again arrives as a
+        deselect; it still shows that Run, which pins its ID in the URL.
+        The fade lifts while a row has keyboard focus, so a row scrolled to
+        the bottom edge keeps its outline.
       */}
       <Listbox
         activation="manual"
@@ -1166,13 +1170,15 @@ const RunList = ({
           capped && RUN_LIST_MAX,
           capped &&
             moreBelow &&
-            "[mask-image:linear-gradient(to_bottom,black_calc(100%-2rem),transparent)]"
+            "[mask-image:linear-gradient(to_bottom,black_calc(100%-2rem),transparent)] has-[:focus-visible]:[mask-image:none]"
         )}
+        deselectable
         id={listId}
         onScroll={(event: UIEvent<HTMLDivElement>) => {
           setMoreBelow(hasMoreBelow(event.currentTarget));
         }}
-        onValueChange={(id) => {
+        onValueChange={(next) => {
+          const id = next ?? shownId;
           const entry = entries.find((candidate) => entryId(candidate) === id);
           if (entry !== undefined) {
             onShow(entry);

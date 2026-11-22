@@ -393,11 +393,16 @@ test("lists local Flows, hides Global behind its filter, and shows a Flow's Runs
     within(catalog).getByRole("button", { name: /Runs without one Flow/u })
   );
   expect(url()).toBe("@root|");
-  expect(
-    within(screen.getByRole("region", { name: "Runs" })).getByRole("option", {
-      name: /Explore the store/u,
-    })
-  ).toBeVisible();
+  const shown = within(screen.getByRole("region", { name: "Runs" })).getByRole(
+    "option",
+    { name: /Explore the store/u }
+  );
+  expect(shown).toBeVisible();
+  // The folder shows its newest Run by default; choosing it pins its ID.
+  expect(shown).toHaveAttribute("aria-selected", "true");
+  await userEvent.click(shown);
+  expect(url()).toBe("@root|agentrun-loose");
+  expect(shown).toHaveAttribute("aria-selected", "true");
 });
 
 test("says what to do next for a drafted Flow with no Runs", async () => {
