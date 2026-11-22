@@ -322,8 +322,12 @@ export const DockShell = ({
               fit, as on a narrow device stage, they wrap onto a second line
               rather than clipping.
             */}
+            {/*
+              Every Button and Toggle among the controls takes the dock's
+              compact size, and all but the primary action stay unfilled.
+            */}
             <div
-              className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5 empty:hidden *:data-[slot=button]:h-8 *:data-[slot=button]:rounded-[10px] *:data-[slot=button]:px-3 *:data-[slot=button]:text-[13px] *:data-[slot=button]:not-[.bg-primary,.bg-status-recording]:bg-transparent dark:*:data-[slot=button]:not-[.bg-primary,.bg-status-recording]:bg-transparent"
+              className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-1.5 empty:hidden [&>:is([data-slot=button],[data-slot=toggle])]:h-8 [&>:is([data-slot=button],[data-slot=toggle])]:rounded-[10px] [&>:is([data-slot=button],[data-slot=toggle])]:px-3 [&>:is([data-slot=button],[data-slot=toggle])]:text-[13px] [&>:is([data-slot=button],[data-slot=toggle])]:not-[.bg-primary,.bg-status-recording]:bg-transparent dark:[&>:is([data-slot=button],[data-slot=toggle])]:not-[.bg-primary,.bg-status-recording]:bg-transparent"
               data-slot="dock-controls"
             >
               <RunSummaryPill />
