@@ -485,3 +485,21 @@ test("clears an ignored controlled press handoff when focus moves elsewhere", as
   expect(screen.getByRole("button", { name: "Expand" })).toBeVisible();
   expect(done).toHaveFocus();
 });
+
+test("does not arm a press handoff when an unrelated control already has focus", () => {
+  const { rerender } = render(<ControlledProgrammatic open />);
+
+  const done = screen.getByRole("button", { name: "Done" });
+  done.focus();
+  expect(done).toHaveFocus();
+
+  // Simulate Safari clicking Collapse without moving focus off Done.
+  fireEvent.click(screen.getByRole("button", { name: "Collapse" }));
+  expect(screen.getByRole("button", { name: "Collapse" })).toBeVisible();
+  expect(done).toHaveFocus();
+
+  // An independent programmatic fold leaves Done focused.
+  rerender(<ControlledProgrammatic open={false} />);
+  expect(screen.getByRole("button", { name: "Expand" })).toBeVisible();
+  expect(done).toHaveFocus();
+});

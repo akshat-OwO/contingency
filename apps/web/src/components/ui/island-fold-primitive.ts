@@ -141,11 +141,25 @@ const definedIslandFold = definePrimitive({
       triggers.clear();
     });
 
+    const shouldArmPressHandoff = (pressed: TriggerKind): boolean => {
+      if (isTriggerFocused(pressed)) {
+        return true;
+      }
+      const el = triggers.get(pressed);
+      if (el === undefined || !el.isConnected) {
+        return false;
+      }
+      const active = activeElementIn(el.ownerDocument);
+      return active === null || active === el.ownerDocument.body;
+    };
+
     const collapse = (event?: Event) => {
       if (!context.store.get().open) {
         return;
       }
-      armHandoff("expand", { expireOnMicrotask: false, pressed: "collapse" });
+      if (shouldArmPressHandoff("collapse")) {
+        armHandoff("expand", { expireOnMicrotask: false, pressed: "collapse" });
+      }
       const applied = change(
         "open",
         false,
@@ -162,7 +176,9 @@ const definedIslandFold = definePrimitive({
       if (context.store.get().open) {
         return;
       }
-      armHandoff("collapse", { expireOnMicrotask: false, pressed: "expand" });
+      if (shouldArmPressHandoff("expand")) {
+        armHandoff("collapse", { expireOnMicrotask: false, pressed: "expand" });
+      }
       const applied = change(
         "open",
         true,
