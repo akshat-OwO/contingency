@@ -86,11 +86,14 @@ const ControlledCancelable = ({
 };
 
 const ControlledProgrammatic = ({ open }: { readonly open: boolean }) => (
-  <IslandFold open={open}>
-    <IslandFoldExpandTrigger>Expand</IslandFoldExpandTrigger>
-    <IslandFoldCollapseTrigger>Collapse</IslandFoldCollapseTrigger>
-    <IslandFoldContent>Panel body</IslandFoldContent>
-  </IslandFold>
+  <div>
+    <button type="button">Done</button>
+    <IslandFold open={open}>
+      <IslandFoldExpandTrigger>Expand</IslandFoldExpandTrigger>
+      <IslandFoldCollapseTrigger>Collapse</IslandFoldCollapseTrigger>
+      <IslandFoldContent>Panel body</IslandFoldContent>
+    </IslandFold>
+  </div>
 );
 
 const SummaryFixture = () => {
@@ -463,4 +466,22 @@ test("keeps press focus handoff across a deferred View Transition commit without
       );
     }
   }
+});
+
+test("clears an ignored controlled press handoff when focus moves elsewhere", async () => {
+  const user = userEvent.setup();
+  const { rerender } = render(<ControlledProgrammatic open />);
+
+  // Controlled `open` with no `onOpenChange` ignores the press without calling cancel().
+  await user.click(screen.getByRole("button", { name: "Collapse" }));
+  expect(screen.getByRole("button", { name: "Collapse" })).toBeVisible();
+
+  const done = screen.getByRole("button", { name: "Done" });
+  done.focus();
+  expect(done).toHaveFocus();
+
+  // A later programmatic fold must not steal focus from Done.
+  rerender(<ControlledProgrammatic open={false} />);
+  expect(screen.getByRole("button", { name: "Expand" })).toBeVisible();
+  expect(done).toHaveFocus();
 });
