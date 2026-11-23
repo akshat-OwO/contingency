@@ -185,6 +185,13 @@ export const acquireIosStream = (
       boolean,
       ReturnType<typeof iosRuntimeError>
     >();
+    // The helper prints `ready` once CoreSimulator has resolved the device and
+    // display. A cold Mac can take minutes to get there, so startup has its own
+    // deadline, separate from the wait for the first frame.
+    let launched = yield* Deferred.make<
+      boolean,
+      ReturnType<typeof iosRuntimeError>
+    >();
     const viewers = new Set<(bytes: Uint8Array | null) => void>();
     let worker: ChildProcessWithoutNullStreams | undefined;
     let revoked = false;
@@ -224,6 +231,10 @@ export const acquireIosStream = (
       Effect.runFork(onFault(code).pipe(Effect.forkIn(scope)));
       clearTimeout(silence);
       Deferred.doneUnsafe(
+        launched,
+        Effect.fail(iosRuntimeError("capture_incomplete"))
+      );
+      Deferred.doneUnsafe(
         ready,
         Effect.fail(iosRuntimeError("capture_incomplete"))
       );
@@ -242,6 +253,10 @@ export const acquireIosStream = (
         revoked = true;
         registry.set(transport, "closed");
         clearTimeout(silence);
+        Deferred.doneUnsafe(
+          launched,
+          Effect.fail(iosRuntimeError("runtime_closed"))
+        );
         yield* integrity.stop();
         for (const receive of viewers) {
           receive(null);
@@ -295,6 +310,11 @@ export const acquireIosStream = (
             requestedDisplay = null;
             generation = randomUUID();
             yield* integrity.generation(generation);
+            const announced = Deferred.makeUnsafe<
+              boolean,
+              ReturnType<typeof iosRuntimeError>
+            >();
+            launched = announced;
             const child = host.spawn(helper, [
               developer,
               selected.udid,
@@ -310,6 +330,9 @@ export const acquireIosStream = (
             let helperFailure: string | undefined;
             child.stderr.setEncoding("utf-8");
             child.stderr.on("data", (chunk: string) => {
+              if (chunk.split("\n").includes("ready")) {
+                Deferred.doneUnsafe(announced, Effect.succeed(true));
+              }
               // The shipped helper emits fixed diagnostics, never capture data.
               // Retain only a known message, never arbitrary subprocess stderr.
               for (const message of [
@@ -383,6 +406,8 @@ export const acquireIosStream = (
                   child.kill("SIGTERM");
                   return;
                 }
+                // A frame proves startup even if stderr's `ready` is still in flight.
+                Deferred.doneUnsafe(announced, Effect.succeed(true));
                 clearTimeout(silence);
                 silence = setTimeout(() => {
                   childFailed("stream-silence");
@@ -470,6 +495,15 @@ export const acquireIosStream = (
               while: () => worker === child && !revoked,
             }).pipe(Effect.forkIn(scope));
           }
+          // A hang guard for a helper stuck in startup, not a tuned estimate:
+          // cold hosted runners have taken over two minutes to print `ready`.
+          yield* Deferred.await(launched).pipe(
+            Effect.timeoutOrElse({
+              duration: "5 minutes",
+              orElse: () => Effect.fail(iosRuntimeError("capture_incomplete")),
+            })
+          );
+          // The first frame follows `ready` quickly once the helper is up.
           yield* Effect.whileLoop({
             body: () => Deferred.await(ready),
             step: () => {

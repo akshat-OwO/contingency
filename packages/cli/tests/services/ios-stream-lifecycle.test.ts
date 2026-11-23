@@ -3,7 +3,7 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { PassThrough } from "node:stream";
 
 import { expect, it } from "@effect/vitest";
-import { Effect, Deferred } from "effect";
+import { Deferred, Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 
 import { acquireIosStream } from "../../src/services/ios-stream.ts";
@@ -32,26 +32,48 @@ class Helper extends ChildProcess {
     null,
     null,
   ];
-  constructor() {
+  private announced: boolean;
+  private started = false;
+  private sent = false;
+  /** The real helper prints `ready` on stderr before it reads `start`. */
+  constructor(announced = true) {
     super();
+    this.announced = announced;
+    if (announced) {
+      this.stderr.write("ready\n");
+    }
     this.stdin.on("data", (bytes: Buffer) => {
       if (bytes.toString().includes("start\n")) {
-        this.stdout.write(
-          `${JSON.stringify({
-            displayPort: port,
-            encodedMs: 12,
-            height: 1500,
-            jpeg: "/9j/",
-            presentedMs: 0,
-            sampledMs: 10,
-            sequence: 1,
-            sourceSequence: 0,
-            startMs: 1,
-            width: 720,
-          })}\n`
-        );
+        this.started = true;
+        this.flush();
       }
     });
+  }
+  /** Finish a slow startup, as CoreSimulator does on a cold Mac. */
+  announce() {
+    this.announced = true;
+    this.stderr.write("ready\n");
+    this.flush();
+  }
+  private flush() {
+    if (!this.announced || !this.started || this.sent) {
+      return;
+    }
+    this.sent = true;
+    this.stdout.write(
+      `${JSON.stringify({
+        displayPort: port,
+        encodedMs: 12,
+        height: 1500,
+        jpeg: "/9j/",
+        presentedMs: 0,
+        sampledMs: 10,
+        sequence: 1,
+        sourceSequence: 0,
+        startMs: 1,
+        width: 720,
+      })}\n`
+    );
   }
   override kill() {
     this.exitCode = 0;
@@ -140,4 +162,55 @@ it.effect(
       yield* TestClock.adjust("1 second");
       expect((yield* Effect.result(stream.start()))._tag).toBe("Success");
     }).pipe(Effect.scoped)
+);
+
+const slowHost = (helpers: Helper[]): IosStreamHost => ({
+  command: (file) =>
+    Effect.succeed(file === "xcode-select" ? "/fixture" : inventory),
+  helper: () => Effect.succeed("fixture-framebuffer"),
+  spawn: () => {
+    const helper = new Helper(false);
+    helpers.push(helper);
+    return helper;
+  },
+});
+
+it.effect("waits past the first-frame deadline for a slow helper startup", () =>
+  Effect.gen(function* slowStartup() {
+    const helpers: Helper[] = [];
+    const scope = yield* Effect.scope;
+    const stream = yield* acquireIosStream(
+      "session",
+      device,
+      scope,
+      () => Effect.void,
+      undefined,
+      slowHost(helpers)
+    );
+    const starting = yield* Effect.forkChild(Effect.result(stream.start()));
+    // it.effect supplies TestClock to the stream's startup and frame deadlines.
+    yield* TestClock.adjust("2 minutes");
+    expect(starting.pollUnsafe()).toBeUndefined();
+    helpers[0]?.announce();
+    expect((yield* Fiber.join(starting))._tag).toBe("Success");
+  }).pipe(Effect.scoped)
+);
+
+it.effect("fails a helper that never finishes startup", () =>
+  Effect.gen(function* stuckStartup() {
+    const scope = yield* Effect.scope;
+    const stream = yield* acquireIosStream(
+      "session",
+      device,
+      scope,
+      () => Effect.void,
+      undefined,
+      slowHost([])
+    );
+    const starting = yield* Effect.forkChild(Effect.result(stream.start()));
+    // it.effect supplies TestClock to the stream's startup deadline.
+    yield* TestClock.adjust("5 minutes");
+    const result = yield* Fiber.join(starting);
+    expect(result._tag).toBe("Failure");
+  }).pipe(Effect.scoped)
 );

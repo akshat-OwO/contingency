@@ -196,7 +196,7 @@ const streamHelper = Effect.fn("streamInstalledIosHelper")(function* stream(
     ChildProcess.make(
       "/usr/bin/arch",
       ["-arm64", helper, developer, udid, display, "portrait"],
-      { cwd: directory, stderr: "inherit" }
+      { cwd: directory }
     )
   );
   yield* Console.log(
@@ -216,6 +216,21 @@ const streamHelper = Effect.fn("streamInstalledIosHelper")(function* stream(
   const send = (command: string) =>
     Queue.offer(input, new TextEncoder().encode(`${command}\n`));
   yield* send("start");
+  // The helper prints `ready` on stderr once CoreSimulator has resolved the
+  // device and display. Echo its diagnostics and note when startup finishes.
+  const started = yield* Deferred.make<boolean>();
+  const diagnostics = yield* child.stderr.pipe(
+    Stream.decodeText,
+    Stream.splitLines,
+    Stream.runForEach((line) =>
+      Console.error(line).pipe(
+        Effect.andThen(
+          line === "ready" ? Deferred.succeed(started, true) : Effect.void
+        )
+      )
+    ),
+    Effect.forkScoped
+  );
   let sequence = 0;
   let count = 0;
   const ready = yield* Deferred.make<boolean>();
@@ -239,6 +254,14 @@ const streamHelper = Effect.fn("streamInstalledIosHelper")(function* stream(
     ),
     Effect.forkScoped
   );
+  // A hang guard for startup alone: cold hosted runners have taken over two
+  // minutes to print `ready`, which the first-frame deadline must not absorb.
+  yield* Effect.raceFirst(
+    Deferred.await(started),
+    Fiber.join(diagnostics).pipe(
+      Effect.andThen(Effect.fail(new Error("Helper ended before ready")))
+    )
+  ).pipe(Effect.timeout("5 minutes"));
   yield* Effect.raceFirst(
     Deferred.await(ready),
     Fiber.join(reader).pipe(
@@ -272,6 +295,7 @@ const streamHelper = Effect.fn("streamInstalledIosHelper")(function* stream(
     return yield* Effect.fail(new Error(`Installed helper exited ${exit}`));
   }
   yield* Fiber.join(reader);
+  yield* Fiber.join(diagnostics);
   yield* Console.log(
     "Installed helper passed: 3 increasing packets, stop, exit 0."
   );
