@@ -421,6 +421,85 @@ test("lists network requests as a table with durations and switches panels from 
   expect(onSelectPanel).toHaveBeenLastCalledWith("console");
 });
 
+test("selects a Network request toggle by click, Enter, and Space and keeps it pressed", async () => {
+  rpc.detailAvailable.mockReturnValue(true);
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(300);
+  vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(600);
+  renderDevtools(false, {
+    networkRequests: [
+      {
+        durationMs: 42,
+        method: "GET",
+        requestId: BrowserRequestId.make("req-shop"),
+        resourceType: "document",
+        status: 200,
+        tabId,
+        timestamp: 1,
+        url: "https://app.example.com/shop.html",
+      },
+      {
+        durationMs: 18,
+        method: "POST",
+        requestId: BrowserRequestId.make("req-cart"),
+        resourceType: "fetch",
+        status: 201,
+        tabId,
+        timestamp: 2,
+        url: "https://app.example.com/api/cart",
+      },
+    ],
+    panel: "network",
+  });
+
+  const user = userEvent.setup();
+  const table = screen.getByRole("table", { name: "Network requests" });
+  const first = within(table).getByRole("button", { name: "GET shop.html" });
+  const second = within(table).getByRole("button", { name: "POST cart" });
+
+  expect(first).toHaveAttribute("data-slot", "toggle");
+  expect(first).toHaveAttribute("aria-pressed", "false");
+  expect(first).not.toHaveAttribute("data-pressed");
+  expect(second).toHaveAttribute("data-slot", "toggle");
+  expect(second).toHaveAttribute("aria-pressed", "false");
+  expect(second).not.toHaveAttribute("data-pressed");
+
+  await user.click(first);
+  expect(first).toHaveAttribute("aria-pressed", "true");
+  expect(first).toHaveAttribute("data-pressed");
+  expect(second).toHaveAttribute("aria-pressed", "false");
+  expect(
+    screen.getByRole("button", { name: "Close request details" })
+  ).toBeInTheDocument();
+
+  await user.click(first);
+  expect(first).toHaveAttribute("aria-pressed", "true");
+  expect(first).toHaveAttribute("data-pressed");
+  expect(
+    screen.getByRole("button", { name: "Close request details" })
+  ).toBeInTheDocument();
+
+  second.focus();
+  await user.keyboard("{Enter}");
+  expect(second).toHaveAttribute("aria-pressed", "true");
+  expect(second).toHaveAttribute("data-pressed");
+  expect(first).toHaveAttribute("aria-pressed", "false");
+  expect(first).not.toHaveAttribute("data-pressed");
+
+  await user.keyboard("{Enter}");
+  expect(second).toHaveAttribute("aria-pressed", "true");
+  expect(second).toHaveAttribute("data-pressed");
+
+  first.focus();
+  await user.keyboard(" ");
+  expect(first).toHaveAttribute("aria-pressed", "true");
+  expect(first).toHaveAttribute("data-pressed");
+  expect(second).toHaveAttribute("aria-pressed", "false");
+
+  await user.keyboard(" ");
+  expect(first).toHaveAttribute("aria-pressed", "true");
+  expect(first).toHaveAttribute("data-pressed");
+});
+
 test("shows a failed detail fetch instead of reporting empty headers or payload", async () => {
   // jsdom has no layout; supply the viewport dimensions to the real virtualizer.
   vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockReturnValue(300);

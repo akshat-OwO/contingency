@@ -927,11 +927,11 @@ const DevtoolsNetworkPanel = ({
                       title={request.url}
                     >
                       <div className="min-w-0" role="cell">
-                        <button
-                          aria-pressed={selected}
+                        <Toggle
                           className="focus-visible:ring-ring block w-full truncate rounded-sm text-left font-mono outline-none focus-visible:ring-2"
-                          onClick={() => onSelectRequest(request)}
-                          type="button"
+                          onPressedChange={() => onSelectRequest(request)}
+                          pressed={selected}
+                          variant="unstyled"
                         >
                           <span
                             className={cn(
@@ -941,7 +941,7 @@ const DevtoolsNetworkPanel = ({
                             {request.method}
                           </span>{" "}
                           {requestName(request.url)}
-                        </button>
+                        </Toggle>
                       </div>{" "}
                       <div className="font-mono tabular-nums" role="cell">
                         {request.status ?? "…"}

@@ -446,6 +446,71 @@ test("holds a place for the Flow the session is teaching", () => {
   expect(screen.getByText(/drafts/u)).toHaveTextContent("cart/flow.md");
 });
 
+test("chooses the pending Flow and Runs without one Flow toggles by click, Enter, and Space and keeps them pressed", async () => {
+  rpc.browse = browse([local, global]);
+  renderPage({ origin: teaching("recording") });
+  const user = userEvent.setup();
+
+  const pending = screen.getByRole("button", {
+    name: /^cart\s*Being taught$/u,
+  });
+  const loose = screen.getByRole("button", { name: /Runs without one Flow/u });
+
+  expect(pending).toHaveAttribute("data-slot", "toggle");
+  expect(pending).toHaveAttribute("aria-pressed", "true");
+  expect(pending).toHaveAttribute("data-pressed");
+  expect(loose).toHaveAttribute("data-slot", "toggle");
+  expect(loose).toHaveAttribute("aria-pressed", "false");
+  expect(loose).not.toHaveAttribute("data-pressed");
+
+  await user.click(loose);
+  expect(url()).toBe("@root|");
+  expect(loose).toHaveAttribute("aria-pressed", "true");
+  expect(loose).toHaveAttribute("data-pressed");
+  expect(pending).toHaveAttribute("aria-pressed", "false");
+  expect(pending).not.toHaveAttribute("data-pressed");
+
+  await user.click(loose);
+  expect(url()).toBe("@root|");
+  expect(loose).toHaveAttribute("aria-pressed", "true");
+  expect(loose).toHaveAttribute("data-pressed");
+
+  pending.focus();
+  await user.keyboard("{Enter}");
+  expect(url()).toBe("cart|");
+  expect(pending).toHaveAttribute("aria-pressed", "true");
+  expect(pending).toHaveAttribute("data-pressed");
+  expect(loose).toHaveAttribute("aria-pressed", "false");
+
+  await user.keyboard("{Enter}");
+  expect(url()).toBe("cart|");
+  expect(pending).toHaveAttribute("aria-pressed", "true");
+
+  loose.focus();
+  await user.keyboard(" ");
+  expect(url()).toBe("@root|");
+  expect(loose).toHaveAttribute("aria-pressed", "true");
+  expect(loose).toHaveAttribute("data-pressed");
+
+  await user.keyboard(" ");
+  expect(url()).toBe("@root|");
+  expect(loose).toHaveAttribute("aria-pressed", "true");
+
+  pending.focus();
+  await user.keyboard(" ");
+  expect(url()).toBe("cart|");
+  expect(pending).toHaveAttribute("aria-pressed", "true");
+
+  await user.click(pending);
+  expect(url()).toBe("cart|");
+  expect(pending).toHaveAttribute("aria-pressed", "true");
+
+  loose.focus();
+  await user.keyboard("{Enter}");
+  expect(url()).toBe("@root|");
+  expect(loose).toHaveAttribute("aria-pressed", "true");
+});
+
 test("tags a saved session Flow This session", () => {
   rpc.browse = browse([local, global]);
   renderPage({
