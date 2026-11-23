@@ -321,6 +321,12 @@ export const acquireIosStream = (
             requestedDisplay = null;
             generation = randomUUID();
             yield* integrity.generation(generation);
+            // Close may have run during the awaits above. From here to
+            // `launched = announced` nothing yields, so a later close sees
+            // this helper's deferred.
+            if (closing) {
+              return yield* Effect.fail(iosRuntimeError("runtime_closed"));
+            }
             const announced = Deferred.makeUnsafe<
               boolean,
               ReturnType<typeof iosRuntimeError>

@@ -263,3 +263,46 @@ it.effect("reads a ready line split across stderr chunks", () =>
     expect(result?._tag === "Success" && result.value._tag).toBe("Failure");
   }).pipe(Effect.scoped)
 );
+
+it.effect("close during startup preparation never spawns a helper", () =>
+  Effect.gen(function* closeBeforeSpawn() {
+    const helpers: Helper[] = [];
+    const preparing = yield* Deferred.make<boolean>();
+    const released = yield* Deferred.make<string>();
+    const host: IosStreamHost = {
+      ...slowHost(helpers),
+      command: (file) =>
+        file === "xcode-select"
+          ? Deferred.succeed(preparing, true).pipe(
+              Effect.andThen(Deferred.await(released))
+            )
+          : Effect.succeed(inventory),
+    };
+    const scope = yield* Effect.scope;
+    const stream = yield* acquireIosStream(
+      "session",
+      device,
+      scope,
+      () => Effect.void,
+      undefined,
+      host
+    );
+    const starting = yield* Effect.forkChild(Effect.result(stream.start()));
+    yield* Deferred.await(preparing);
+    // Start close now, so it marks the stream closing before preparation ends.
+    const closing = yield* Effect.forkChild(stream.close(), {
+      startImmediately: true,
+    });
+    yield* Deferred.succeed(released, "/fixture");
+    // it.effect supplies TestClock; one minute is far inside the startup guard.
+    yield* TestClock.adjust("1 minute");
+    const result = starting.pollUnsafe();
+    expect(
+      result?._tag === "Success" &&
+        result.value._tag === "Failure" &&
+        result.value.failure.code
+    ).toBe("runtime_closed");
+    expect(closing.pollUnsafe()?._tag).toBe("Success");
+    expect(helpers).toHaveLength(0);
+  }).pipe(Effect.scoped)
+);
