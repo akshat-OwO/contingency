@@ -39,15 +39,17 @@ const definedIslandFold = definePrimitive({
     let pendingFocus: TriggerKind | null = null;
     let wasOpen = context.store.get().open;
 
-    const armHandoff = (target: TriggerKind) => {
+    const armHandoff = (target: TriggerKind, expireOnMicrotask: boolean) => {
       handoffToken += 1;
       const token = handoffToken;
       pendingFocus = target;
-      queueMicrotask(() => {
-        if (handoffToken === token) {
-          pendingFocus = null;
-        }
-      });
+      if (expireOnMicrotask) {
+        queueMicrotask(() => {
+          if (handoffToken === token) {
+            pendingFocus = null;
+          }
+        });
+      }
     };
 
     const clearHandoff = () => {
@@ -87,8 +89,12 @@ const definedIslandFold = definePrimitive({
       wasOpen = open;
       const leaving: TriggerKind = prevOpen ? "collapse" : "expand";
       const target: TriggerKind = open ? "collapse" : "expand";
-      if (pendingFocus === null && isTriggerFocused(leaving)) {
-        armHandoff(target);
+      if (pendingFocus === target) {
+        armHandoff(target, true);
+      } else if (pendingFocus === null && isTriggerFocused(leaving)) {
+        armHandoff(target, true);
+      } else {
+        clearHandoff();
       }
       if (focusedTrigger === leaving) {
         focusedTrigger = null;
@@ -107,7 +113,7 @@ const definedIslandFold = definePrimitive({
       if (!context.store.get().open) {
         return;
       }
-      armHandoff("expand");
+      armHandoff("expand", false);
       const applied = change(
         "open",
         false,
@@ -124,7 +130,7 @@ const definedIslandFold = definePrimitive({
       if (context.store.get().open) {
         return;
       }
-      armHandoff("collapse");
+      armHandoff("collapse", false);
       const applied = change(
         "open",
         true,

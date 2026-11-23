@@ -1,6 +1,12 @@
 import { AgentSessionSnapshot } from "@contingency/protocol";
 import { RegistryProvider } from "@effect/atom-react";
-import { cleanup, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   checkServer,
@@ -408,5 +414,53 @@ test("releases phone-width inert stage before moving focus to the collapsed pill
   } finally {
     focusSpy.mockRestore();
     vi.unstubAllGlobals();
+  }
+});
+
+test("keeps press focus handoff across a deferred View Transition commit without prior button focus", async () => {
+  let pendingTransition: (() => void) | undefined;
+  const originalStartViewTransition = Object.getOwnPropertyDescriptor(
+    document,
+    "startViewTransition"
+  );
+  Object.defineProperty(document, "startViewTransition", {
+    configurable: true,
+    value: (update: () => void) => {
+      pendingTransition = update;
+      return { finished: Promise.resolve() };
+    },
+  });
+  try {
+    render(<RunSummaryWorkspace ended />);
+    const collapseBtn = screen.getByRole("button", {
+      name: "Collapse Run Summary",
+    });
+    // Simulate Safari clicking a button without focusing it first.
+    expect(collapseBtn).not.toHaveFocus();
+    fireEvent.click(collapseBtn);
+    expect(pendingTransition).toBeTypeOf("function");
+
+    // Flush microtasks before the View Transition callback commits the fold.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    act(() => {
+      pendingTransition?.();
+    });
+
+    const pill = screen.getByRole("button", {
+      name: "Expand Run Summary: Summary Not working",
+    });
+    expect(pill).toHaveFocus();
+  } finally {
+    if (originalStartViewTransition === undefined) {
+      Reflect.deleteProperty(document, "startViewTransition");
+    } else {
+      Object.defineProperty(
+        document,
+        "startViewTransition",
+        originalStartViewTransition
+      );
+    }
   }
 });
