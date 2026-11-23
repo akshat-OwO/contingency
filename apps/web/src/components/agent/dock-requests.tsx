@@ -10,6 +10,12 @@ import {
 import { Activity, useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  IslandFold,
+  IslandFoldCollapseTrigger,
+  IslandFoldContent,
+  IslandFoldExpandTrigger,
+} from "@/components/ui/island-fold";
 import { cn } from "@/lib/utils";
 
 import { requestIconClassName } from "./dock-request-parts";
@@ -39,10 +45,8 @@ const sentence = (title: string) =>
  * bottom edge of a narrow stage.
  */
 const CollapsedRequests = ({
-  onExpand,
   requests,
 }: {
-  readonly onExpand: () => void;
   readonly requests: readonly DockRequest[];
 }) => {
   const [first, ...rest] = requests;
@@ -50,12 +54,9 @@ const CollapsedRequests = ({
     return null;
   }
   return (
-    <button
-      aria-expanded={false}
+    <IslandFoldExpandTrigger
       aria-label={`Show request: ${sentence(first.title)} ${first.summary}`}
       className="hover:bg-muted/70 focus-visible:ring-ring flex h-10 w-full min-w-0 items-center gap-2 px-3.5 text-left outline-none focus-visible:ring-3 focus-visible:ring-inset"
-      onClick={onExpand}
-      type="button"
     >
       {first.kind === "boundary" ? (
         <ShieldAlertIcon aria-hidden="true" className={requestIconClassName} />
@@ -75,7 +76,7 @@ const CollapsedRequests = ({
         aria-hidden="true"
         className="text-muted-foreground size-4 shrink-0"
       />
-    </button>
+    </IslandFoldExpandTrigger>
   );
 };
 
@@ -115,6 +116,18 @@ const useRunsPastBottom = () => {
   }, [node, setPast]);
   return [past, setNode] as const;
 };
+
+/** A bare minus, as the prototype's small icon button: no tile, even though it reports the island as expanded. */
+const collapseRequestsTrigger = (
+  <IslandFoldCollapseTrigger
+    aria-label="Collapse requests"
+    className="aria-expanded:text-muted-foreground aria-expanded:hover:bg-island-hover aria-expanded:hover:text-foreground size-[26px] rounded-lg aria-expanded:bg-transparent"
+    size="icon-xs"
+    title="Collapse requests"
+  >
+    <MinusIcon className="size-4" />
+  </IslandFoldCollapseTrigger>
+);
 
 /**
  * What the agent is waiting on the user for, in the **Requests** island at
@@ -162,89 +175,91 @@ export const DockRequests = ({
   if (shown === undefined) {
     return null;
   }
-  if (staysCollapsed(requests, collapsedKeys)) {
-    return (
-      <div className="border-b">
-        <CollapsedRequests
-          onExpand={() => setCollapsedKeys(new Set<string>())}
-          requests={queue}
-        />
-      </div>
-    );
-  }
-  const collapse = (
-    <Button
-      aria-expanded
-      aria-label="Collapse requests"
-      // A bare minus, as the prototype's small icon button: no tile, even
-      // though it reports the island as expanded.
-      className="aria-expanded:text-muted-foreground aria-expanded:hover:bg-island-hover aria-expanded:hover:text-foreground size-[26px] rounded-lg aria-expanded:bg-transparent"
-      onClick={() => setCollapsedKeys(new Set(requests.map(({ key }) => key)))}
-      size="icon-xs"
-      title="Collapse requests"
-      type="button"
-    >
-      <MinusIcon className="size-4" />
-    </Button>
-  );
+  const collapsed = staysCollapsed(requests, collapsedKeys);
   const visible = (kind: DockRequest["kind"]) =>
     shown.kind === kind ? "visible" : "hidden";
   const secrets =
     session.activity === "run" ? (session.dryRun?.variables ?? []) : [];
   const more = queue.length - 1;
   return (
-    <div
-      className={cn(
-        "grid max-h-[min(60svh,36rem)] scroll-pb-8 gap-3 overflow-y-auto overscroll-contain border-b p-3.5",
-        runsPastBottom &&
-          "[mask-image:linear-gradient(to_bottom,#000_calc(100%_-_2rem),transparent)]"
-      )}
-      ref={scrollRef}
+    <IslandFold
+      onOpenChange={(nextOpen) => {
+        setCollapsedKeys(
+          nextOpen ? new Set<string>() : new Set(requests.map(({ key }) => key))
+        );
+      }}
+      open={!collapsed}
     >
-      <Activity mode={visible("guided-run-questions")}>
-        <GuidedRunQuestions collapse={collapse} session={session} />
-      </Activity>
-      <Activity mode={visible("boundary")}>
-        <ExecutionBoundary
-          key={session.boundary?.id}
-          collapse={collapse}
-          queued={queue.length}
-          session={session}
-        />
-      </Activity>
-      <Activity mode={visible("setup-variables")}>
-        <SetupVariables collapse={collapse} session={session} />
-      </Activity>
-      <Activity mode={visible("runtime-variables")}>
-        <RuntimeVariables collapse={collapse} session={session} />
-      </Activity>
-      <Activity mode={visible("dry-run-secrets")}>
-        <DryRunVariables
-          collapse={collapse}
-          sessionId={session.id}
-          variables={secrets}
-        />
-      </Activity>
-      <Activity mode={visible("takeover-variable")}>
-        <GuidedTakeoverVariable
-          collapse={collapse}
-          session={session}
-          stateAtom={takeoverAtom}
-        />
-      </Activity>
-      {next === undefined ? null : (
-        <Button
-          size="md"
-          aria-label={`+${more} more after this. Show ${next.title}`}
-          className="text-muted-foreground hover:text-foreground ml-11 h-auto justify-self-start p-0 font-mono text-xs font-normal"
-          onClick={() => setSetAside(setAsideAfter(requests, setAside, shown))}
-          title={`Show ${next.title}`}
-          type="button"
-          variant="link"
+      {collapsed ? (
+        <div className="border-b">
+          <CollapsedRequests requests={queue} />
+        </div>
+      ) : (
+        <IslandFoldContent
+          className={cn(
+            "grid max-h-[min(60svh,36rem)] scroll-pb-8 gap-3 overflow-y-auto overscroll-contain border-b p-3.5",
+            runsPastBottom &&
+              "[mask-image:linear-gradient(to_bottom,#000_calc(100%_-_2rem),transparent)]"
+          )}
+          ref={scrollRef}
         >
-          +{more} more after this
-        </Button>
+          <Activity mode={visible("guided-run-questions")}>
+            <GuidedRunQuestions
+              collapse={collapseRequestsTrigger}
+              session={session}
+            />
+          </Activity>
+          <Activity mode={visible("boundary")}>
+            <ExecutionBoundary
+              key={session.boundary?.id}
+              collapse={collapseRequestsTrigger}
+              queued={queue.length}
+              session={session}
+            />
+          </Activity>
+          <Activity mode={visible("setup-variables")}>
+            <SetupVariables
+              collapse={collapseRequestsTrigger}
+              session={session}
+            />
+          </Activity>
+          <Activity mode={visible("runtime-variables")}>
+            <RuntimeVariables
+              collapse={collapseRequestsTrigger}
+              session={session}
+            />
+          </Activity>
+          <Activity mode={visible("dry-run-secrets")}>
+            <DryRunVariables
+              collapse={collapseRequestsTrigger}
+              sessionId={session.id}
+              variables={secrets}
+            />
+          </Activity>
+          <Activity mode={visible("takeover-variable")}>
+            <GuidedTakeoverVariable
+              collapse={collapseRequestsTrigger}
+              session={session}
+              stateAtom={takeoverAtom}
+            />
+          </Activity>
+          {next === undefined ? null : (
+            <Button
+              size="md"
+              aria-label={`+${more} more after this. Show ${next.title}`}
+              className="text-muted-foreground hover:text-foreground ml-11 h-auto justify-self-start p-0 font-mono text-xs font-normal"
+              onClick={() =>
+                setSetAside(setAsideAfter(requests, setAside, shown))
+              }
+              title={`Show ${next.title}`}
+              type="button"
+              variant="link"
+            >
+              +{more} more after this
+            </Button>
+          )}
+        </IslandFoldContent>
       )}
-    </div>
+    </IslandFold>
   );
 };
