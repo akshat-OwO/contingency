@@ -747,7 +747,7 @@ const AgentLiveView = ({
     session.interruptedAction !== null;
   return (
     <main
-      className="relative flex min-h-0 flex-1 flex-col overflow-hidden"
+      className="workspace-canvas relative flex min-h-0 flex-1 flex-col overflow-hidden"
       // The shelf card the person picked grows into this stage.
       data-vt="stage"
     >
