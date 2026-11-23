@@ -15,6 +15,15 @@ import { afterAll, afterEach, beforeAll, expect, test, vi } from "vitest";
 
 import { DockRequests } from "@/components/agent/dock-requests";
 import {
+  WorkspaceWithRunSummary,
+  usePublishRunSummaryVerdict,
+} from "@/components/agent/run-summary-dock";
+import {
+  DockShell,
+  DockState,
+  DockStatus,
+} from "@/components/agent/workspace-dock";
+import {
   IslandFold,
   IslandFoldCollapseTrigger,
   IslandFoldContent,
@@ -76,6 +85,32 @@ const ControlledProgrammatic = ({ open }: { readonly open: boolean }) => (
     <IslandFoldCollapseTrigger>Collapse</IslandFoldCollapseTrigger>
     <IslandFoldContent>Panel body</IslandFoldContent>
   </IslandFold>
+);
+
+const SummaryFixture = () => {
+  usePublishRunSummaryVerdict({ label: "Not working", tone: "failed" });
+  return <p>The cart shows no total.</p>;
+};
+
+const RunSummaryWorkspace = ({ ended }: { readonly ended: boolean }) => (
+  <RegistryProvider>
+    <WorkspaceWithRunSummary
+      label="Run Summary"
+      summary={ended ? <SummaryFixture /> : null}
+    >
+      <main data-vt="stage">
+        <DockShell
+          status={
+            <DockStatus badges={<DockState>Closed</DockState>}>
+              The Run has ended.
+            </DockStatus>
+          }
+        >
+          <button type="button">Done</button>
+        </DockShell>
+      </main>
+    </WorkspaceWithRunSummary>
+  </RegistryProvider>
 );
 
 test("renders pure attributes and state on the server", () => {
@@ -292,7 +327,11 @@ test("DockRequests moves focus between Collapse requests and Show request", asyn
   expect(collapseBtn).toHaveAttribute("aria-expanded", "true");
   const controlsId = collapseBtn.getAttribute("aria-controls");
   expect(controlsId).not.toBeNull();
-  expect(container.querySelector(`[id="${controlsId ?? ""}"]`)).not.toBeNull();
+  const content = container.querySelector(`[id="${controlsId ?? ""}"]`);
+  expect(content).not.toBeNull();
+  // Hostless root: content is a direct child of the wrapper so DockShell
+  // direct-child selectors keep matching.
+  expect(content?.parentElement).toBe(container);
 
   await user.click(collapseBtn);
   const expandBtn = screen.getByRole("button", {
@@ -301,9 +340,73 @@ test("DockRequests moves focus between Collapse requests and Show request", asyn
   expect(expandBtn).toHaveAttribute("aria-expanded", "false");
   expect(expandBtn).not.toHaveAttribute("aria-controls");
   expect(expandBtn).toHaveFocus();
+  expect(expandBtn.parentElement?.parentElement).toBe(container);
 
   await user.keyboard("{Enter}");
   expect(
     screen.getByRole("button", { name: "Collapse requests" })
   ).toHaveFocus();
+});
+
+test("expires focus handoff when a focused pill disappears without a replacement", async () => {
+  const user = userEvent.setup();
+  const { rerender } = render(<RunSummaryWorkspace ended />);
+
+  await user.click(
+    screen.getByRole("button", { name: "Collapse Run Summary" })
+  );
+  const pill = screen.getByRole("button", {
+    name: "Expand Run Summary: Summary Not working",
+  });
+  expect(pill).toHaveFocus();
+
+  // Removing the summary resets open without mounting a collapse trigger.
+  rerender(<RunSummaryWorkspace ended={false} />);
+  await Promise.resolve();
+
+  const done = screen.getByRole("button", { name: "Done" });
+  done.focus();
+  expect(done).toHaveFocus();
+
+  // Mounting a later summary must not consume an expired handoff.
+  rerender(<RunSummaryWorkspace ended />);
+  expect(done).toHaveFocus();
+});
+
+test("releases phone-width inert stage before moving focus to the collapsed pill", async () => {
+  const user = userEvent.setup();
+  vi.stubGlobal("matchMedia", (query: string) =>
+    Object.assign(new EventTarget(), {
+      matches: query === "(width < 48rem)",
+      media: query,
+    })
+  );
+  const originalFocus = HTMLElement.prototype.focus;
+  // jsdom ignores `inert` on focus(); enforce browser behavior so focusing an
+  // element inside an inert ancestor is a no-op.
+  const focusSpy = vi
+    .spyOn(HTMLElement.prototype, "focus")
+    .mockImplementation(function focusSpy(this: HTMLElement, options) {
+      if (this.closest("[inert]") !== null) {
+        return;
+      }
+      originalFocus.call(this, options);
+    });
+  try {
+    render(<RunSummaryWorkspace ended />);
+    const collapseBtn = screen.getByRole("button", {
+      name: "Collapse Run Summary",
+    });
+    collapseBtn.focus();
+    await user.keyboard("{Enter}");
+
+    const pill = screen.getByRole("button", {
+      name: "Expand Run Summary: Summary Not working",
+    });
+    expect(pill.closest("[inert]")).toBeNull();
+    expect(pill).toHaveFocus();
+  } finally {
+    focusSpy.mockRestore();
+    vi.unstubAllGlobals();
+  }
 });

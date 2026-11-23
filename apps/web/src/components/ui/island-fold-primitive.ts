@@ -35,8 +35,25 @@ const definedIslandFold = definePrimitive({
     const change = createChange(context);
     const triggers = new Map<TriggerKind, HTMLElement>();
     let focusedTrigger: TriggerKind | null = null;
+    let handoffToken = 0;
     let pendingFocus: TriggerKind | null = null;
     let wasOpen = context.store.get().open;
+
+    const armHandoff = (target: TriggerKind) => {
+      handoffToken += 1;
+      const token = handoffToken;
+      pendingFocus = target;
+      queueMicrotask(() => {
+        if (handoffToken === token) {
+          pendingFocus = null;
+        }
+      });
+    };
+
+    const clearHandoff = () => {
+      handoffToken += 1;
+      pendingFocus = null;
+    };
 
     const isTriggerFocused = (kind: TriggerKind): boolean => {
       if (focusedTrigger === kind) {
@@ -57,7 +74,7 @@ const definedIslandFold = definePrimitive({
       if (el === undefined || !el.isConnected) {
         return;
       }
-      pendingFocus = null;
+      clearHandoff();
       el.focus();
     };
 
@@ -71,7 +88,7 @@ const definedIslandFold = definePrimitive({
       const leaving: TriggerKind = prevOpen ? "collapse" : "expand";
       const target: TriggerKind = open ? "collapse" : "expand";
       if (pendingFocus === null && isTriggerFocused(leaving)) {
-        pendingFocus = target;
+        armHandoff(target);
       }
       if (focusedTrigger === leaving) {
         focusedTrigger = null;
@@ -82,7 +99,7 @@ const definedIslandFold = definePrimitive({
     context.onDestroy(() => {
       unsubscribe();
       focusedTrigger = null;
-      pendingFocus = null;
+      clearHandoff();
       triggers.clear();
     });
 
@@ -90,7 +107,7 @@ const definedIslandFold = definePrimitive({
       if (!context.store.get().open) {
         return;
       }
-      pendingFocus = "expand";
+      armHandoff("expand");
       const applied = change(
         "open",
         false,
@@ -99,7 +116,7 @@ const definedIslandFold = definePrimitive({
           : { event, reason: "collapse-trigger" }
       );
       if (!applied) {
-        pendingFocus = null;
+        clearHandoff();
       }
     };
 
@@ -107,7 +124,7 @@ const definedIslandFold = definePrimitive({
       if (context.store.get().open) {
         return;
       }
-      pendingFocus = "collapse";
+      armHandoff("collapse");
       const applied = change(
         "open",
         true,
@@ -116,7 +133,7 @@ const definedIslandFold = definePrimitive({
           : { event, reason: "expand-trigger" }
       );
       if (!applied) {
-        pendingFocus = null;
+        clearHandoff();
       }
     };
 

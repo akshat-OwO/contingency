@@ -183,7 +183,6 @@ export const DockRequests = ({
   const more = queue.length - 1;
   return (
     <IslandFold
-      className="contents"
       onOpenChange={(nextOpen) => {
         setCollapsedKeys(
           nextOpen ? new Set<string>() : new Set(requests.map(({ key }) => key))

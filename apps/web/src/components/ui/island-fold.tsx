@@ -1,8 +1,9 @@
 "use client";
 
-import { usePart, usePrimitive } from "@ui-sdk/react/primitive";
+import { createParts, usePart } from "@ui-sdk/react/primitive";
 import type { PartProps } from "@ui-sdk/react/primitive";
 import type { VariantProps } from "class-variance-authority";
+import type { ReactNode } from "react";
 
 import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -13,28 +14,13 @@ import type {
   IslandFoldState,
 } from "./island-fold-primitive";
 
-export type IslandFoldProps = IslandFoldOptions &
-  Omit<PartProps<"div", IslandFoldState>, keyof IslandFoldOptions>;
+const { Root: IslandFoldRoot } = createParts(islandFold, {});
 
-const IslandFold = ({
-  debug,
-  defaultOpen,
-  onOpenChange,
-  open,
-  ...props
-}: IslandFoldProps) => {
-  const baseOptions: IslandFoldOptions = {
-    defaultOpen,
-    onOpenChange,
-    open,
-  };
-  const handle = usePrimitive(
-    islandFold,
-    debug === undefined ? baseOptions : { ...baseOptions, debug }
-  );
-
-  return usePart(handle, "root", {}, props, "div");
+export type IslandFoldProps = IslandFoldOptions & {
+  readonly children?: ReactNode;
 };
+
+const IslandFold = (props: IslandFoldProps) => <IslandFoldRoot {...props} />;
 
 export type IslandFoldExpandTriggerProps = Omit<
   PartProps<"button", IslandFoldState>,

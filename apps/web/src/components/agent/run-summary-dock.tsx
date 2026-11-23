@@ -7,6 +7,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -235,8 +236,9 @@ export const WorkspaceWithRunSummary = ({
   }, [summaryKey, setCollapsed]);
   const open = present && !collapsed;
   // On a phone the open dock covers the stage, so what it covers leaves the
-  // tab order until it collapses. The top islands stay in reach.
-  useEffect(() => {
+  // tab order until it collapses. The top islands stay in reach. Runs as a
+  // layout effect so `inert` clears before the folded pill takes focus.
+  useLayoutEffect(() => {
     const container = containerRef.current;
     // jsdom and older engines have no `matchMedia`; the dock then stays
     // inset as on a wide screen.
@@ -285,24 +287,27 @@ export const WorkspaceWithRunSummary = ({
          * the device frame no height at all (#740).
          */}
         <IslandFold
-          className="relative flex h-full min-h-0 flex-1 flex-col [--run-summary-width:22.5rem] max-md:[--run-summary-width:calc(100%-1.5rem)] xl:[--run-summary-width:26.25rem]"
-          data-run-summary={open ? "open" : undefined}
           onOpenChange={(nextOpen) => {
             morphDock(() => {
               setCollapsed(!nextOpen);
             });
           }}
           open={!collapsed}
-          ref={containerRef}
         >
-          {children}
-          {present ? (
-            // Collapsed, the summary stays mounted so its video and tab keep
-            // their place; only the island is hidden.
-            <div className="contents" hidden={collapsed}>
-              <RunSummaryDock label={label}>{summary}</RunSummaryDock>
-            </div>
-          ) : null}
+          <div
+            className="relative flex h-full min-h-0 flex-1 flex-col [--run-summary-width:22.5rem] max-md:[--run-summary-width:calc(100%-1.5rem)] xl:[--run-summary-width:26.25rem]"
+            data-run-summary={open ? "open" : undefined}
+            ref={containerRef}
+          >
+            {children}
+            {present ? (
+              // Collapsed, the summary stays mounted so its video and tab keep
+              // their place; only the island is hidden.
+              <div className="contents" hidden={collapsed}>
+                <RunSummaryDock label={label}>{summary}</RunSummaryDock>
+              </div>
+            ) : null}
+          </div>
         </IslandFold>
       </PublishVerdictContext.Provider>
     </RunSummaryDockContext.Provider>
