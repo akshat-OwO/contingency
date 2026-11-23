@@ -214,3 +214,52 @@ it.effect("fails a helper that never finishes startup", () =>
     expect(result._tag).toBe("Failure");
   }).pipe(Effect.scoped)
 );
+
+it.effect("close cancels a pending startup without waiting out its guard", () =>
+  Effect.gen(function* closeDuringStartup() {
+    const helpers: Helper[] = [];
+    const scope = yield* Effect.scope;
+    const stream = yield* acquireIosStream(
+      "session",
+      device,
+      scope,
+      () => Effect.void,
+      undefined,
+      slowHost(helpers)
+    );
+    const starting = yield* Effect.forkChild(Effect.result(stream.start()));
+    // it.effect supplies TestClock; this tick lets start spawn the helper.
+    yield* TestClock.adjust("1 second");
+    yield* stream.close();
+    const result = yield* Fiber.join(starting);
+    expect(result._tag === "Failure" && result.failure.code).toBe(
+      "runtime_closed"
+    );
+    expect(helpers[0]?.exitCode).toBe(0);
+  }).pipe(Effect.scoped)
+);
+
+it.effect("reads a ready line split across stderr chunks", () =>
+  Effect.gen(function* splitReady() {
+    const helpers: Helper[] = [];
+    const scope = yield* Effect.scope;
+    const stream = yield* acquireIosStream(
+      "session",
+      device,
+      scope,
+      () => Effect.void,
+      undefined,
+      slowHost(helpers)
+    );
+    const starting = yield* Effect.forkChild(Effect.result(stream.start()));
+    // it.effect supplies TestClock; this tick lets start spawn the helper.
+    yield* TestClock.adjust("1 second");
+    // No frame follows, so only stderr can end startup.
+    helpers[0]?.stderr.write("rea");
+    helpers[0]?.stderr.write("dy\n");
+    // Past the 30-second frame deadline, well inside the startup guard.
+    yield* TestClock.adjust("1 minute");
+    const result = starting.pollUnsafe();
+    expect(result?._tag === "Success" && result.value._tag).toBe("Failure");
+  }).pipe(Effect.scoped)
+);

@@ -195,6 +195,7 @@ export const acquireIosStream = (
     const viewers = new Set<(bytes: Uint8Array | null) => void>();
     let worker: ChildProcessWithoutNullStreams | undefined;
     let revoked = false;
+    let closing = false;
     let generation = "";
     let requestedDisplay: string | null = null;
     let silence: ReturnType<typeof setTimeout> | undefined;
@@ -245,7 +246,7 @@ export const acquireIosStream = (
       }
       viewers.clear();
     };
-    const close = lock.withPermits(1)(
+    const releaseLocked = lock.withPermits(1)(
       Effect.gen(function* releaseIosMirror() {
         if (revoked) {
           return;
@@ -253,10 +254,6 @@ export const acquireIosStream = (
         revoked = true;
         registry.set(transport, "closed");
         clearTimeout(silence);
-        Deferred.doneUnsafe(
-          launched,
-          Effect.fail(iosRuntimeError("runtime_closed"))
-        );
         yield* integrity.stop();
         for (const receive of viewers) {
           receive(null);
@@ -270,11 +267,25 @@ export const acquireIosStream = (
         }
       })
     );
+    const close = Effect.suspend(() => {
+      // A pending start holds the lock while it waits for the helper, so
+      // cancel its waits before queueing for the lock to stop the worker.
+      closing = true;
+      Deferred.doneUnsafe(
+        launched,
+        Effect.fail(iosRuntimeError("runtime_closed"))
+      );
+      Deferred.doneUnsafe(
+        ready,
+        Effect.fail(iosRuntimeError("runtime_closed"))
+      );
+      return releaseLocked;
+    });
     yield* Scope.addFinalizer(scope, close);
     const start = () =>
       lock.withPermits(1)(
         Effect.gen(function* startIosMirror() {
-          if (revoked) {
+          if (revoked || closing) {
             return yield* Effect.fail(iosRuntimeError("runtime_closed"));
           }
           if (["lost", "restarting"].includes(registry.get(transport))) {
@@ -328,9 +339,14 @@ export const acquireIosStream = (
               }
             };
             let helperFailure: string | undefined;
+            let diagnostics = "";
             child.stderr.setEncoding("utf-8");
             child.stderr.on("data", (chunk: string) => {
-              if (chunk.split("\n").includes("ready")) {
+              // A pipe can split a line across chunks; keep the partial tail.
+              const lines = (diagnostics + chunk).split("\n");
+              // The shipped helper's lines are short; drop an unbounded tail.
+              diagnostics = (lines.pop() ?? "").slice(-1024);
+              if (lines.includes("ready")) {
                 Deferred.doneUnsafe(announced, Effect.succeed(true));
               }
               // The shipped helper emits fixed diagnostics, never capture data.
@@ -342,7 +358,7 @@ export const acquireIosStream = (
                 "Active integrated display unavailable",
                 "Active integrated display rebind failed",
               ]) {
-                if (chunk.split("\n").includes(message)) {
+                if (lines.includes(message)) {
                   helperFailure = message;
                 }
               }
