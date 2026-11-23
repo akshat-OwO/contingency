@@ -250,7 +250,7 @@ const TreeRows = ({
   ));
 
 const rowButton =
-  "hover:bg-island-hover flex min-h-8 w-full items-center gap-2 rounded-[10px] px-2 text-left text-[13.5px] aria-pressed:bg-brand/14 aria-pressed:ring-1 aria-pressed:ring-brand/30 aria-pressed:ring-inset focus-visible:outline-2 focus-visible:outline-brand-ink focus-visible:-outline-offset-2";
+  "hover:bg-island-hover flex min-h-8 w-full items-center gap-2 rounded-[10px] px-2 text-left text-[13.5px] data-pressed:bg-brand/14 data-pressed:ring-1 data-pressed:ring-brand/30 data-pressed:ring-inset focus-visible:outline-2 focus-visible:outline-brand-ink focus-visible:-outline-offset-2";
 
 const RootSection = ({
   flows,
@@ -290,17 +290,17 @@ const RootSection = ({
         </span>
       </h2>
       {pending === undefined ? null : (
-        <button
-          aria-pressed={sameFolder(folder, {
+        <Toggle
+          className={cn(rowButton, "border border-dashed")}
+          onPressedChange={() => {
+            onFolder({ kind: "flow", name: pending, scope: "local" });
+          }}
+          pressed={sameFolder(folder, {
             kind: "flow",
             name: pending,
             scope: "local",
           })}
-          className={cn(rowButton, "border border-dashed")}
-          onClick={() => {
-            onFolder({ kind: "flow", name: pending, scope: "local" });
-          }}
-          type="button"
+          variant="unstyled"
         >
           <CircleDashedIcon
             aria-hidden="true"
@@ -308,7 +308,7 @@ const RootSection = ({
           />
           <span className="min-w-0 flex-1 truncate">{pending}</span>{" "}
           <span className="text-muted-foreground text-xs">Being taught</span>
-        </button>
+        </Toggle>
       )}
       {root.present ? null : (
         <p className="text-muted-foreground mx-2.5 my-1 text-xs text-pretty">
@@ -347,13 +347,13 @@ const RootSection = ({
         </Tree>
       )}
       {history === 0 || filtering ? null : (
-        <button
-          aria-pressed={sameFolder(folder, rootFolder)}
+        <Toggle
           className={cn(rowButton, "mt-1")}
-          onClick={() => {
+          onPressedChange={() => {
             onFolder(rootFolder);
           }}
-          type="button"
+          pressed={sameFolder(folder, rootFolder)}
+          variant="unstyled"
         >
           <CircleDotIcon
             aria-hidden="true"
@@ -363,7 +363,7 @@ const RootSection = ({
           <span className="text-muted-foreground font-mono text-xs tabular-nums">
             {history}
           </span>
-        </button>
+        </Toggle>
       )}
     </section>
   );
