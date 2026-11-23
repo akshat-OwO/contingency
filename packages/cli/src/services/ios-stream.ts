@@ -185,9 +185,17 @@ export const acquireIosStream = (
       boolean,
       ReturnType<typeof iosRuntimeError>
     >();
+    // The helper prints `ready` once CoreSimulator has resolved the device and
+    // display. A cold Mac can take minutes to get there, so startup has its own
+    // deadline, separate from the wait for the first frame.
+    let launched = yield* Deferred.make<
+      boolean,
+      ReturnType<typeof iosRuntimeError>
+    >();
     const viewers = new Set<(bytes: Uint8Array | null) => void>();
     let worker: ChildProcessWithoutNullStreams | undefined;
     let revoked = false;
+    let closing = false;
     let generation = "";
     let requestedDisplay: string | null = null;
     let silence: ReturnType<typeof setTimeout> | undefined;
@@ -224,6 +232,10 @@ export const acquireIosStream = (
       Effect.runFork(onFault(code).pipe(Effect.forkIn(scope)));
       clearTimeout(silence);
       Deferred.doneUnsafe(
+        launched,
+        Effect.fail(iosRuntimeError("capture_incomplete"))
+      );
+      Deferred.doneUnsafe(
         ready,
         Effect.fail(iosRuntimeError("capture_incomplete"))
       );
@@ -234,7 +246,7 @@ export const acquireIosStream = (
       }
       viewers.clear();
     };
-    const close = lock.withPermits(1)(
+    const releaseLocked = lock.withPermits(1)(
       Effect.gen(function* releaseIosMirror() {
         if (revoked) {
           return;
@@ -255,11 +267,25 @@ export const acquireIosStream = (
         }
       })
     );
+    const close = Effect.suspend(() => {
+      // A pending start holds the lock while it waits for the helper, so
+      // cancel its waits before queueing for the lock to stop the worker.
+      closing = true;
+      Deferred.doneUnsafe(
+        launched,
+        Effect.fail(iosRuntimeError("runtime_closed"))
+      );
+      Deferred.doneUnsafe(
+        ready,
+        Effect.fail(iosRuntimeError("runtime_closed"))
+      );
+      return releaseLocked;
+    });
     yield* Scope.addFinalizer(scope, close);
     const start = () =>
       lock.withPermits(1)(
         Effect.gen(function* startIosMirror() {
-          if (revoked) {
+          if (revoked || closing) {
             return yield* Effect.fail(iosRuntimeError("runtime_closed"));
           }
           if (["lost", "restarting"].includes(registry.get(transport))) {
@@ -295,6 +321,17 @@ export const acquireIosStream = (
             requestedDisplay = null;
             generation = randomUUID();
             yield* integrity.generation(generation);
+            // Close may have run during the awaits above. From here to
+            // `launched = announced` nothing yields, so a later close sees
+            // this helper's deferred.
+            if (closing) {
+              return yield* Effect.fail(iosRuntimeError("runtime_closed"));
+            }
+            const announced = Deferred.makeUnsafe<
+              boolean,
+              ReturnType<typeof iosRuntimeError>
+            >();
+            launched = announced;
             const child = host.spawn(helper, [
               developer,
               selected.udid,
@@ -308,8 +345,16 @@ export const acquireIosStream = (
               }
             };
             let helperFailure: string | undefined;
+            let diagnostics = "";
             child.stderr.setEncoding("utf-8");
             child.stderr.on("data", (chunk: string) => {
+              // A pipe can split a line across chunks; keep the partial tail.
+              const lines = (diagnostics + chunk).split("\n");
+              // The shipped helper's lines are short; drop an unbounded tail.
+              diagnostics = (lines.pop() ?? "").slice(-1024);
+              if (lines.includes("ready")) {
+                Deferred.doneUnsafe(announced, Effect.succeed(true));
+              }
               // The shipped helper emits fixed diagnostics, never capture data.
               // Retain only a known message, never arbitrary subprocess stderr.
               for (const message of [
@@ -319,7 +364,7 @@ export const acquireIosStream = (
                 "Active integrated display unavailable",
                 "Active integrated display rebind failed",
               ]) {
-                if (chunk.split("\n").includes(message)) {
+                if (lines.includes(message)) {
                   helperFailure = message;
                 }
               }
@@ -383,6 +428,8 @@ export const acquireIosStream = (
                   child.kill("SIGTERM");
                   return;
                 }
+                // A frame proves startup even if stderr's `ready` is still in flight.
+                Deferred.doneUnsafe(announced, Effect.succeed(true));
                 clearTimeout(silence);
                 silence = setTimeout(() => {
                   childFailed("stream-silence");
@@ -470,6 +517,15 @@ export const acquireIosStream = (
               while: () => worker === child && !revoked,
             }).pipe(Effect.forkIn(scope));
           }
+          // A hang guard for a helper stuck in startup, not a tuned estimate:
+          // cold hosted runners have taken over two minutes to print `ready`.
+          yield* Deferred.await(launched).pipe(
+            Effect.timeoutOrElse({
+              duration: "5 minutes",
+              orElse: () => Effect.fail(iosRuntimeError("capture_incomplete")),
+            })
+          );
+          // The first frame follows `ready` quickly once the helper is up.
           yield* Effect.whileLoop({
             body: () => Deferred.await(ready),
             step: () => {
