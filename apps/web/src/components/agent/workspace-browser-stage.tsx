@@ -829,7 +829,7 @@ export const WorkspaceBrowserStage = ({
   const shownError = errorPresence.rendered;
 
   return (
-    <div className="workspace-canvas relative flex min-h-0 flex-1 flex-col">
+    <>
       {topBar(
         ended ? undefined : (
           <BrowserDeviceBar
@@ -979,6 +979,6 @@ export const WorkspaceBrowserStage = ({
           </InspectorCardSurface>
         )}
       </div>
-    </div>
+    </>
   );
 };

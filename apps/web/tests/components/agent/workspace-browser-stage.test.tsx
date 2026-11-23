@@ -12,6 +12,7 @@ import { Atom } from "effect/reactivity";
 import type { ReactNode } from "react";
 import { afterEach, expect, onTestFinished, test, vi } from "vitest";
 
+import { WorkspaceWithRunSummary } from "@/components/agent/run-summary-dock";
 import { WorkspaceBrowserStage } from "@/components/agent/workspace-browser-stage";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 
@@ -420,4 +421,66 @@ test("an ended stage hides the device bar and the tools rail", () => {
     screen.queryByRole("navigation", { name: "Browser tools" })
   ).not.toBeInTheDocument();
   expect(screen.getByRole("region", { name: "Browser stage" })).toBeVisible();
+});
+
+test("keeps the top bar outside the Run Summary inset and phone inert cover", () => {
+  vi.stubGlobal("matchMedia", (query: string) =>
+    Object.assign(new EventTarget(), {
+      matches: query === "(width < 48rem)",
+      media: query,
+    })
+  );
+  try {
+    const { container } = render(
+      <Harness>
+        <WorkspaceWithRunSummary label="Run Summary" summary={<p>Summary</p>}>
+          <main data-vt="stage">
+            <WorkspaceBrowserStage
+              browserControls={null}
+              consoleEntries={[]}
+              emulationFixed={false}
+              ended
+              onClearConsole={() => {}}
+              sessionId={sessionId}
+              streamStatus="live"
+              teaching={false}
+              topBar={() => (
+                <div data-slot="session-top-bar">
+                  <button type="button">Flows</button>
+                </div>
+              )}
+              userHoldsBrowser={false}
+            >
+              <canvas aria-label="Live browser viewport" />
+            </WorkspaceBrowserStage>
+          </main>
+        </WorkspaceWithRunSummary>
+      </Harness>
+    );
+    const stage = container.querySelector('[data-vt="stage"]');
+    const topBar = container.querySelector('[data-slot="session-top-bar"]');
+    expect(topBar?.parentElement).toBe(stage);
+
+    const insetTargets = [
+      ...container.querySelectorAll(
+        '[data-run-summary="open"] [data-vt="stage"] > :not([data-slot="session-top-bar"])'
+      ),
+    ];
+    expect(insetTargets).toHaveLength(1);
+    expect(insetTargets[0]?.contains(topBar)).toBe(false);
+    expect(
+      insetTargets[0]?.contains(
+        screen.getByRole("region", { name: "Browser stage" })
+      )
+    ).toBe(true);
+
+    expect(
+      screen.getByRole("button", { name: "Flows" }).closest("[inert]")
+    ).toBeNull();
+    expect(
+      screen.getByRole("region", { name: "Browser stage" }).closest("[inert]")
+    ).not.toBeNull();
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
