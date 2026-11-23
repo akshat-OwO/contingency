@@ -14,13 +14,17 @@ import { flushSync } from "react-dom";
 
 import type { SummaryVerdict } from "@/components/agent/dry-run-summary-state";
 import { VerdictChip } from "@/components/agent/run-summary-verdict";
-import { Button } from "@/components/ui/button";
+import {
+  IslandFold,
+  IslandFoldCollapseTrigger,
+  IslandFoldContent,
+  IslandFoldExpandTrigger,
+} from "@/components/ui/island-fold";
 import { canViewTransition } from "@/lib/view-transition";
 
 /** What the status island needs to fold the summary into a pill. */
 interface RunSummaryDockState {
   readonly collapsed: boolean;
-  readonly expand: () => void;
   readonly label: string;
   readonly verdict: SummaryVerdict | null;
 }
@@ -113,9 +117,7 @@ export const RunSummaryPill = () => {
     return null;
   }
   return (
-    <Button
-      size="md"
-      aria-expanded={false}
+    <IslandFoldExpandTrigger
       // The name keeps the visible text, so the verdict is read out too.
       aria-label={
         dock.verdict === null
@@ -124,14 +126,13 @@ export const RunSummaryPill = () => {
       }
       className="gap-1.5 pr-1.5"
       data-run-summary-pill=""
-      onClick={dock.expand}
-      type="button"
+      size="md"
       variant="ghost"
     >
       <NotebookTextIcon aria-hidden="true" />
       Summary
       {dock.verdict === null ? null : <VerdictChip verdict={dock.verdict} />}
-    </Button>
+    </IslandFoldExpandTrigger>
   );
 };
 
@@ -152,13 +153,10 @@ const markEntered = (event: React.AnimationEvent<HTMLElement>) => {
 const RunSummaryDock = ({
   children,
   label,
-  onCollapse,
 }: {
   readonly children: ReactNode;
   readonly label: string;
-  readonly onCollapse: () => void;
 }) => {
-  const bodyId = useId();
   const headingId = useId();
   return (
     <aside
@@ -180,25 +178,17 @@ const RunSummaryDock = ({
         >
           {label}
         </h2>
-        <Button
-          aria-controls={bodyId}
-          aria-expanded
+        <IslandFoldCollapseTrigger
           aria-label={`Collapse ${label}`}
-          data-run-summary-collapse=""
-          onClick={onCollapse}
           size="icon-sm"
-          type="button"
           variant="ghost"
         >
           <PanelRightCloseIcon aria-hidden="true" />
-        </Button>
+        </IslandFoldCollapseTrigger>
       </header>
-      <div
-        className="flex min-h-0 flex-1 [scrollbar-width:thin] flex-col overflow-y-auto px-4 pt-3.5 pb-4"
-        id={bodyId}
-      >
+      <IslandFoldContent className="flex min-h-0 flex-1 [scrollbar-width:thin] flex-col overflow-y-auto px-4 pt-3.5 pb-4">
         {children}
-      </div>
+      </IslandFoldContent>
     </aside>
   );
 };
@@ -233,8 +223,6 @@ export const WorkspaceWithRunSummary = ({
   const [verdict, setVerdict] = useAtom(verdictAtom);
   const present = summary !== null;
   const containerRef = useRef<HTMLDivElement>(null);
-  // Where focus goes once a collapse or expand the user asked for lands.
-  const focusAfterRef = useRef<"dock" | "pill" | null>(null);
   // A new summary opens again, even if the last one was folded away.
   useEffect(() => {
     if (!present) {
@@ -245,22 +233,6 @@ export const WorkspaceWithRunSummary = ({
   useEffect(() => {
     setCollapsed(false);
   }, [summaryKey, setCollapsed]);
-  // The control that hid itself had focus; hand it to the one that replaced
-  // it, so keyboard and screen reader users are not dropped to the page.
-  useEffect(() => {
-    const target = focusAfterRef.current;
-    focusAfterRef.current = null;
-    if (target === null) {
-      return;
-    }
-    containerRef.current
-      ?.querySelector<HTMLElement>(
-        target === "pill"
-          ? "[data-run-summary-pill]"
-          : "[data-run-summary-collapse]"
-      )
-      ?.focus();
-  }, [collapsed]);
   const open = present && !collapsed;
   // On a phone the open dock covers the stage, so what it covers leaves the
   // tab order until it collapses. The top islands stay in reach.
@@ -300,14 +272,8 @@ export const WorkspaceWithRunSummary = ({
       release();
     };
   }, [open]);
-  const expand = () => {
-    focusAfterRef.current = "dock";
-    morphDock(() => {
-      setCollapsed(false);
-    });
-  };
   const dock: RunSummaryDockState | null = present
-    ? { collapsed, expand, label, verdict }
+    ? { collapsed, label, verdict }
     : null;
   return (
     <RunSummaryDockContext.Provider value={dock}>
@@ -318,9 +284,15 @@ export const WorkspaceWithRunSummary = ({
          * root, where `flex-1` alone left the stage its padding's height and
          * the device frame no height at all (#740).
          */}
-        <div
+        <IslandFold
           className="relative flex h-full min-h-0 flex-1 flex-col [--run-summary-width:22.5rem] max-md:[--run-summary-width:calc(100%-1.5rem)] xl:[--run-summary-width:26.25rem]"
           data-run-summary={open ? "open" : undefined}
+          onOpenChange={(nextOpen) => {
+            morphDock(() => {
+              setCollapsed(!nextOpen);
+            });
+          }}
+          open={!collapsed}
           ref={containerRef}
         >
           {children}
@@ -328,20 +300,10 @@ export const WorkspaceWithRunSummary = ({
             // Collapsed, the summary stays mounted so its video and tab keep
             // their place; only the island is hidden.
             <div className="contents" hidden={collapsed}>
-              <RunSummaryDock
-                label={label}
-                onCollapse={() => {
-                  focusAfterRef.current = "pill";
-                  morphDock(() => {
-                    setCollapsed(true);
-                  });
-                }}
-              >
-                {summary}
-              </RunSummaryDock>
+              <RunSummaryDock label={label}>{summary}</RunSummaryDock>
             </div>
           ) : null}
-        </div>
+        </IslandFold>
       </PublishVerdictContext.Provider>
     </RunSummaryDockContext.Provider>
   );
