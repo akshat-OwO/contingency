@@ -158,9 +158,10 @@ jobs:
 
       # The Runner drives Chromium through playwright-core, which resolves the
       # browser from the standard cache. Without a browser every test fails,
-      # and a pinned build keeps Runs comparable across CI runs.
-      - name: Install Chromium
-        run: vp exec --filter ./packages/cli playwright-core install chromium
+      # and a pinned build keeps Runs comparable across CI runs. The Teaching
+      # encoder runs Playwright's pinned ffmpeg, so its test needs that too.
+      - name: Install Chromium and ffmpeg
+        run: vp exec --filter ./packages/cli playwright-core install chromium ffmpeg
 
       # The video integration test decodes the WebM it captured with ffprobe;
       # without it the test skips itself, and a skipped test proves nothing

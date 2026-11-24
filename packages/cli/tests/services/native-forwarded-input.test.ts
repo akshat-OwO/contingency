@@ -1,6 +1,6 @@
 import type { NativeInput } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
-import { Clock, Deferred, Effect, Exit, Fiber, Scope } from "effect";
+import { Clock, Deferred, Effect, Exit, Fiber, Option, Scope } from "effect";
 import { TestClock } from "effect/testing";
 
 import {
@@ -8,9 +8,15 @@ import {
   androidControlPackets,
 } from "../../src/services/android-control.ts";
 import {
+  FailureReferences,
+  lookupFailure,
+  makeFailureReferenceStore,
+} from "../../src/services/failure-reference.ts";
+import {
   IOS_HID_READY_TIMEOUT_MILLIS,
   iosHidCommands,
   iosKeyUsage,
+  IosHidUnavailableError,
   makeIosHid,
   makeIosHidWriter,
   MOVE_SPACING_MILLIS,
@@ -863,7 +869,7 @@ const fakeHidProcess = (options: { readonly exitOnSigterm?: boolean } = {}) => {
     get signalCode() {
       return signalCode;
     },
-    stderr: { resume: () => {} },
+    stderr: { on: () => {} },
     stdin: {
       end: () => {},
       on: () => {},
@@ -951,6 +957,45 @@ it.effect(
       yield* Scope.close(scope, Exit.void);
       expect(first.isKilled()).toBe(true);
     })
+);
+
+it.effect(
+  "names a Failure Reference when the iOS HID helper dies before it is ready",
+  () =>
+    Effect.gen(function* helperDiesEarly() {
+      const scope = yield* Scope.make();
+      const spawned = yield* Deferred.make<ReturnType<typeof fakeHidProcess>>();
+      const host: IosHidHost = {
+        command: () =>
+          Effect.succeed("/Applications/Xcode.app/Contents/Developer"),
+        helper: () => Effect.succeed("/tmp/hid"),
+        spawn: () => {
+          const fake = fakeHidProcess();
+          Effect.runSync(Deferred.succeed(spawned, fake));
+          return fake.child;
+        },
+      };
+      const hid = yield* makeIosHid(() => "SIM-UDID", scope, host);
+      const forwarded = yield* hid
+        .forward([touch("down", 0.5, 0.5)])
+        .pipe(Effect.flip, Effect.forkChild);
+      // The helper crashes on its own, before its ready line.
+      (yield* Deferred.await(spawned)).killBySignal("SIGSEGV");
+      const failure = yield* Fiber.join(forwarded);
+      expect(failure).toBeInstanceOf(IosHidUnavailableError);
+      expect(failure.message).toBe(
+        "The simulator input helper is unavailable. Nothing was sent."
+      );
+      const reference =
+        failure instanceof IosHidUnavailableError
+          ? failure.failureReference
+          : "";
+      const cause = yield* lookupFailure(reference ?? "");
+      expect(Option.isSome(cause)).toBe(true);
+      yield* Scope.close(scope, Exit.void);
+    }).pipe(
+      Effect.provideService(FailureReferences, makeFailureReferenceStore())
+    )
 );
 
 it.effect(

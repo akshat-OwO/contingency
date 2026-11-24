@@ -147,8 +147,9 @@ jobs:
 
       - run: vp install --frozen-lockfile
 
-      - name: Install Chromium
-        run: vp exec --filter ./packages/cli playwright-core install chromium
+      # The Teaching encoder's test runs Playwright's pinned ffmpeg.
+      - name: Install Chromium and ffmpeg
+        run: vp exec --filter ./packages/cli playwright-core install chromium ffmpeg
 
       - name: Install ffmpeg (ffprobe for the video assertions)
         uses: ./.github/actions/install-ffmpeg

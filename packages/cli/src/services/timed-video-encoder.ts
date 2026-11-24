@@ -1,11 +1,14 @@
-import { spawn } from "node:child_process";
-
 import type { BrowserRpcErrorType } from "@contingency/protocol";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import type { Scope } from "effect";
 
+import { spawnChild } from "./child-process.ts";
 import { browserFailure } from "./create-browser-session.ts";
-import { awaitExit, findFfmpeg } from "./ffmpeg.ts";
+import {
+  ENCODER_EXIT_TIMEOUT_MS,
+  encoderFailure,
+  findFfmpeg,
+} from "./ffmpeg.ts";
 
 // A minimal Matroska writer: one MJPEG track, one frame per Cluster, each
 // Cluster stamped in milliseconds. ffmpeg reads the stamps as written, so a
@@ -214,61 +217,66 @@ interface EncoderState {
 export const makeTimedVideoEncoder = (
   options: TimedVideoEncoderOptions
 ): Effect.Effect<TimedVideoEncoder, BrowserRpcErrorType, Scope.Scope> =>
-  Effect.acquireRelease(
-    Effect.try({
+  Effect.gen(function* startTimedEncoder() {
+    const state: EncoderState = {
+      draining: false,
+      failure: undefined,
+      finished: false,
+    };
+    let stdinFailed = false;
+    const ffmpeg = yield* Effect.try({
       catch: (cause) =>
         browserFailure(`Could not start the ${options.label} encoder`, cause),
-      try: () => {
-        const state: EncoderState = {
-          draining: false,
-          failure: undefined,
-          finished: false,
-        };
-        const child = spawn(
-          findFfmpeg(),
-          ffmpegArguments(options.output, options.width, options.height),
-          { stdio: ["pipe", "ignore", "pipe"] }
-        );
-        let stderr = "";
-        child.stderr?.on("data", (chunk: Buffer) => {
-          stderr = `${stderr}${chunk.toString("utf-8")}`.slice(-2048);
-        });
-        // EPIPE arrives here rather than at `write` when ffmpeg dies, so both
-        // listeners keep the failure out of the uncaught handler.
-        child.stdin?.on("error", () => {
-          state.finished = true;
-          state.failure ??= `The ${options.label} encoder stopped unexpectedly.`;
-        });
-        child.on("error", (cause: Error) => {
-          state.finished = true;
-          state.failure ??= `The ${options.label} encoder failed: ${cause.message}`;
-        });
-        child.on("close", (code) => {
-          state.finished = true;
-          if (code !== 0 && code !== null) {
-            state.failure ??= `The ${options.label} encoder exited unexpectedly${stderr.length > 0 ? `: ${stderr.trim()}` : "."}`;
-          }
-        });
-        child.stdin?.write(matroskaHeader());
-        return { child, state };
-      },
-    }),
-    ({ child }) =>
-      Effect.sync(() => {
-        if (child.exitCode === null && child.signalCode === null) {
-          child.kill("SIGKILL");
-        }
-      })
-  ).pipe(
-    Effect.map(({ child, state }) => {
-      const finish = Effect.promise(async () => {
+      try: findFfmpeg,
+    });
+    const encoder = yield* spawnChild(
+      "ffmpeg",
+      ffmpeg,
+      ffmpegArguments(options.output, options.width, options.height),
+      { stdio: ["pipe", "ignore", "pipe"] },
+      {
+        onExit: (_, failure) =>
+          Effect.gen(function* encoderExited() {
+            state.finished = true;
+            if (state.failure !== undefined) {
+              return;
+            }
+            if (Option.isSome(failure)) {
+              state.failure = yield* encoderFailure(
+                `The ${options.label} encoder`,
+                failure.value
+              );
+            } else if (stdinFailed) {
+              state.failure = `The ${options.label} encoder stopped unexpectedly.`;
+            }
+          }),
+        // Closing the scope without `finish` kills it outright.
+        stop: { signal: "SIGKILL" },
+      }
+    ).pipe(
+      Effect.mapError((cause) =>
+        browserFailure(`Could not start the ${options.label} encoder`, cause)
+      )
+    );
+    const child = encoder.process;
+    // EPIPE arrives here rather than at `write` when ffmpeg dies, so this
+    // listener keeps the failure out of the uncaught handler. The exit that
+    // follows says why.
+    child.stdin?.on("error", () => {
+      state.finished = true;
+      stdinFailed = true;
+    });
+    child.stdin?.write(matroskaHeader());
+    return { child, encoder, state };
+  }).pipe(
+    Effect.map(({ child, encoder, state }) => {
+      const finish = Effect.suspend(() => {
         if (!state.finished) {
           state.finished = true;
           child.stdin?.end();
         }
-        await awaitExit(child);
-        return state.failure;
-      });
+        return encoder.stop({ graceMs: ENCODER_EXIT_TIMEOUT_MS, signal: null });
+      }).pipe(Effect.map(() => state.failure));
       const drained = Effect.callback<boolean>((resume) => {
         const { stdin } = child;
         if (stdin === null || stdin.destroyed || !state.draining) {

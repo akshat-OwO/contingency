@@ -8,10 +8,11 @@ import { expect, it } from "@effect/vitest";
 import { Deferred, Effect, Fiber, Schema, Stream } from "effect";
 
 import {
-  describeHostError,
+  describeHostFailure,
   makeAndroidDiscovery,
   makeFileAndroidAppMetadataCache,
 } from "../../src/services/android-discovery.ts";
+import { ChildProcessFailure } from "../../src/services/child-process.ts";
 
 const device = {
   api: 36,
@@ -836,28 +837,49 @@ it.effect(
     })
 );
 
-it("formats actionable host error causes for timeouts, disconnects, missing binaries, and stderr", () => {
+const hostFailure = (
+  overrides: Partial<ConstructorParameters<typeof ChildProcessFailure>[0]>
+) =>
+  new ChildProcessFailure({
+    child: "adb",
+    code: "exited",
+    durationMs: 10,
+    errno: undefined,
+    exitCode: 1,
+    message: "The adb process exited with a failure.",
+    recognized: {},
+    signal: null,
+    ...overrides,
+  });
+
+it("describes a failed host command by how it ended, never by what it printed", () => {
+  const adbArgs = ["-s", "emulator-5554", "shell", "pm"];
   expect(
-    describeHostError("adb", ["-s", "emulator-5554", "shell", "pm"], {
-      killed: true,
-      signal: "SIGTERM",
-    })
+    describeHostFailure(
+      "adb",
+      adbArgs,
+      hostFailure({ code: "timed_out", exitCode: null, signal: "SIGTERM" })
+    )
   ).toContain("timed out after 30s");
   expect(
-    describeHostError("adb", ["-s", "emulator-5554", "shell", "pm"], {
-      code: 1,
-      stderr: "adb: device offline\n",
-    })
-  ).toContain("ADB device disconnected");
+    describeHostFailure(
+      "adb",
+      adbArgs,
+      hostFailure({ recognized: { code: "device_disconnected" } })
+    )
+  ).toBe("ADB device disconnected during adb -s emulator-5554 shell pm.");
   expect(
-    describeHostError("aapt2", ["dump", "badging", "base.apk"], {
-      code: "ENOENT",
-    })
+    describeHostFailure(
+      "aapt2",
+      ["dump", "badging", "base.apk"],
+      hostFailure({ code: "spawn_failed", errno: "ENOENT", exitCode: null })
+    )
   ).toContain("command not found");
   expect(
-    describeHostError("aapt2", ["dump", "badging", "base.apk"], {
-      code: 1,
-      stderr: "base.apk: error: could not identify format of APK.\n",
-    })
-  ).toContain("exit 1");
+    describeHostFailure(
+      "aapt2",
+      ["dump", "badging", "base.apk"],
+      hostFailure({ child: "aapt2" })
+    )
+  ).toBe("aapt2 dump badging base.apk failed (exit 1).");
 });

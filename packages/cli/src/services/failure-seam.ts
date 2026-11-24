@@ -6,6 +6,7 @@ import {
 import type { BrowserRpcErrorType } from "@contingency/protocol";
 import { Cause, Effect, Layer, LogLevel, Option } from "effect";
 
+import { childOutputsOf } from "./child-process.ts";
 import { lookupFailure, recordFailure } from "./failure-reference.ts";
 import type { FailureReference } from "./failure-reference.ts";
 import { Observability } from "./observability.ts";
@@ -70,6 +71,18 @@ export const RpcFailuresLive = Layer.succeed(RpcFailures, (effect, { rpc }) =>
   )
 );
 
+/** A cause as the Workspace shows it: the cause, then each failed child's output tail. */
+const describeCause = (cause: Cause.Cause<unknown>): string =>
+  [
+    Cause.pretty(cause),
+    ...childOutputsOf(cause).flatMap(({ child, output }) => [
+      `${child} stderr, last bytes:\n${output.stderr || "(empty)"}`,
+      ...(output.stdout === undefined || output.stdout === ""
+        ? []
+        : [`${child} stdout, last bytes:\n${output.stdout}`]),
+    ]),
+  ].join("\n\n");
+
 /**
  * The recorded cause for the Workspace, only while the terminal shows debug.
  * The Workspace is the user's own view; MCP never reads this.
@@ -87,7 +100,7 @@ export const failureDetail = (
       return { detail: null };
     }
     const cause = yield* lookupFailure(reference);
-    return { detail: Option.isSome(cause) ? Cause.pretty(cause.value) : null };
+    return { detail: Option.isSome(cause) ? describeCause(cause.value) : null };
   });
 
 /** An MCP failure: its code, its fixed message, and its reference if any. */

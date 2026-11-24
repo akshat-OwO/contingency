@@ -11,8 +11,9 @@ import {
   Stream,
 } from "effect";
 import type { Types } from "effect";
-import { ChildProcess, ChildProcessSpawner } from "effect/process";
+import { ChildProcess } from "effect/process";
 
+import { collectTail, spawnHandle } from "./child-process.ts";
 import {
   InterpreterLine,
   WatchdogMessage,
@@ -72,38 +73,8 @@ export const collectInterpreterStderr = <E, R>(
   stream: Stream.Stream<Uint8Array, E, R>
 ) =>
   stream.pipe(
-    Stream.runFold(
-      (): Buffer => Buffer.alloc(0),
-      (tail, chunk) => {
-        const limit = INTERPRETER_LIMITS.stderrBytes;
-        if (chunk.byteLength >= limit) {
-          return Buffer.from(chunk.subarray(chunk.byteLength - limit));
-        }
-        return Buffer.concat([
-          tail.subarray(
-            Math.max(0, tail.byteLength + chunk.byteLength - limit)
-          ),
-          chunk,
-        ]);
-      }
-    ),
-    Effect.map((tail) => {
-      // Malformed UTF-8 expands to replacement characters. Bound the encoded
-      // result too, then skip any leading continuation bytes after clipping.
-      const decoded = Buffer.from(tail.toString("utf-8"));
-      let start = Math.max(
-        0,
-        decoded.byteLength - INTERPRETER_LIMITS.stderrBytes
-      );
-      while (
-        start < decoded.byteLength &&
-        decoded.readUInt8(start) >= 128 &&
-        decoded.readUInt8(start) < 192
-      ) {
-        start += 1;
-      }
-      return decoded.subarray(start).toString("utf-8");
-    }),
+    collectTail(INTERPRETER_LIMITS.stderrBytes),
+    Effect.map((tail) => tail.text()),
     Effect.orElseSucceed(() => "Diagnostics incomplete: stderr stream failed.")
   );
 
@@ -371,7 +342,6 @@ interface MemoryObservation {
 export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
   function* runProgram(options: InterpreterRunOptions) {
     const limits = { ...INTERPRETER_LIMITS, ...options.limits };
-    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const started = Date.now();
     const receipts: InterpreterReceipt[] = [];
     const io = { fromInterpreter: 0, toInterpreter: 0 };
@@ -407,13 +377,15 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
         // Its own process group, killed outright on every exit path: the
         // interpreter has nothing to flush, and an unresponsive one would
         // ignore a polite signal.
-        const child = yield* spawner.spawn(
+        const { handle: child, stderr: stderrTail } = yield* spawnHandle(
+          "code-interpreter",
           ChildProcess.make(command.command, [...command.args], {
             additionalFds: { fd3: { type: "output" } },
             env: {},
             extendEnv: false,
             killSignal: "SIGKILL",
-          })
+          }),
+          { tailBytes: INTERPRETER_LIMITS.stderrBytes }
         );
         if (options.onStart !== undefined) {
           yield* options.onStart(child.pid);
@@ -511,10 +483,6 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
           }),
           Effect.forkScoped
         );
-        const stderr = yield* child.stderr.pipe(
-          collectInterpreterStderr,
-          Effect.forkScoped
-        );
 
         /** Why the process ended without finishing its program. */
         const classifyExit = Effect.gen(function* classify() {
@@ -522,7 +490,7 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
             Effect.timeoutOption(2000)
           );
           yield* Fiber.join(telemetry).pipe(Effect.timeoutOption(1000));
-          const errors = yield* awaitInterpreterStderr(Fiber.join(stderr));
+          const errors = yield* awaitInterpreterStderr(stderrTail);
           const how = Option.match(exit, {
             onNone: () => "still running",
             onSome: describeExit,

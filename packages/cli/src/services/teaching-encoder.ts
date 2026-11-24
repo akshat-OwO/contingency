@@ -1,12 +1,16 @@
-import { spawn } from "node:child_process";
 import { statSync } from "node:fs";
 
 import type { BrowserRpcErrorType } from "@contingency/protocol";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import type { Scope } from "effect";
 
+import { spawnChild } from "./child-process.ts";
 import { browserFailure } from "./create-browser-session.ts";
-import { awaitExit, findFfmpeg } from "./ffmpeg.ts";
+import {
+  ENCODER_EXIT_TIMEOUT_MS,
+  encoderFailure,
+  findFfmpeg,
+} from "./ffmpeg.ts";
 
 /**
  * The bundled ffmpeg accepts `pipe:0` but not the `-` shorthand, and it ships
@@ -89,52 +93,71 @@ interface EncoderState {
 export const makeTeachingEncoder = (
   options: TeachingEncoderOptions
 ): Effect.Effect<TeachingEncoder, BrowserRpcErrorType, Scope.Scope> =>
-  Effect.acquireRelease(
-    Effect.try({
+  Effect.gen(function* startTeachingEncoder() {
+    const state: EncoderState = {
+      draining: false,
+      failure: undefined,
+      finished: false,
+      hasFrames: false,
+    };
+    let stdinFailed = false;
+    const ffmpeg = yield* Effect.try({
       catch: (cause) =>
         browserFailure("Could not start the Teaching video encoder", cause),
-      try: () => {
-        const state: EncoderState = {
-          draining: false,
-          failure: undefined,
-          finished: false,
-          hasFrames: false,
-        };
-        const child = spawn(findFfmpeg(), ffmpegArguments(options.output), {
-          stdio: ["pipe", "ignore", "pipe"],
-        });
-        let stderr = "";
-        child.stderr?.on("data", (chunk: Buffer) => {
-          stderr = `${stderr}${chunk.toString("utf-8")}`.slice(-2048);
-        });
-        // EPIPE arrives here rather than at the `write` call when ffmpeg dies
-        // mid-recording, so both listeners are required to keep the failure
-        // out of the Agent Session's uncaught handler.
-        child.stdin?.on("error", () => {
-          state.finished = true;
-          state.failure ??= "The Teaching video encoder stopped unexpectedly.";
-        });
-        child.on("error", (cause: Error) => {
-          state.finished = true;
-          state.failure ??= `The Teaching video encoder failed: ${cause.message}`;
-        });
-        child.on("close", (code) => {
-          state.finished = true;
-          if (code !== 0 && code !== null) {
-            state.failure ??= `The Teaching video encoder exited unexpectedly${stderr.length > 0 ? `: ${stderr.trim()}` : "."}`;
-          }
-        });
-        return { child, state };
-      },
-    }),
-    ({ child, state }) =>
-      Effect.promise(async () => {
+      try: findFfmpeg,
+    });
+    const encoder = yield* spawnChild(
+      "ffmpeg",
+      ffmpeg,
+      ffmpegArguments(options.output),
+      { stdio: ["pipe", "ignore", "pipe"] },
+      {
+        onExit: (_, failure) =>
+          Effect.gen(function* encoderExited() {
+            state.finished = true;
+            if (state.failure !== undefined) {
+              return;
+            }
+            if (Option.isSome(failure)) {
+              state.failure = yield* encoderFailure(
+                "The Teaching video encoder",
+                failure.value
+              );
+            } else if (stdinFailed) {
+              state.failure =
+                "The Teaching video encoder stopped unexpectedly.";
+            }
+          }),
+        // A scope that closes before the input ends kills the encoder.
+        stop: { graceMs: ENCODER_EXIT_TIMEOUT_MS },
+      }
+    ).pipe(
+      Effect.mapError((cause) =>
+        browserFailure("Could not start the Teaching video encoder", cause)
+      )
+    );
+    const child = encoder.process;
+    // EPIPE arrives here rather than at the `write` call when ffmpeg dies
+    // mid-recording, so this listener keeps the failure out of the Agent
+    // Session's uncaught handler. The exit that follows says why.
+    child.stdin?.on("error", () => {
+      state.finished = true;
+      stdinFailed = true;
+    });
+    // Ending the input lets ffmpeg finish the file; it is killed only if it
+    // overstays.
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
         state.finished = true;
         child.stdin?.end();
-        await awaitExit(child);
-      }),
-    { interruptible: false }
-  ).pipe(
+      }).pipe(
+        Effect.andThen(
+          encoder.stop({ graceMs: ENCODER_EXIT_TIMEOUT_MS, signal: null })
+        )
+      )
+    );
+    return { child, state };
+  }).pipe(
     Effect.map(({ child, state }) => {
       let lastBytes = 0;
       const outputBytes = () => {

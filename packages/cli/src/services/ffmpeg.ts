@@ -1,4 +1,8 @@
+import { Cause, Effect } from "effect";
 import { registry as playwrightRegistry } from "playwright-core/lib/coreBundle";
+
+import type { ChildProcessFailure } from "./child-process.ts";
+import { recordFailure } from "./failure-reference.ts";
 
 export interface ExitProcess {
   readonly exitCode: number | null;
@@ -12,7 +16,7 @@ export interface ExitProcess {
  * killed. Closing a session scope must never hang the Agent Session, and a
  * VP9 encoder with a full frame queue still drains well inside this window.
  */
-const ENCODER_EXIT_TIMEOUT_MS = 10_000;
+export const ENCODER_EXIT_TIMEOUT_MS = 10_000;
 
 /**
  * Playwright's bundled ffmpeg. It is deliberately small: it reads MJPEG
@@ -28,7 +32,26 @@ export const findFfmpeg = (): string => {
   return executable.executablePath();
 };
 
-/** Wait for ffmpeg to flush and exit, killing it if it overstays. */
+/**
+ * An encoder that failed, as its owner reports it. Its stderr stays behind
+ * the Failure Reference: it can echo file paths and frame data.
+ */
+export const encoderFailure = (
+  label: string,
+  failure: ChildProcessFailure
+): Effect.Effect<string> =>
+  recordFailure(Cause.fail(failure), "encoder_failed").pipe(
+    Effect.map((reference) =>
+      failure.code === "spawn_failed"
+        ? `${label} could not start. Failure Reference ${reference}.`
+        : `${label} exited unexpectedly. Failure Reference ${reference}.`
+    )
+  );
+
+/**
+ * Wait for a process to flush and exit, killing it if it overstays. Children
+ * that `child-process.ts` supervises use its `stop` instead.
+ */
 export const awaitExit = (process: ExitProcess): Promise<void> =>
   // oxlint-disable-next-line promise/avoid-new -- ChildProcess has no exit Promise.
   new Promise((resolve) => {
