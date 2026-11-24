@@ -11,6 +11,7 @@ import type {
   NativeAppRuntimeState,
   NativeAppVariableFillRequest,
   NativeAppActionPolicy,
+  NativeCaptureOptions,
 } from "./native-app-runtime-contract.ts";
 import { isSystemKey } from "./platform-runtime.ts";
 import type {
@@ -120,59 +121,60 @@ export const adaptNativeAppRuntime = <
     );
     let validatedAt: number | undefined;
     let validatedForeground: string | undefined;
-    const capture = Effect.gen(function* observeAndroid() {
-      yield* invalidate;
-      const now = yield* Clock.currentTimeMillis;
-      const due =
-        validatedAt === undefined ||
-        now - validatedAt >= OBSERVATION_VALIDATION_MILLIS;
-      if (due) {
-        validatedAt = undefined;
-        yield* input.backend.validate();
-        validatedAt = now;
-      }
-      const attempt = yield* input.backend.capture().pipe(
-        Effect.retry({
-          schedule: Schedule.spaced(CAPTURE_SETTLE_SPACING).pipe(
-            Schedule.upTo({ duration: CAPTURE_SETTLE_WINDOW })
-          ),
-          while: (cause) => cause.code === "capture_incomplete",
-        }),
-        Effect.result
-      );
-      if (attempt._tag === "Failure") {
-        // Android 11 refuses screencap on FLAG_SECURE before post-capture
-        // checks run, so verify visibility on capture failure too.
-        const visibility = yield* (
-          input.backend.requireVisibleScreen?.() ?? Effect.void
-        ).pipe(Effect.result);
-        return yield* Effect.fail(
-          visibility._tag === "Failure" &&
-            visibility.failure.code === "secure_window"
-            ? visibility.failure
-            : attempt.failure
+    const capture = (options?: NativeCaptureOptions) =>
+      Effect.gen(function* observeAndroid() {
+        yield* invalidate;
+        const now = yield* Clock.currentTimeMillis;
+        const due =
+          validatedAt === undefined ||
+          now - validatedAt >= OBSERVATION_VALIDATION_MILLIS;
+        if (due) {
+          validatedAt = undefined;
+          yield* input.backend.validate();
+          validatedAt = now;
+        }
+        const attempt = yield* input.backend.capture(options).pipe(
+          Effect.retry({
+            schedule: Schedule.spaced(CAPTURE_SETTLE_SPACING).pipe(
+              Schedule.upTo({ duration: CAPTURE_SETTLE_WINDOW })
+            ),
+            while: (cause) => cause.code === "capture_incomplete",
+          }),
+          Effect.result
         );
-      }
-      const captured = attempt.success;
-      // A capture of a secure window is not evidence, whatever the cadence.
-      yield* input.backend.requireVisibleScreen?.() ?? Effect.void;
-      const foreground = input.foreground?.(captured);
-      if (!due && foreground !== validatedForeground) {
-        // Another app came forward since the last check: check again now.
-        validatedAt = undefined;
-        yield* input.backend.validate();
-        validatedAt = yield* Clock.currentTimeMillis;
-      }
-      validatedForeground = foreground;
-      registry.set(observation, captured);
-      registry.set(status, {
-        failure: null,
-        observationId: captured.id,
-        outcome: "observed",
-        phase: "ready",
+        if (attempt._tag === "Failure") {
+          // Android 11 refuses screencap on FLAG_SECURE before post-capture
+          // checks run, so verify visibility on capture failure too.
+          const visibility = yield* (
+            input.backend.requireVisibleScreen?.() ?? Effect.void
+          ).pipe(Effect.result);
+          return yield* Effect.fail(
+            visibility._tag === "Failure" &&
+              visibility.failure.code === "secure_window"
+              ? visibility.failure
+              : attempt.failure
+          );
+        }
+        const captured = attempt.success;
+        // A capture of a secure window is not evidence, whatever the cadence.
+        yield* input.backend.requireVisibleScreen?.() ?? Effect.void;
+        const foreground = input.foreground?.(captured);
+        if (!due && foreground !== validatedForeground) {
+          // Another app came forward since the last check: check again now.
+          validatedAt = undefined;
+          yield* input.backend.validate();
+          validatedAt = yield* Clock.currentTimeMillis;
+        }
+        validatedForeground = foreground;
+        registry.set(observation, captured);
+        registry.set(status, {
+          failure: null,
+          observationId: captured.id,
+          outcome: "observed",
+          phase: "ready",
+        });
+        return captured;
       });
-      return captured;
-    });
     const mutate = (
       id: string,
       action: PlatformAction | { readonly type: NativeSystemKey }
@@ -262,9 +264,9 @@ export const adaptNativeAppRuntime = <
       dispatch: mutate,
       enterVariable,
       invalidate: () => lock.withPermits(1)(invalidate),
-      observe: () =>
+      observe: (options) =>
         lock.withPermits(1)(
-          guarded(requireReady.pipe(Effect.andThen(capture)))
+          guarded(requireReady.pipe(Effect.andThen(capture(options))))
         ),
       platform: input.startup.platform,
       recover: () =>
@@ -277,7 +279,7 @@ export const adaptNativeAppRuntime = <
               yield* input.backend.recover();
               // A recovered device is checked again before it is trusted.
               validatedAt = undefined;
-              return yield* capture;
+              return yield* capture();
             })
           )
         ),

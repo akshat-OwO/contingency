@@ -57,7 +57,10 @@ import type {
   NativeAppRunState,
 } from "./native-app-run-contract.ts";
 import { clearAppDataDecision, createNativeAppRun } from "./native-app-run.ts";
-import type { NativeAppRuntime } from "./native-app-runtime-contract.ts";
+import type {
+  NativeAppRuntime,
+  NativeCaptureOptions,
+} from "./native-app-runtime-contract.ts";
 import { adaptNativeAppRuntime } from "./native-app-runtime.ts";
 import { makeAgentDeviceScreenRecorder } from "./native-screen-recorder.ts";
 import type {
@@ -129,13 +132,7 @@ export const iosCaptureFailure = (
 });
 
 type IosCaptureStep = <A>(
-  name:
-    | "session-before"
-    | "snapshot"
-    | "screenshot"
-    | "app-state"
-    | "session-after"
-    | "read-png",
+  name: "snapshot" | "screenshot" | "app-state" | "read-png" | "session-check",
   effect: Effect.Effect<A, PlatformRuntimeError>
 ) => Effect.Effect<A, PlatformRuntimeError>;
 
@@ -272,6 +269,25 @@ interface IosViewport {
   readonly width: number;
   readonly height: number;
 }
+/**
+ * An iOS capture may skip its PNG only when the caller needs no image and the
+ * window geometry matches the last screenshot-verified geometry verbatim. Any
+ * rotation, fold/size change, recovery, or app switch invalidates the cache.
+ */
+export const canSkipIosScreenshot = (input: {
+  readonly includeImage: boolean;
+  readonly viewport: IosViewport;
+  readonly cachedWindow: IosViewport | null;
+  readonly cachedPixels: IosViewport | null;
+  readonly cachedScale: { readonly sx: number; readonly sy: number } | null;
+}): boolean =>
+  !input.includeImage &&
+  input.cachedWindow !== null &&
+  input.cachedPixels !== null &&
+  input.cachedScale !== null &&
+  input.viewport.width === input.cachedWindow.width &&
+  input.viewport.height === input.cachedWindow.height;
+
 /** A presented system alert's frame arrives as the viewport while its rects stay in window points; keep the window it sits inside. */
 export const iosWindowViewport = (
   snapshot: {
@@ -468,27 +484,46 @@ const startIosRuntime = (
         options,
         snapshot: client.capture.snapshot.bind(client.capture),
       });
+      const window = yield* Ref.make<IosViewport | null>(null);
+      const screenPixels = yield* Ref.make<IosViewport | null>(null);
+      const pixelScale = yield* Ref.make<{
+        readonly sx: number;
+        readonly sy: number;
+      } | null>(null);
+      const clearGeometryCache = Ref.set(window, null).pipe(
+        Effect.andThen(Ref.set(screenPixels, null)),
+        Effect.andThen(Ref.set(pixelScale, null))
+      );
       // Preparation opened the session on the Target App, now in front.
       const bound = yield* Ref.make(input.targetApp);
       const bind = (app: string) =>
-        access.bind(app).pipe(Effect.andThen(Ref.set(bound, app)));
+        access
+          .bind(app)
+          .pipe(
+            Effect.andThen(Ref.set(bound, app)),
+            Effect.andThen(clearGeometryCache)
+          );
       const guess = makeIosForegroundGuess(iosHostProcesses, udid);
       // Set while no app could be named in front; recovery then goes Home.
       const lost = yield* Ref.make(false);
       const fillPublic = client.interactions.fill.bind(client.interactions);
-      const window = yield* Ref.make<IosViewport | null>(null);
       // Tap points, by target, for controls UIKit draws away from their frame's center.
       const activationPoints = yield* Ref.make<
         ReadonlyMap<string, { readonly x: number; readonly y: number }>
       >(new Map());
       /**
        * One observation of the bound app, or the app to follow when another
-       * one is in front (ADR 0083).
+       * one is in front (ADR 0083). The runtime validates the session on its
+       * own cadence; capture checks snapshot/screenshot identity and foreground
+       * app state directly, falling back to `validate()` if identifiers are absent.
        */
-      const attemptOnce = (step: IosCaptureStep, app: string) =>
+      const attemptOnce = (
+        step: IosCaptureStep,
+        app: string,
+        includeImage: boolean
+      ) =>
         // oxlint-disable-next-line eslint/complexity
         Effect.gen(function* captureIos() {
-          yield* step("session-before", validate());
           const read = yield* step("snapshot", access.snapshot());
           if (Option.isNone(read)) {
             // The bound app went to the background on its own, such as a
@@ -503,6 +538,9 @@ const startIosRuntime = (
           }
           const snapshot = read.value;
           yield* identities(snapshot.identifiers, udid, session);
+          if (snapshot.identifiers === undefined) {
+            yield* step("session-check", validate());
+          }
           if (app === SPRINGBOARD) {
             const front = springboardForeground(snapshot);
             if (front !== null) {
@@ -523,84 +561,135 @@ const startIosRuntime = (
               )
             );
           }
+          const cachedWindow = yield* Ref.get(window);
           const viewport = iosWindowViewport(
             { nodes: snapshot.nodes, viewport: snapshot.viewport },
-            yield* Ref.get(window)
+            cachedWindow
           );
           const id = randomUUID();
-          const filename = path.join(
-            prepared.directory,
-            `observation-${id}.png`
-          );
-          const screenshot = yield* step(
-            "screenshot",
-            io(
-              (signal) =>
-                client.capture.screenshot({
-                  ...options(),
-                  path: filename,
-                  signal,
-                }),
-              "screenshot"
-            )
-          );
-          yield* identities(screenshot.identifiers, udid, session);
-          const bytes = yield* step(
-            "read-png",
-            io(() => readFile(filename), "host-io")
-          );
-          if (
-            bytes.length < 24 ||
-            !bytes
-              .subarray(0, 8)
-              .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
-          ) {
-            return yield* Effect.fail(
-              iosCaptureFailure(
-                "capture_incomplete",
-                "screenshot",
-                "png-header"
+          const cachedPixels = yield* Ref.get(screenPixels);
+          const cachedScale = yield* Ref.get(pixelScale);
+          const needScreenshot = !canSkipIosScreenshot({
+            cachedPixels,
+            cachedScale,
+            cachedWindow,
+            includeImage,
+            viewport,
+          });
+          let width: number;
+          let height: number;
+          let sx: number;
+          let sy: number;
+          let encodedImage = "";
+          if (needScreenshot) {
+            const filename = path.join(
+              prepared.directory,
+              `observation-${id}.png`
+            );
+            const screenshot = yield* step(
+              "screenshot",
+              io(
+                (signal) =>
+                  client.capture.screenshot({
+                    ...options(),
+                    path: filename,
+                    signal,
+                  }),
+                "screenshot"
               )
             );
-          }
-          if (
-            app !== SPRINGBOARD &&
-            !fillsScreen(snapshot.nodes[0], {
-              height: bytes.readUInt32BE(20),
-              width: bytes.readUInt32BE(16),
-            })
-          ) {
-            // The bound app is shrinking toward Home or sits in the App
-            // Switcher: Springboard is in front, so binding to it is safe.
-            return followStep(SPRINGBOARD);
-          }
-          const appState = yield* step(
-            "app-state",
-            io(
-              (signal) => client.command.appState({ ...options(), signal }),
-              "session-check"
-            )
-          );
-          const stateProblem = iosAppStateProblem(appState, udid);
-          if (stateProblem !== null) {
-            return yield* Effect.fail(
-              stateProblem === "observation_stale"
-                ? iosCaptureFailure(
-                    stateProblem,
-                    "session-check",
-                    "app-state-unverified"
-                  )
-                : iosRuntimeError(stateProblem)
+            yield* identities(screenshot.identifiers, udid, session);
+            const bytes = yield* step(
+              "read-png",
+              io(() => readFile(filename), "host-io")
             );
-          }
-          yield* step("session-after", validate());
-          const width = bytes.readUInt32BE(16);
-          const height = bytes.readUInt32BE(20);
-          if (
-            Math.sign(width - height) !==
-            Math.sign(viewport.width - viewport.height)
-          ) {
-            return yield* Effect.fail(iosRuntimeError("observation_stale"));
+            if (
+              bytes.length < 24 ||
+              !bytes
+                .subarray(0, 8)
+                .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+            ) {
+              return yield* Effect.fail(
+                iosCaptureFailure(
+                  "capture_incomplete",
+                  "screenshot",
+                  "png-header"
+                )
+              );
+            }
+            width = bytes.readUInt32BE(16);
+            height = bytes.readUInt32BE(20);
+            if (
+              app !== SPRINGBOARD &&
+              !fillsScreen(snapshot.nodes[0], { height, width })
+            ) {
+              // The bound app is shrinking toward Home or sits in the App
+              // Switcher: Springboard is in front, so binding to it is safe.
+              return followStep(SPRINGBOARD);
+            }
+            const appState = yield* step(
+              "app-state",
+              io(
+                (signal) => client.command.appState({ ...options(), signal }),
+                "session-check"
+              )
+            );
+            const stateProblem = iosAppStateProblem(appState, udid);
+            if (stateProblem !== null) {
+              return yield* Effect.fail(
+                stateProblem === "observation_stale"
+                  ? iosCaptureFailure(
+                      stateProblem,
+                      "session-check",
+                      "app-state-unverified"
+                    )
+                  : iosRuntimeError(stateProblem)
+              );
+            }
+            if (
+              Math.sign(width - height) !==
+              Math.sign(viewport.width - viewport.height)
+            ) {
+              return yield* Effect.fail(iosRuntimeError("observation_stale"));
+            }
+            sx = width / viewport.width;
+            sy = height / viewport.height;
+            yield* Ref.set(screenPixels, { height, width });
+            yield* Ref.set(pixelScale, { sx, sy });
+            encodedImage = bytes.toString("base64");
+          } else if (cachedPixels !== null && cachedScale !== null) {
+            if (
+              app !== SPRINGBOARD &&
+              !fillsScreen(snapshot.nodes[0], cachedPixels)
+            ) {
+              return followStep(SPRINGBOARD);
+            }
+            const appState = yield* step(
+              "app-state",
+              io(
+                (signal) => client.command.appState({ ...options(), signal }),
+                "session-check"
+              )
+            );
+            const stateProblem = iosAppStateProblem(appState, udid);
+            if (stateProblem !== null) {
+              return yield* Effect.fail(
+                stateProblem === "observation_stale"
+                  ? iosCaptureFailure(
+                      stateProblem,
+                      "session-check",
+                      "app-state-unverified"
+                    )
+                  : iosRuntimeError(stateProblem)
+              );
+            }
+            ({ sx, sy } = cachedScale);
+            width = Math.round(viewport.width * sx);
+            height = Math.round(viewport.height * sy);
+          } else {
+            return yield* Effect.fail(
+              iosCaptureFailure("capture_incomplete", "capture", "png-header")
+            );
           }
           yield* Ref.set(window, viewport);
           const target = (ref: string | undefined) =>
@@ -618,14 +707,13 @@ const startIosRuntime = (
               })
             )
           );
-          const sx = width / viewport.width;
-          const sy = height / viewport.height;
           const observation: IosObservation = {
             // An observe-only snapshot may not name its app; the bound app is
             // the one this attempt proved in front.
             appId: snapshot.appBundleId ?? app,
             backendSessionId: session,
             device: prepared.device,
+            frame: { height, width },
             generation: snapshot.refsGeneration,
             id,
             nodes: snapshot.nodes.map((node, index) => {
@@ -656,15 +744,15 @@ const startIosRuntime = (
               capturedAt: new Date().toISOString(),
               encoding: "base64",
               format: "png",
-              image: bytes.toString("base64"),
+              image: encodedImage,
             },
           };
           yield* Ref.set(lost, false);
           return observedStep(observation);
         });
-      const captureOnce = (step: IosCaptureStep) =>
+      const captureOnce = (step: IosCaptureStep, includeImage: boolean) =>
         followForeground({
-          attempt: (app) => attemptOnce(step, app),
+          attempt: (app) => attemptOnce(step, app, includeImage),
           bind,
           bound,
           stale: iosCaptureFailure(
@@ -674,11 +762,14 @@ const startIosRuntime = (
           ),
         });
       let captureAttempt = 0;
-      const capture = () =>
+      const capture = (captureOptions?: NativeCaptureOptions) =>
         settleIosCapture(
           Effect.suspend(() => {
             captureAttempt += 1;
-            return traceIosCapture(captureOnce, captureAttempt);
+            return traceIosCapture(
+              (step) => captureOnce(step, captureOptions?.image !== false),
+              captureAttempt
+            );
           })
         );
       /** Commands that act through the bound app, which is the one in front. */
@@ -715,7 +806,8 @@ const startIosRuntime = (
           // Recovery never reopens the Target App. When no app could be
           // named in front, it goes Home, which Springboard always observes.
           recover: () =>
-            validate().pipe(
+            clearGeometryCache.pipe(
+              Effect.andThen(validate()),
               Effect.andThen(Ref.get(lost)),
               Effect.flatMap((home) =>
                 home
@@ -729,13 +821,19 @@ const startIosRuntime = (
               )
             ),
           rotate: (orientation) =>
-            command("rotate", (signal) =>
-              client.command.orientation({
-                ...options(),
-                orientation:
-                  orientation === "landscape" ? "landscape-left" : "portrait",
-                signal,
-              })
+            clearGeometryCache.pipe(
+              Effect.andThen(
+                command("rotate", (signal) =>
+                  client.command.orientation({
+                    ...options(),
+                    orientation:
+                      orientation === "landscape"
+                        ? "landscape-left"
+                        : "portrait",
+                    signal,
+                  })
+                )
+              )
             ),
           // Whole screen, touches hidden (ADR 0079).
           screenRecorder: makeAgentDeviceScreenRecorder({

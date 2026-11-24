@@ -623,7 +623,7 @@ export const acquireAndroidBackend = (
             "runtime_failed",
             "activate"
           ).pipe(Effect.asVoid),
-        capture: () =>
+        capture: (captureOptions) =>
           // The runtime validates the environment on its own cadence and
           // checks window visibility after every capture; the device identity
           // of each capture is still checked here.
@@ -657,20 +657,43 @@ export const acquireAndroidBackend = (
                 ? ""
                 : `@${node.ref.replace(/^@/u, "")}~s${generation}`;
             const id = randomUUID();
-            const screenshotPath = path.join(
-              directory,
-              `observation-${id}.png`
-            );
-            const screenshot = yield* io(
-              (signal) =>
-                client.capture.screenshot({ path: screenshotPath, signal }),
-              "runtime_failed",
-              "screenshot"
-            );
-            yield* identities(screenshot.identifiers);
-            const image = yield* io(() => readFile(screenshotPath));
+            const viewport =
+              snapshot.viewport !== undefined &&
+              Number.isInteger(snapshot.viewport.width) &&
+              snapshot.viewport.width > 0 &&
+              Number.isInteger(snapshot.viewport.height) &&
+              snapshot.viewport.height > 0
+                ? {
+                    height: snapshot.viewport.height,
+                    width: snapshot.viewport.width,
+                  }
+                : undefined;
+            let frame = viewport;
+            let encodedImage = "";
+            // Skip the PNG only when the current snapshot reports its live viewport.
+            if (captureOptions?.image !== false || frame === undefined) {
+              const screenshotPath = path.join(
+                directory,
+                `observation-${id}.png`
+              );
+              const screenshot = yield* io(
+                (signal) =>
+                  client.capture.screenshot({ path: screenshotPath, signal }),
+                "runtime_failed",
+                "screenshot"
+              );
+              yield* identities(screenshot.identifiers);
+              const image = yield* io(() => readFile(screenshotPath));
+              if (image.length >= 24) {
+                frame = {
+                  height: image.readUInt32BE(20),
+                  width: image.readUInt32BE(16),
+                };
+              }
+              encodedImage = image.toString("base64");
+            }
             // SDK files and raw screenshots stay in the private session directory.
-            const result: AndroidObservation = {
+            const base: AndroidObservation = {
               backendSessionId: sessionId,
               capture: {
                 complete: true,
@@ -707,10 +730,10 @@ export const acquireAndroidBackend = (
                 capturedAt: new Date().toISOString(),
                 encoding: "base64",
                 format: "png",
-                image: image.toString("base64"),
+                image: encodedImage,
               },
             };
-            return result;
+            return frame === undefined ? base : { ...base, frame };
           }),
         close: () =>
           Scope.close(resources, Exit.void).pipe(

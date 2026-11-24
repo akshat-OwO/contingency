@@ -4,6 +4,7 @@ import { Effect, Fiber, Logger, Option } from "effect";
 import { TestClock } from "effect/testing";
 
 import {
+  canSkipIosScreenshot,
   makeIosSessionAccess,
   iosAgentDeviceFailure,
   iosAppStateProblem,
@@ -547,4 +548,50 @@ it("withholds runner results without state and session results claiming foregrou
       "selected"
     )
   ).toBe("observation_stale");
+});
+
+it("skips iOS PNG capture only when image is false and window geometry matches the verified cache", () => {
+  const portrait = { height: 874, width: 402 };
+  const landscape = { height: 402, width: 874 };
+  const pixels = { height: 2622, width: 1206 };
+  const scale = { sx: 3, sy: 3 };
+  expect(
+    canSkipIosScreenshot({
+      cachedPixels: pixels,
+      cachedScale: scale,
+      cachedWindow: portrait,
+      includeImage: false,
+      viewport: portrait,
+    })
+  ).toBe(true);
+  // Explicit image request always captures.
+  expect(
+    canSkipIosScreenshot({
+      cachedPixels: pixels,
+      cachedScale: scale,
+      cachedWindow: portrait,
+      includeImage: true,
+      viewport: portrait,
+    })
+  ).toBe(false);
+  // Missing cache (initial capture, rotation, recovery, or app switch) always captures.
+  expect(
+    canSkipIosScreenshot({
+      cachedPixels: null,
+      cachedScale: scale,
+      cachedWindow: portrait,
+      includeImage: false,
+      viewport: portrait,
+    })
+  ).toBe(false);
+  // Changed viewport dimensions (rotation or foldable transition) always captures.
+  expect(
+    canSkipIosScreenshot({
+      cachedPixels: pixels,
+      cachedScale: scale,
+      cachedWindow: portrait,
+      includeImage: false,
+      viewport: landscape,
+    })
+  ).toBe(false);
 });

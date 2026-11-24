@@ -16,6 +16,11 @@ import type {
 
 export type NativeAppPlatform = "android" | "ios";
 
+export interface NativeCaptureOptions {
+  /** Whether the observation needs a screenshot PNG. Defaults to true. */
+  readonly image?: boolean;
+}
+
 export interface NativeAppRuntimeStartInput<Device = unknown> {
   readonly platform: NativeAppPlatform;
   readonly device: Device;
@@ -53,7 +58,9 @@ export interface NativeAppRuntime<
   readonly platform: NativeAppPlatform;
   readonly device: Device;
   readonly backendSessionId: string;
-  readonly observe: () => Effect.Effect<Observation, PlatformRuntimeError>;
+  readonly observe: (
+    options?: NativeCaptureOptions
+  ) => Effect.Effect<Observation, PlatformRuntimeError>;
   readonly state: () => NativeAppRuntimeState;
   /** Presses one of the device's own navigation keys. */
   readonly systemKey: (
@@ -84,7 +91,9 @@ export interface NativeAppRuntimeBackend<
   readonly sessionId: string;
   readonly validate: () => Effect.Effect<void, PlatformRuntimeError>;
   readonly recover: () => Effect.Effect<void, PlatformRuntimeError>;
-  readonly capture: () => Effect.Effect<Observation, PlatformRuntimeError>;
+  readonly capture: (
+    options?: NativeCaptureOptions
+  ) => Effect.Effect<Observation, PlatformRuntimeError>;
   /**
    * Checks after every capture that the screen it shows can be seen. A secure
    * window can open inside the foreground app between two environment checks,
