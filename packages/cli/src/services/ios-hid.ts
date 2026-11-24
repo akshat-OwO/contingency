@@ -1,8 +1,13 @@
 import type { NativeInput } from "@contingency/protocol";
-import { Clock, Effect, Fiber, Scope, Semaphore } from "effect";
+import { Cause, Clock, Effect, Fiber, Option, Scope, Semaphore } from "effect";
 
 import { spawnPiped, superviseChild } from "./child-process.ts";
-import type { ChildLike, SupervisedChild } from "./child-process.ts";
+import type {
+  ChildLike,
+  ChildProcessFailure,
+  SupervisedChild,
+} from "./child-process.ts";
+import { recordFailure } from "./failure-reference.ts";
 import { verifyIosHidRelease } from "./ios-framebuffer-release.ts";
 import { iosCommand } from "./ios-simctl.ts";
 import { makeWheelFinger, WHEEL_RELEASE_MILLIS } from "./wheel-finger.ts";
@@ -255,8 +260,29 @@ const iosHidHost: IosHidHost = {
  */
 export const IOS_HID_READY_TIMEOUT_MILLIS = 15_000;
 
-const unavailable = () =>
-  new Error("The simulator input helper is unavailable. Nothing was sent.");
+/**
+ * The helper could not take input. When it failed unexpectedly, the reference
+ * names its recorded exit and stderr (ADR 0089).
+ */
+export class IosHidUnavailableError extends Error {
+  readonly failureReference: string | undefined;
+
+  constructor(failureReference?: string) {
+    super("The simulator input helper is unavailable. Nothing was sent.");
+    this.name = "IosHidUnavailableError";
+    this.failureReference = failureReference;
+  }
+}
+
+const unavailable = () => new IosHidUnavailableError();
+
+/** Records the helper's own failure, and answers with its reference. */
+const helperFailed = (failure: ChildProcessFailure) =>
+  recordFailure(Cause.fail(failure), "ios_hid_failed").pipe(
+    Effect.flatMap((reference) =>
+      Effect.fail(new IosHidUnavailableError(reference))
+    )
+  );
 
 type IosHidHelper = SupervisedChild<IosHidProcess>;
 
@@ -310,7 +336,10 @@ export const makeIosHid = (
         }
         const started = yield* superviseChild("ios-hid", () =>
           host.spawn(helper, [developer.trim(), selected])
-        ).pipe(Scope.provide(scope), Effect.mapError(unavailable));
+        ).pipe(
+          Scope.provide(scope),
+          Effect.catchTag("ChildProcessFailure", helperFailed)
+        );
         const owned = started.process;
         owned.once("close", () => {
           if (child === started) {
@@ -337,6 +366,10 @@ export const makeIosHid = (
               resume(Effect.succeed(output.startsWith("ready ")));
             }
           };
+          // A helper that exited before this wait began has no close left.
+          if (!started.running()) {
+            resume(Effect.succeed(false));
+          }
           owned.stdout.on("data", onData);
           owned.once("close", () => resume(Effect.succeed(false)));
           owned.once("error", () => resume(Effect.succeed(false)));
@@ -350,6 +383,13 @@ export const makeIosHid = (
           })
         );
         if (!ready || closed || !started.running()) {
+          // A helper that exited before it was ready failed on its own.
+          if (!closed && !started.running()) {
+            const failure = started.failure(yield* started.stop());
+            if (Option.isSome(failure)) {
+              return yield* helperFailed(failure.value);
+            }
+          }
           yield* retire;
           return yield* Effect.fail(unavailable());
         }

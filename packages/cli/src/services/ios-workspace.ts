@@ -56,7 +56,7 @@ import {
   readIosEmulation,
 } from "./ios-emulation.ts";
 import type { IosSimctlCommand } from "./ios-emulation.ts";
-import { makeIosHid } from "./ios-hid.ts";
+import { IosHidUnavailableError, makeIosHid } from "./ios-hid.ts";
 import type { IosHid } from "./ios-hid.ts";
 import {
   createIosRun,
@@ -106,7 +106,10 @@ import type { NativeScreenRecorder } from "./native-screen-recorder.ts";
 import { OwnedDevices } from "./owned-devices.ts";
 import type { OwnedDevicesService } from "./owned-devices.ts";
 import { isSystemKeyInput, systemKeyDescription } from "./platform-runtime.ts";
-import type { PlatformFillResult } from "./platform-runtime.ts";
+import type {
+  PlatformFillResult,
+  PlatformRuntimeError,
+} from "./platform-runtime.ts";
 import { isVerifiedFlow } from "./requested-flows.ts";
 import { TargetAppBuilds } from "./target-app-builds.ts";
 import type {
@@ -127,6 +130,20 @@ const error = (code: string, message: string): IosWorkspaceError => ({
   code,
   message,
 });
+/** A refused forward, naming the helper's recorded failure when it has one. */
+const hidRefused = (cause: Error): IosWorkspaceError => {
+  const refused = error("ios_workspace_refused", cause.message);
+  return cause instanceof IosHidUnavailableError &&
+    cause.failureReference !== undefined
+    ? { ...refused, failureReference: cause.failureReference }
+    : refused;
+};
+/** A stream fault, naming the helper's recorded failure when it has one. */
+const referencedFault = (
+  fault: PlatformRuntimeError,
+  failureReference: string | undefined
+): PlatformRuntimeError =>
+  failureReference === undefined ? fault : { ...fault, failureReference };
 const denied = (message: string) =>
   Effect.fail(error("ios_workspace_refused", message));
 /** An ended session keeps its Summary but has no device to observe. */
@@ -1389,11 +1406,7 @@ export const makeIosWorkspaceLayer = (options: {
                   send: (batch) =>
                     session.hid
                       .forward(batch)
-                      .pipe(
-                        Effect.mapError((cause) =>
-                          error("ios_workspace_refused", cause.message)
-                        )
-                      ),
+                      .pipe(Effect.mapError(hidRefused)),
                 }),
                 lock: Semaphore.makeUnsafe(1),
                 marks: {},
@@ -1418,10 +1431,16 @@ export const makeIosWorkspaceLayer = (options: {
                   id,
                   () => state(session).observation?.device ?? null,
                   scope,
-                  (code) =>
+                  (code, failureReference) =>
                     session.lock
                       .withPermits(1)(
-                        pause(session, platformRuntimeError(code))
+                        pause(
+                          session,
+                          referencedFault(
+                            platformRuntimeError(code),
+                            failureReference
+                          )
+                        )
                       )
                       .pipe(Effect.orDie),
                   () => {

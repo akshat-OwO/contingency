@@ -253,6 +253,24 @@ describe("a child its scope owns", () => {
     })
   );
 
+  it.effect("fails a child that overstays the wait for it to finish", () =>
+    Effect.gen(function* overstays() {
+      const { child, pid } = yield* started("hang");
+      // As an encoder flushes: its input ended, it is left to exit itself.
+      const waiting = yield* Effect.forkChild(
+        child.stop({ graceMs: 1000, signal: null })
+      );
+      // it.effect supplies TestClock, so the deadline passes when it moves.
+      yield* TestClock.adjust("1 second");
+      const exit = yield* Fiber.join(waiting).pipe(Effect.timeout(HANG_GUARD));
+      expect(exit).toMatchObject({ outcome: "timed_out", signal: "SIGKILL" });
+      expect(Option.getOrUndefined(child.failure(exit))?.code).toBe(
+        "timed_out"
+      );
+      expect(isAlive(pid)).toBe(false);
+    }).pipe(Effect.scoped)
+  );
+
   it.effect("reports a child that dies on its own as a failure", () =>
     Effect.gen(function* dies() {
       const { child, pid } = yield* started("hang");
@@ -303,6 +321,22 @@ describe("a child started through Effect's spawner", () => {
       );
       expect(ended(records)).toHaveLength(1);
       expect(field(ended(records)[0], "outcome")).toBe("stopped");
+    }).pipe(Effect.provide(NodeServices.layer))
+  );
+
+  it.effect("keeps a crash its owner kills afterwards as a failure", () =>
+    Effect.gen(function* crashed() {
+      const { records } = yield* observed(
+        Effect.gen(function* crashThenKill() {
+          const { handle } = yield* handleOf("write", "4");
+          yield* Effect.result(handle.exitCode);
+          // As the interpreter's cleanup does, whatever the process did.
+          yield* Effect.result(handle.kill({ killSignal: "SIGKILL" }));
+        }).pipe(Effect.scoped)
+      );
+      expect(ended(records)).toHaveLength(1);
+      expect(field(ended(records)[0], "outcome")).toBe("exited");
+      expect(field(ended(records)[0], "exitCode")).toBe("4");
     }).pipe(Effect.provide(NodeServices.layer))
   );
 

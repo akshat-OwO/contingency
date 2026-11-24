@@ -483,7 +483,14 @@ const supervise = <P extends ChildLike>(
             duration: graceMs,
             orElse: () =>
               Effect.sync(() => {
-                stopping = true;
+                // A child left to finish on its own that overstays has
+                // failed: an encoder past its flush deadline left its file
+                // unfinished. One already signalled is the owner's stop.
+                if (signal === null) {
+                  timedOut = true;
+                } else {
+                  stopping = true;
+                }
                 kill("SIGKILL");
               }).pipe(Effect.andThen(awaitKilled(graceMs))),
           })
@@ -763,10 +770,20 @@ export const spawnHandle = (
       // A kill through the handle is its owner's stop, not a failure.
       handle: ChildProcessSpawner.makeHandle({
         ...handle,
+        // Only a kill of a live process is its owner's stop: cleanup that
+        // kills a process already gone leaves that exit its own.
         kill: (killOptions) =>
-          Effect.sync(() => {
-            stopping = true;
-          }).pipe(Effect.andThen(handle.kill(killOptions))),
+          handle.isRunning.pipe(
+            Effect.orElseSucceed(() => false),
+            Effect.tap((running) =>
+              Effect.sync(() => {
+                if (running && !Deferred.isDoneUnsafe(exited)) {
+                  stopping = true;
+                }
+              })
+            ),
+            Effect.andThen(handle.kill(killOptions))
+          ),
       }),
       stderr: Fiber.join(drain).pipe(
         Effect.map((complete) =>

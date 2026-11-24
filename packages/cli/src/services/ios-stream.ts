@@ -2,8 +2,10 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 import {
+  Cause,
   Deferred,
   Effect,
+  Option,
   Queue,
   Schema,
   Scope,
@@ -13,7 +15,8 @@ import {
 import { Atom, AtomRegistry } from "effect/reactivity";
 
 import { spawnPiped, superviseChild } from "./child-process.ts";
-import type { SupervisedChild } from "./child-process.ts";
+import type { ChildProcessFailure, SupervisedChild } from "./child-process.ts";
+import { recordFailure } from "./failure-reference.ts";
 import type { IosDevice } from "./ios-contract.ts";
 import { verifyIosFramebufferRelease } from "./ios-framebuffer-release.ts";
 import { iosRuntimeError } from "./ios-runtime.ts";
@@ -146,7 +149,11 @@ export const acquireIosStream = (
   sessionId: string,
   device: () => IosDevice | null,
   scope: Scope.Scope,
-  onFault: (code: "capture_incomplete") => Effect.Effect<void>,
+  /** Names the helper's recorded failure when it exited on its own. */
+  onFault: (
+    code: "capture_incomplete",
+    failureReference?: string
+  ) => Effect.Effect<void>,
   captureSize?: () => CaptureSize | undefined,
   host: IosStreamHost = iosStreamHost
 ) =>
@@ -218,11 +225,18 @@ export const acquireIosStream = (
     };
     const failed = (
       code = "capture_incomplete" as const,
-      reason: IosStreamGap = "helper-exited"
+      reason: IosStreamGap = "helper-exited",
+      failure?: ChildProcessFailure
     ) => {
       if (revoked || ["lost", "restarting"].includes(registry.get(transport))) {
         return;
       }
+      const failureReference =
+        failure === undefined
+          ? undefined
+          : logWith(
+              recordFailure(Cause.fail(failure), "ios_framebuffer_failed")
+            );
       registry.set(transport, "lost");
       logWith(
         Effect.logWarning("iOS framebuffer transport lost", {
@@ -230,7 +244,9 @@ export const acquireIosStream = (
           sessionId,
         })
       );
-      Effect.runFork(onFault(code).pipe(Effect.forkIn(scope)));
+      Effect.runFork(
+        onFault(code, failureReference).pipe(Effect.forkIn(scope))
+      );
       clearTimeout(silence);
       Deferred.doneUnsafe(
         launched,
@@ -332,22 +348,47 @@ export const acquireIosStream = (
               ReturnType<typeof iosRuntimeError>
             >();
             launched = announced;
-            const framebuffer = yield* superviseChild("ios-framebuffer", () =>
-              host.spawn(helper, [
-                developer,
-                selected.udid,
-                display,
-                orientation,
-              ])
+            // Set as the helper exits, before its `close` reaches this module.
+            let exitFailure: ChildProcessFailure | undefined;
+            const framebuffer = yield* superviseChild(
+              "ios-framebuffer",
+              () =>
+                host.spawn(helper, [
+                  developer,
+                  selected.udid,
+                  display,
+                  orientation,
+                ]),
+              {
+                onExit: (_exit, failure) =>
+                  Effect.sync(() => {
+                    exitFailure = Option.getOrUndefined(failure);
+                  }),
+              }
             ).pipe(
               Scope.provide(scope),
-              Effect.mapError(() => iosRuntimeError("capture_incomplete"))
+              Effect.catchTag("ChildProcessFailure", (failure) =>
+                recordFailure(
+                  Cause.fail(failure),
+                  "ios_framebuffer_failed"
+                ).pipe(
+                  Effect.flatMap((failureReference) =>
+                    Effect.fail({
+                      ...iosRuntimeError("capture_incomplete"),
+                      failureReference,
+                    })
+                  )
+                )
+              )
             );
             const child = framebuffer.process;
             worker = framebuffer;
-            const childFailed = (reason: IosStreamGap = "helper-exited") => {
+            const childFailed = (
+              reason: IosStreamGap = "helper-exited",
+              failure?: ChildProcessFailure
+            ) => {
               if (worker === framebuffer) {
-                failed("capture_incomplete", reason);
+                failed("capture_incomplete", reason, failure);
               }
             };
             let helperFailure: string | undefined;
@@ -391,7 +432,7 @@ export const acquireIosStream = (
                   })
                 );
               }
-              childFailed();
+              childFailed("helper-exited", exitFailure);
             });
             let pending = "";
             const decode = Schema.decodeUnknownOption(

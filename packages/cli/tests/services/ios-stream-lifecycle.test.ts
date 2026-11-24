@@ -3,9 +3,15 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { PassThrough } from "node:stream";
 
 import { expect, it } from "@effect/vitest";
-import { Deferred, Effect, Fiber } from "effect";
+import { Deferred, Effect, Fiber, Option } from "effect";
 import { TestClock } from "effect/testing";
 
+import { childOutputsOf } from "../../src/services/child-process.ts";
+import {
+  FailureReferences,
+  lookupFailure,
+  makeFailureReferenceStore,
+} from "../../src/services/failure-reference.ts";
 import { acquireIosStream } from "../../src/services/ios-stream.ts";
 import type { IosStreamHost } from "../../src/services/ios-stream.ts";
 
@@ -117,6 +123,75 @@ it.effect("ignores a retired helper's late stdin error after recovery", () =>
     helpers[1]?.stdin.emit("error", new Error("current helper failed"));
     expect((yield* Effect.result(stream.start()))._tag).toBe("Failure");
   }).pipe(Effect.scoped)
+);
+
+it.effect(
+  "a helper that crashes names a Failure Reference, and a recovery does not",
+  () =>
+    Effect.gen(function* crashedHelper() {
+      const helpers: Helper[] = [];
+      const faults: (string | undefined)[] = [];
+      const faulted = yield* Deferred.make<string | undefined>();
+      const host: IosStreamHost = {
+        command: (file) =>
+          Effect.succeed(file === "xcode-select" ? "/fixture" : inventory),
+        helper: () => Effect.succeed("fixture-framebuffer"),
+        spawn: () => {
+          const helper = new Helper();
+          helpers.push(helper);
+          return helper;
+        },
+      };
+      const scope = yield* Effect.scope;
+      const stream = yield* acquireIosStream(
+        "session",
+        device,
+        scope,
+        (_code, failureReference) =>
+          Effect.sync(() => {
+            faults.push(failureReference);
+          }).pipe(Effect.andThen(Deferred.succeed(faulted, failureReference))),
+        undefined,
+        host
+      );
+      yield* stream.start();
+      // Recovery stops its helper: an owner's stop, not a fault.
+      yield* stream.recover();
+      yield* stream.start();
+      expect(faults).toEqual([]);
+      const [, crashing] = helpers;
+      if (crashing === undefined) {
+        return expect.unreachable("the stream restarts its helper");
+      }
+      // A process's stderr reaches its reader before its close does.
+      yield* Effect.callback<boolean>((resume) => {
+        const onData = (chunk: Buffer) => {
+          if (chunk.toString("utf-8").includes("private-detail")) {
+            crashing.stderr.off("data", onData);
+            resume(Effect.succeed(true));
+          }
+        };
+        crashing.stderr.on("data", onData);
+        crashing.stderr.write("Framebuffer capture failed private-detail\n");
+      });
+      crashing.exitCode = 1;
+      crashing.emit("close", 1, null);
+      const reference = yield* Deferred.await(faulted).pipe(
+        Effect.timeout("30 seconds")
+      );
+      expect(faults).toHaveLength(1);
+      expect(reference).toMatch(/^[0-9A-HJKMNP-TV-Z]{6}$/u);
+      const cause = yield* lookupFailure(reference ?? "");
+      const [helper] = Option.match(cause, {
+        onNone: () => [],
+        onSome: childOutputsOf,
+      });
+      expect(helper?.child).toBe("ios-framebuffer");
+      expect(helper?.output.stderr).toContain("private-detail");
+    }).pipe(
+      Effect.scoped,
+      Effect.provideService(FailureReferences, makeFailureReferenceStore())
+    )
 );
 
 it.effect(
