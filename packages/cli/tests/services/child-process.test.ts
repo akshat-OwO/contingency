@@ -23,8 +23,9 @@ import {
   runChild,
   spawnChild,
   spawnHandle,
+  superviseChild,
 } from "../../src/services/child-process.ts";
-import type { ChildExit } from "../../src/services/child-process.ts";
+import type { ChildExit, ChildLike } from "../../src/services/child-process.ts";
 import { toSafeRecord } from "../../src/services/diagnostic-log.ts";
 import type { SafeRecord } from "../../src/services/diagnostic-log.ts";
 
@@ -268,6 +269,39 @@ describe("a child its scope owns", () => {
         "timed_out"
       );
       expect(isAlive(pid)).toBe(false);
+    }).pipe(Effect.scoped)
+  );
+
+  it.effect("keeps the exit of a child whose pipes outlive the wait", () =>
+    Effect.gen(function* pipesHeld() {
+      // A child that exits while a descendant still holds its pipes: Node has
+      // its exit code, but no `close` comes.
+      const signals: NodeJS.Signals[] = [];
+      let exitCode: number | null = null;
+      const fake: ChildLike = {
+        get exitCode() {
+          return exitCode;
+        },
+        kill: (signal) => {
+          signals.push(signal);
+          return true;
+        },
+        once: () => {
+          // `close` never comes; the wait ends at its deadline.
+        },
+        pid: 4242,
+        signalCode: null,
+        stderr: { on: () => {} },
+      };
+      const child = yield* superviseChild("fixture", () => fake);
+      const waiting = yield* Effect.forkChild(
+        child.stop({ graceMs: 1000, signal: null })
+      );
+      exitCode = 0;
+      yield* TestClock.adjust("1 second");
+      const exit = yield* Fiber.join(waiting).pipe(Effect.timeout(HANG_GUARD));
+      expect(exit).toMatchObject({ exitCode: 0, outcome: "succeeded" });
+      expect(signals).toEqual([]);
     }).pipe(Effect.scoped)
   );
 

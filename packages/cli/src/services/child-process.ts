@@ -483,6 +483,12 @@ const supervise = <P extends ChildLike>(
             duration: graceMs,
             orElse: () =>
               Effect.sync(() => {
+                // Exited in time, but descendants hold its pipes open: its
+                // own exit stands.
+                if (!running()) {
+                  settle(started.exitCode, started.signalCode, true);
+                  return;
+                }
                 // A child left to finish on its own that overstays has
                 // failed: an encoder past its flush deadline left its file
                 // unfinished. One already signalled is the owner's stop.

@@ -248,14 +248,13 @@ export const acquireIosStream = (
         onFault(code, failureReference).pipe(Effect.forkIn(scope))
       );
       clearTimeout(silence);
-      Deferred.doneUnsafe(
-        launched,
-        Effect.fail(iosRuntimeError("capture_incomplete"))
-      );
-      Deferred.doneUnsafe(
-        ready,
-        Effect.fail(iosRuntimeError("capture_incomplete"))
-      );
+      // A start waiting on the helper fails with the same reference.
+      const lost =
+        failureReference === undefined
+          ? iosRuntimeError(code)
+          : { ...iosRuntimeError(code), failureReference };
+      Deferred.doneUnsafe(launched, Effect.fail(lost));
+      Deferred.doneUnsafe(ready, Effect.fail(lost));
       Effect.runSync(integrity.fail(reason));
       publish({ _tag: "state", state: "transport_lost" });
       for (const receive of viewers) {
@@ -417,7 +416,11 @@ export const acquireIosStream = (
               }
             });
             child.stdin.on("error", () => childFailed());
-            child.once("error", () => childFailed());
+            // The supervisor's own listener runs first, so a spawn that
+            // failed after it returned has its failure captured by now.
+            child.once("error", () =>
+              childFailed("helper-exited", exitFailure)
+            );
             child.once("close", (exitCode, signal) => {
               if (worker === framebuffer) {
                 logWith(
