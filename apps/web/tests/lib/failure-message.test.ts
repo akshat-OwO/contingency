@@ -1,4 +1,7 @@
-import { makeBrowserRpcError } from "@contingency/protocol";
+import {
+  makeBrowserRpcError,
+  withFailureReference,
+} from "@contingency/protocol";
 import { expect, test } from "vitest";
 
 import { failureMessage, isLifecycleRefusal } from "@/lib/failure-message";
@@ -68,4 +71,16 @@ test("keeps Teaching lifecycle refusals and their messages distinct from storage
       false
     );
   }
+});
+
+test("names the Failure Reference of a failure whose cause the server recorded", () => {
+  expect(
+    failureMessage(
+      withFailureReference(
+        makeBrowserRpcError("internal_failure", "Contingency failed."),
+        "7KQ2MZ"
+      ),
+      FALLBACK
+    )
+  ).toBe("Contingency failed. Failure Reference 7KQ2MZ.");
 });

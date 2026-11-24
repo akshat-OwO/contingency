@@ -112,6 +112,8 @@ import type { RecordedTargetAppBuild } from "./teaching-recording-store.ts";
 export interface AndroidWorkspaceError {
   readonly code: string;
   readonly message: string;
+  /** Names the recorded cause when the code does not state it (ADR 0089). */
+  readonly failureReference?: string;
 }
 const error = (code: string, message: string): AndroidWorkspaceError => ({
   code,
@@ -760,6 +762,11 @@ export const makeAndroidWorkspaceLayer = (options: {
                 current.summary.error !== null
                   ? current.summary.error
                   : cause.message,
+              failureReference:
+                cause.code === "preparation_required" &&
+                current.summary.error !== null
+                  ? (current.summary.failureReference ?? null)
+                  : (cause.failureReference ?? null),
               phase: "paused",
             },
           }));
@@ -848,7 +855,12 @@ export const makeAndroidWorkspaceLayer = (options: {
             },
           ],
           ran: true,
-          summary: { ...current.summary, error: null, phase: "running" },
+          summary: {
+            ...current.summary,
+            error: null,
+            failureReference: null,
+            phase: "running",
+          },
         }));
       };
       /**
@@ -991,7 +1003,12 @@ export const makeAndroidWorkspaceLayer = (options: {
           (session) =>
             session.lock
               .withPermits(1)(close(session, "process-exited"))
-              .pipe(Effect.ignore),
+              .pipe(
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not close an Android Workspace session",
+                })
+              ),
           { discard: true }
         ).pipe(Effect.ensuring(Effect.sync(() => registry.dispose())))
       );
@@ -1051,7 +1068,12 @@ export const makeAndroidWorkspaceLayer = (options: {
           });
           yield* Scope.addFinalizer(
             scope,
-            store.releaseTargetAppBuild(recordingId).pipe(Effect.ignore)
+            store.releaseTargetAppBuild(recordingId).pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not release the target app build",
+              })
+            )
           );
           const adopted = yield* store.adoptTargetAppBuild({
             platform: "android",
@@ -1532,7 +1554,13 @@ export const makeAndroidWorkspaceLayer = (options: {
                 })
               );
               if (Result.isFailure(initialized)) {
-                yield* close(session, "interrupted").pipe(Effect.ignore);
+                yield* close(session, "interrupted").pipe(
+                  Effect.ignore({
+                    log: "Debug",
+                    message:
+                      "Could not close an Android Workspace session that failed to start",
+                  })
+                );
                 return yield* Effect.fail(initialized.failure);
               }
               if (command.prepareAndOpen) {
@@ -1643,10 +1671,20 @@ export const makeAndroidWorkspaceLayer = (options: {
         Effect.gen(function* pauseUnverified() {
           const unverified = session.lane.unobserved();
           session.lane.discard();
-          yield* pause(session, cause).pipe(Effect.ignore);
+          yield* pause(session, cause).pipe(
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not pause the Android Workspace session",
+            })
+          );
           if (unverified > 0) {
             markUnverified(session);
-            yield* persist(session).pipe(Effect.ignore);
+            yield* persist(session).pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not persist the Android Workspace session",
+              })
+            );
           }
         });
       /** Whether a mirror observation can become a Teaching or Run keyframe. */
@@ -2752,7 +2790,13 @@ export const makeAndroidWorkspaceLayer = (options: {
                   Effect.tapError((cause) =>
                     cause.code === "android_workspace_refused"
                       ? Effect.void
-                      : pause(session, cause).pipe(Effect.ignore)
+                      : pause(session, cause).pipe(
+                          Effect.ignore({
+                            log: "Debug",
+                            message:
+                              "Could not pause the Android Workspace session",
+                          })
+                        )
                   ),
                   Effect.onInterrupt(() =>
                     pause(
@@ -2761,7 +2805,13 @@ export const makeAndroidWorkspaceLayer = (options: {
                         "execution_canceled",
                         "Cancellation does not undo forwarded input. Recover with a fresh same-device observation."
                       )
-                    ).pipe(Effect.ignore)
+                    ).pipe(
+                      Effect.ignore({
+                        log: "Debug",
+                        message:
+                          "Could not pause the canceled Android Workspace session",
+                      })
+                    )
                   )
                 );
                 const result = yield* Effect.result(attempted);

@@ -180,9 +180,12 @@ export const webCommand = Command.make(
           nativeAgentTouches
         );
         yield* Effect.addFinalizer(() =>
-          fileSystem
-            .remove(ownerMarker, { recursive: true })
-            .pipe(Effect.ignore)
+          fileSystem.remove(ownerMarker, { recursive: true }).pipe(
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not remove the Workspace owner marker",
+            })
+          )
         );
         yield* Layer.build(
           makeHttpServerLayer({

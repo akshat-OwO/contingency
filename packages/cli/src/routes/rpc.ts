@@ -29,6 +29,11 @@ import type {
   CatalogBrowserError,
   CatalogBrowserService,
 } from "../services/catalog-browser.ts";
+import {
+  failureDetail,
+  rpcFailure,
+  RpcFailuresLive,
+} from "../services/failure-seam.ts";
 import { makeIosDiscovery } from "../services/ios-discovery.ts";
 import { IosWorkspace } from "../services/ios-workspace.ts";
 import { NativeAgentTouches } from "../services/native-agent-touch.ts";
@@ -193,7 +198,7 @@ const ownedDevicesValue = <A>(
     )
   );
 
-export const RpcHandlersLive = ContingencyRpcs.toLayer(
+const HandlersLive = ContingencyRpcs.toLayer(
   Effect.sync(() => {
     const agentUnavailable = <A>(
       operation: (
@@ -295,8 +300,9 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
             .execute(command, source)
             .pipe(
               Effect.mapError((cause) =>
-                makeBrowserRpcError(
+                rpcFailure(
                   nativeSessionErrorCode(cause.code),
+                  cause,
                   `${cause.code}: ${cause.message}`
                 )
               )
@@ -311,10 +317,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
                   .forward(input, "user")
                   .pipe(
                     Effect.mapError((cause) =>
-                      makeBrowserRpcError(
-                        "agent_session_unavailable",
-                        cause.message
-                      )
+                      rpcFailure("agent_session_unavailable", cause)
                     )
                   )
               : Effect.fail(
@@ -333,10 +336,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
                 .list()
                 .pipe(
                   Effect.mapError((cause) =>
-                    makeBrowserRpcError(
-                      "agent_session_unavailable",
-                      cause.message
-                    )
+                    rpcFailure("agent_session_unavailable", cause)
                   )
                 )
             : [];
@@ -423,10 +423,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
                   .execute(command, "user")
                   .pipe(
                     Effect.mapError((cause) =>
-                      makeBrowserRpcError(
-                        nativeSessionErrorCode(cause.code),
-                        cause.message
-                      )
+                      rpcFailure(nativeSessionErrorCode(cause.code), cause)
                     )
                   )
               : Effect.fail(
@@ -446,10 +443,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
                   .forward(input, "user")
                   .pipe(
                     Effect.mapError((cause) =>
-                      makeBrowserRpcError(
-                        "agent_session_unavailable",
-                        cause.message
-                      )
+                      rpcFailure("agent_session_unavailable", cause)
                     )
                   )
               : Effect.fail(
@@ -468,10 +462,7 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
                   .list()
                   .pipe(
                     Effect.mapError((cause) =>
-                      makeBrowserRpcError(
-                        "agent_session_unavailable",
-                        cause.message
-                      )
+                      rpcFailure("agent_session_unavailable", cause)
                     )
                   )
               : Effect.succeed([])
@@ -696,9 +687,14 @@ export const RpcHandlersLive = ContingencyRpcs.toLayer(
         catalogBrowserUnavailable((service) =>
           service.nativeRun(data.scope, data.flowName, data.runId)
         ).pipe(Effect.map((summary) => ({ summary }))),
+      "failure.detail.get": ({ failureReference }) =>
+        failureDetail(failureReference),
     };
   })
 );
+
+/** The handlers, behind the middleware that gives a defect a reference. */
+export const RpcHandlersLive = Layer.merge(HandlersLive, RpcFailuresLive);
 
 const makeOriginMiddleware = (allowedOrigins: ReadonlySet<string>) =>
   HttpRouter.middleware(

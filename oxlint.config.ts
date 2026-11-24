@@ -87,6 +87,11 @@ export default defineConfig({
       },
     },
     {
+      // The CLI writes the Diagnostic Log, so it never drops a failure unlogged.
+      files: ["packages/cli/src/**"],
+      rules: { "contingency/no-silent-ignore": "error" },
+    },
+    {
       // The facade is the one place that builds on UI SDK.
       files: ["apps/web/src/components/ui/**"],
       rules: {
@@ -112,6 +117,7 @@ export default defineConfig({
         "packages/protocol/src/browser-identity.ts",
         "packages/protocol/src/browser-rpc-error.ts",
         "packages/protocol/src/emulation.ts",
+        "packages/protocol/src/failure-reference.ts",
         "packages/protocol/src/flow.ts",
         "packages/protocol/src/index.ts",
         "packages/protocol/src/platform.ts",

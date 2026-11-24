@@ -136,7 +136,7 @@ export const makeIosHidWriter = <E>(
     }
   }).pipe(
     // A failed write fails the next forward instead; nothing is retried.
-    Effect.ignore,
+    Effect.ignore({ log: "Debug", message: "Could not write iOS input" }),
     Effect.ensuring(Effect.sync(() => (flushing = false)))
   );
   const deliver = (inputs: readonly FingerInput[]) =>
@@ -199,7 +199,10 @@ export const makeIosHidWriter = <E>(
                   })
                 )
               ),
-              Effect.ignore,
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not lift the iOS finger",
+              }),
               Effect.forkIn(scope)
             );
           }
@@ -362,7 +365,10 @@ export const makeIosHid = (
           signalTerminate();
           if (isProcessAlive(started)) {
             yield* Effect.promise(() => awaitExit(started)).pipe(
-              Effect.ignore,
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not wait for the iOS helper to exit",
+              }),
               Effect.forkIn(scope)
             );
           }
@@ -387,7 +393,10 @@ export const makeIosHid = (
                 child = undefined;
               }
               return Effect.promise(() => stopProcess(helper)).pipe(
-                Effect.ignore,
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not stop the iOS helper",
+                }),
                 Effect.forkIn(scope)
               );
             })
@@ -400,7 +409,10 @@ export const makeIosHid = (
       warm: () =>
         start.pipe(
           Effect.asVoid,
-          Effect.ignore,
+          Effect.ignore({
+            log: "Debug",
+            message: "Could not warm the iOS helper",
+          }),
           Effect.forkIn(scope),
           Effect.asVoid
         ),

@@ -136,7 +136,12 @@ export const DeviceVideoRendererLive = Layer.effect(
           if (Number.isInteger(holder) && holder > 0 && isAlive(holder)) {
             return false;
           }
-          yield* fileSystem.remove(file, { force: true }).pipe(Effect.ignore);
+          yield* fileSystem.remove(file, { force: true }).pipe(
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not remove a stale render lock",
+            })
+          );
         }
         return false;
       });
@@ -272,9 +277,12 @@ export const DeviceVideoRendererLive = Layer.effect(
           PARTIAL_FILE,
         ],
         (name) =>
-          fileSystem
-            .remove(path.join(folder, name), { force: true })
-            .pipe(Effect.ignore),
+          fileSystem.remove(path.join(folder, name), { force: true }).pipe(
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not remove device footage",
+            })
+          ),
         { discard: true }
       );
 
@@ -377,14 +385,24 @@ export const DeviceVideoRendererLive = Layer.effect(
         yield* Effect.logWarning("Device video kept as recorded", { reason });
         yield* fileSystem
           .remove(path.join(folder, PARTIAL_FILE), { force: true })
-          .pipe(Effect.ignore);
+          .pipe(
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not remove a partial device video",
+            })
+          );
         yield* fileSystem
           .writeFileString(
             path.join(folder, FALLBACK_FILE),
             Schema.encodeSync(Fallback)({ reason }),
             { mode: 0o600 }
           )
-          .pipe(Effect.ignore);
+          .pipe(
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not write the device video fallback",
+            })
+          );
       });
 
     /** Cleanup deletes the capture record; footage without it is not kept. */
@@ -432,7 +450,12 @@ export const DeviceVideoRendererLive = Layer.effect(
           if (yield* purgedMeanwhile(folder)) {
             yield* fileSystem
               .remove(path.join(folder, DEVICE_VIDEO_FILE), { force: true })
-              .pipe(Effect.ignore);
+              .pipe(
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not remove a purged device video",
+                })
+              );
           }
           // One video per recording: the raw footage goes once it is encoded.
           yield* removeFootage(folder, manifest);
@@ -440,7 +463,12 @@ export const DeviceVideoRendererLive = Layer.effect(
           Effect.ensuring(
             fileSystem
               .remove(path.join(folder, LOCK_FILE), { force: true })
-              .pipe(Effect.ignore)
+              .pipe(
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not remove the device video lock",
+                })
+              )
           )
         );
       });

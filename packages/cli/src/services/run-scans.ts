@@ -177,7 +177,12 @@ export const makeRunScans = (
       const cancel = Effect.tryPromise({
         catch: failed,
         try: scan.collection.cancel,
-      }).pipe(Effect.ignore);
+      }).pipe(
+        Effect.ignore({
+          log: "Debug",
+          message: "Could not cancel the scan collection",
+        })
+      );
       yield* Effect.gen(function* finishAndPersist() {
         if (partialReason !== undefined) {
           yield* cancel;

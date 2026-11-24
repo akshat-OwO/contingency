@@ -137,7 +137,12 @@ export const writeLocalSystemOneUpdateCache = (
     }
     const temporary = path.join(root, `updates-${randomUUID()}.tmp`);
     yield* Effect.acquireRelease(Effect.succeed(temporary), (file) =>
-      fs.remove(file, { force: true }).pipe(Effect.ignore)
+      fs.remove(file, { force: true }).pipe(
+        Effect.ignore({
+          log: "Debug",
+          message: "Could not remove a temporary System One updates file",
+        })
+      )
     );
     yield* fs.writeFileString(temporary, JSON.stringify(cache), {
       flag: "wx",

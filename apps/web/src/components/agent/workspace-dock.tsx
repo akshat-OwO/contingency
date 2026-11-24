@@ -16,6 +16,7 @@ import {
 import { useEffect, useState } from "react";
 
 import { agentSessionLabel } from "@/components/agent/agent-workspace-state";
+import { FailureText } from "@/components/agent/failure-reference";
 import { RunSummaryPill } from "@/components/agent/run-summary-dock";
 import { DocsLink } from "@/components/docs-link";
 import { ModeToggle } from "@/components/mode-toggle";
@@ -312,7 +313,8 @@ const requestsIslandClassName =
  *
  * A transient notice, such as a refused gesture, floats at the top centre of
  * the stage. It takes no layout space and lets pointer input through, so the
- * device or page keeps its size and the next attempt is never blocked.
+ * device or page keeps its size and the next attempt is never blocked. Only
+ * a Failure Reference it names, with its Cause under debug, takes input.
  */
 export const DockShell = ({
   children,
@@ -401,15 +403,16 @@ export const DockShell = ({
 export const DockNotice = ({
   children,
 }: {
-  readonly children: React.ReactNode;
+  /** A failure sentence; one that names a Failure Reference offers it. */
+  readonly children: string;
 }) => (
-  <p
-    className="island text-destructive shadow-island-lift max-w-md rounded-full px-4 py-2 text-xs font-medium text-pretty"
+  <div
+    className="island text-destructive shadow-island-lift max-w-md rounded-[18px] px-4 py-2 text-xs font-medium text-pretty"
     data-slot="dock-notice"
     role="alert"
   >
-    {children}
-  </p>
+    <FailureText text={children} />
+  </div>
 );
 
 /**
@@ -680,7 +683,7 @@ export const DockStatus = ({
             <PopoverTitle className="sr-only">Status</PopoverTitle>
             <p className="text-[13px] leading-normal text-pretty">{children}</p>
             {details === undefined ? null : (
-              <div className="max-h-56 space-y-3 overflow-y-auto border-t pt-2.5">
+              <div className="max-h-56 space-y-3 overflow-y-auto border-t pt-2.5 empty:hidden">
                 {details}
               </div>
             )}

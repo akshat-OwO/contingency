@@ -1,8 +1,11 @@
 import { OperationId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, Schema } from "effect";
+import { Effect, Logger, References, Schema } from "effect";
 
+import { AndroidWorkspace } from "../../src/services/android-workspace.ts";
+import { toSafeRecord } from "../../src/services/diagnostic-log.ts";
+import type { SafeRecord } from "../../src/services/diagnostic-log.ts";
 import { IosWorkspace } from "../../src/services/ios-workspace.ts";
 import { DeviceWorkspaceTools } from "../../src/services/mcp-device-workspace.ts";
 import { OwnedDevices } from "../../src/services/owned-devices.ts";
@@ -208,4 +211,79 @@ it.live("an agent's Device Erase request only asks, and never erases", () =>
     Effect.scoped,
     Effect.provide(NodeServices.layer)
   )
+);
+
+const records: SafeRecord[] = [];
+it.live(
+  "a failure with a recorded cause answers its code and Failure Reference; invalid parameters answer neither",
+  () =>
+    Effect.gen(function* referencedFailure() {
+      const { request } = yield* connectMcp(yield* servingMcpHttp());
+      const call = (params: {
+        readonly command: { readonly _tag: "read"; readonly sessionId: string };
+        readonly platform?: "android";
+      }) =>
+        request(
+          "tools/call",
+          operationParams("agent_device_workspace", params)
+        ).pipe(
+          Effect.map(
+            (answer) => Schema.decodeUnknownSync(Answer)(answer).result
+          )
+        );
+      const failed = yield* call({
+        command: { _tag: "read", sessionId: "agent-android-1" },
+        platform: "android",
+      });
+      expect(
+        JSON.parse(failed.structuredContent.diagnostic?.message ?? "{}")
+      ).toEqual({
+        code: "runtime_failed",
+        failureReference: "7KQ2MZ",
+        message: "The Android backend failed.",
+      });
+      records.length = 0;
+      const invalid = yield* call({
+        command: { _tag: "read", sessionId: "agent-android-1" },
+      });
+      expect(invalid.structuredContent.status).toBe("program_failed");
+      expect(invalid.structuredContent.diagnostic?.message).not.toContain(
+        "failureReference"
+      );
+      const refusals = records.filter(
+        (record) => record.message === "MCP tool parameters refused"
+      );
+      expect(refusals).toHaveLength(1);
+      expect(refusals[0]?.level).toBe("Info");
+      expect(
+        records.some((record) =>
+          record.fields.some(([key]) => key === "failureReference")
+        )
+      ).toBe(false);
+    }).pipe(
+      Effect.provideService(AndroidWorkspace, {
+        activeRunFlowNames: () => Effect.succeed([]),
+        execute: () =>
+          Effect.fail({
+            code: "runtime_failed",
+            failureReference: "7KQ2MZ",
+            message: "The Android backend failed.",
+          }),
+        forward: () => Effect.void,
+        keyframes: () => Effect.succeed(null),
+        list: () => Effect.succeed([]),
+        stream: () => Effect.succeed(null),
+        video: () => Effect.succeed(null),
+      }),
+      Effect.scoped,
+      Effect.provide(
+        Logger.layer([
+          Logger.make((event) => {
+            records.push(toSafeRecord(event, ""));
+          }),
+        ])
+      ),
+      Effect.provideService(References.MinimumLogLevel, "Debug"),
+      Effect.provide(NodeServices.layer)
+    )
 );

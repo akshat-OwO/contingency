@@ -36,6 +36,7 @@ import {
   runOutcomeLabel,
   runSummaryWhen,
 } from "@/components/agent/dry-run-summary-state";
+import { FailureReferenceNote } from "@/components/agent/failure-reference";
 import { usePublishRunSummaryVerdict } from "@/components/agent/run-summary-dock";
 import { VerdictCard } from "@/components/agent/run-summary-verdict";
 import { WatcherLoader } from "@/components/brand";
@@ -616,6 +617,7 @@ type SummarySession = Pick<
   | "cleanup"
   | "completedAt"
   | "error"
+  | "failureReference"
   | "flowName"
   | "id"
   | "kind"
@@ -725,7 +727,13 @@ const DeviceVerdictCard = ({
 };
 
 /** What the session ended on, when it ended with an error. */
-const SessionError = ({ error }: { readonly error: string | null }) =>
+const SessionError = ({
+  error,
+  failureReference,
+}: {
+  readonly error: string | null;
+  readonly failureReference: string | null | undefined;
+}) =>
   error === null ? null : (
     <section
       aria-label="Error"
@@ -738,6 +746,7 @@ const SessionError = ({ error }: { readonly error: string | null }) =>
       <div className="space-y-1">
         <h3 className="font-medium">The session ended with an error</h3>
         <p className="text-muted-foreground text-pretty">{error}</p>
+        <FailureReferenceNote failureReference={failureReference} />
       </div>
     </section>
   );
@@ -1038,7 +1047,12 @@ const NativeRunSummaryLayout = ({
           links={links}
         />
       }
-      notice={<SessionError error={session.error} />}
+      notice={
+        <SessionError
+          error={session.error}
+          failureReference={session.failureReference}
+        />
+      }
       platform={<DevicePlatformLabel platform={platform} />}
       stats={nativeStats(session, keyframes)}
       task={
@@ -1107,7 +1121,10 @@ const TeachingSummary = ({
   readonly targetApp: string;
 }) => (
   <div className="space-y-5 text-sm">
-    <SessionError error={session.error} />
+    <SessionError
+      error={session.error}
+      failureReference={session.failureReference}
+    />
     {session.assessment === null ? null : (
       <>
         <DeviceVerdictCard platform={platform} session={session} />

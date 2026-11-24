@@ -217,12 +217,10 @@ export const makeDeviceVideoCapture = (input: {
         });
         yield* fileSystem.rename(`${file}.tmp`, file);
       }).pipe(
-        Effect.tapError((cause) =>
-          Effect.logWarning("Could not save the device video record", {
-            error: cause,
-          })
-        ),
-        Effect.ignore
+        Effect.ignore({
+          log: "Warn",
+          message: "Could not save the device video record",
+        })
       );
     const update = (
       change: (current: DeviceCaptureManifest) => DeviceCaptureManifest
@@ -272,7 +270,12 @@ export const makeDeviceVideoCapture = (input: {
               offset(stoppedAt),
               Math.max(0, startMs)
             );
-            yield* fileSystem.remove(file, { force: true }).pipe(Effect.ignore);
+            yield* fileSystem.remove(file, { force: true }).pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not remove an oversized device video file",
+              })
+            );
             continue;
           }
           total += bytes;

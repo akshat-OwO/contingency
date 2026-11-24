@@ -19,6 +19,10 @@ import { MessageSquareTextIcon, SmartphoneIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
+  FailureText,
+  PausedFailureReference,
+} from "@/components/agent/failure-reference";
+import {
   DockNotices,
   DockNotice,
   DockShell,
@@ -918,7 +922,10 @@ export const AndroidSessionView = ({
             />
           }
           status={
-            <DockStatus badges={<AndroidStateBadges session={session} />}>
+            <DockStatus
+              badges={<AndroidStateBadges session={session} />}
+              details={<PausedFailureReference session={session} />}
+            >
               {androidDockPresentation(session).nextStep}
             </DockStatus>
           }
@@ -1082,7 +1089,9 @@ export const AndroidWorkspace = ({
       <DockNotices className="top-11">
         <Alert variant="destructive">
           <AlertTitle>The Android session did not answer</AlertTitle>
-          <AlertDescription>{failure}</AlertDescription>
+          <AlertDescription>
+            <FailureText text={failure} />
+          </AlertDescription>
         </Alert>
       </DockNotices>
     );

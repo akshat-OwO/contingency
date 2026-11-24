@@ -37,6 +37,7 @@ import {
 } from "@/components/agent/dry-run-summary-state";
 import type { SummaryVerdictTone } from "@/components/agent/dry-run-summary-state";
 import { EvidenceReference } from "@/components/agent/evidence-reference";
+import { FailureText } from "@/components/agent/failure-reference";
 import { PlatformIcon } from "@/components/agent/platform-icons";
 import { VerdictCard } from "@/components/agent/run-summary-verdict";
 import { RunSummaryView } from "@/components/agent/run-view";
@@ -504,7 +505,9 @@ const FlowFiles = ({
         <CircleAlertIcon aria-hidden="true" />
         <AlertTitle>This Flow could not be read</AlertTitle>
         <AlertDescription>
-          {refusal(result) ?? "Its flow.md is no longer there."}
+          <FailureText
+            text={refusal(result) ?? "Its flow.md is no longer there."}
+          />
         </AlertDescription>
       </Alert>
     );
@@ -1468,7 +1471,12 @@ export const FlowsPage = ({
             <CircleAlertIcon aria-hidden="true" />
             <AlertTitle>The catalog could not be read</AlertTitle>
             <AlertDescription>
-              {refusal(result) ?? "This server process lists no Catalog Root."}
+              <FailureText
+                text={
+                  refusal(result) ??
+                  "This server process lists no Catalog Root."
+                }
+              />
             </AlertDescription>
           </Alert>
         </CatalogMessage>

@@ -27,6 +27,7 @@ A session started with `contingency start` adds a **This session** section at th
 - Variables are ordinary visible values. You may use a value supplied in chat; a saved Flow names the Variable without storing its value.
 - For a Pending Decision, describe the action and ask the user to reply "allow" or "refuse". Call `agent_pending_decision_resolve` after their answer. Follow the tool contract for retries and control.
 - If the website is broken, report evidence and ask before changing application code.
+- A failure with a `failureReference` names a cause Contingency kept in its Diagnostic Log. Give the user the reference; do not retry the same call to find out more.
 - Do not run `contingency register` or edit agent configuration unless asked.
 
 ## Read when needed

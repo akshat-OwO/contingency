@@ -55,7 +55,10 @@ export const makeVerificationElicitation = () => {
       }).pipe(
         Effect.scoped,
         Effect.timeoutOption("50 seconds"),
-        Effect.ignore,
+        Effect.ignore({
+          log: "Debug",
+          message: "Could not request verification from the client",
+        }),
         Effect.forkDetach
       );
     });

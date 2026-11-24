@@ -31,6 +31,7 @@ import {
   RequestHeader,
   requestIconClassName,
 } from "@/components/agent/dock-request-parts";
+import { PausedFailureReference } from "@/components/agent/failure-reference";
 import { WatcherLoader } from "@/components/brand";
 import { FlowsButton } from "@/components/catalog/flows-button";
 import { Button } from "@/components/ui/button";
@@ -840,6 +841,7 @@ const IosDock = ({
             badges={
               <IosStateBadge presentation={presentation} session={session} />
             }
+            details={<PausedFailureReference session={session} />}
           >
             {session.error !== null && session.phase !== "paused"
               ? session.error

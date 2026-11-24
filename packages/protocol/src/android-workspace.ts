@@ -3,6 +3,7 @@ import { Schema } from "effect";
 import { AgentExecutionBoundary } from "./agent-browser.ts";
 import { AgentPendingDecision } from "./agent-decision.ts";
 import { AgentSessionId, OperationId } from "./agent-identifiers.ts";
+import { FailureReference } from "./failure-reference.ts";
 import { FlowName } from "./flow-identifiers.ts";
 import {
   AndroidPreparation,
@@ -296,6 +297,8 @@ export const AndroidWorkspaceSummary = Schema.Struct({
   /** The prepared device's Emulation as last read or set (ADR 0082). */
   emulation: Schema.optionalKey(NativeEmulation),
   error: Schema.NullOr(text),
+  /** Names the recorded cause of `error`, when the code does not state it. */
+  failureReference: Schema.optionalKey(Schema.NullOr(FailureReference)),
   flowName: FlowName,
   /**
    * The Dry Run this stopped Teaching session closed for, releasing its

@@ -52,7 +52,12 @@ const stopUnlocked = (session: CreateSession) =>
     yield* tryBrowser("Could not stop the canvas stream", async () => {
       await current.cdp.send("Page.stopScreencast").catch(() => null);
       await current.cdp.detach().catch(() => null);
-    }).pipe(Effect.ignore);
+    }).pipe(
+      Effect.ignore({
+        log: "Debug",
+        message: "Could not stop the canvas stream",
+      })
+    );
   });
 
 const startUnlocked = (session: CreateSession) =>

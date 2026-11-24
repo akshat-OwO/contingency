@@ -182,7 +182,10 @@ export const makeAndroidEmulationGuard = (input: {
             })
           ),
           // A failed restore keeps the record for the next process start.
-          Effect.ignore
+          Effect.ignore({
+            log: "Debug",
+            message: "Could not restore the Android environment",
+          })
         );
       })
     ),
@@ -222,7 +225,12 @@ export const restoreLeftoverEnvironments = (input: {
           }
           yield* restoreAndroidEnvironment(input.adb, serial, environment);
           yield* removeRecord(file);
-        }).pipe(Effect.ignore),
+        }).pipe(
+          Effect.ignore({
+            log: "Debug",
+            message: "Could not restore a recorded Android environment",
+          })
+        ),
       { discard: true }
     );
   });
@@ -378,7 +386,10 @@ export const makeIosEmulationGuard = (input: {
                   { udid: input.udid }
                 )
               ),
-              Effect.ignore
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not restore the iOS orientation",
+              })
             );
           }
           yield* restoreIosSettings(input.simctl, input.udid, current);
@@ -386,7 +397,10 @@ export const makeIosEmulationGuard = (input: {
           saved = undefined;
         }).pipe(
           // A failed restore keeps the record for the next process start.
-          Effect.ignore
+          Effect.ignore({
+            log: "Debug",
+            message: "Could not restore the iOS settings",
+          })
         );
       })
     ),
@@ -429,7 +443,12 @@ export const restoreLeftoverIosEnvironments = (input: {
             );
           }
           yield* removeRecord(file);
-        }).pipe(Effect.ignore),
+        }).pipe(
+          Effect.ignore({
+            log: "Debug",
+            message: "Could not restore a recorded iOS environment",
+          })
+        ),
       { discard: true }
     );
   });

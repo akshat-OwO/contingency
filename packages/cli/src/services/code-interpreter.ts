@@ -427,7 +427,10 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
           });
         yield* Stream.fromQueue(input).pipe(
           Stream.run(child.stdin),
-          Effect.ignore,
+          Effect.ignore({
+            log: "Debug",
+            message: "Code interpreter input stopped",
+          }),
           Effect.forkScoped
         );
 
@@ -473,7 +476,10 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
               )
             )
           ),
-          Effect.ignore,
+          Effect.ignore({
+            log: "Debug",
+            message: "Code interpreter output stopped",
+          }),
           Effect.andThen(endProgram),
           Effect.andThen(Queue.offer(reads, { _tag: "ended" })),
           Effect.forkScoped
@@ -493,10 +499,16 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
                   }
                 })
               ),
-              Effect.ignore
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not decode a watchdog message",
+              })
             )
           ),
-          Effect.ignore,
+          Effect.ignore({
+            log: "Debug",
+            message: "Watchdog telemetry stopped",
+          }),
           Effect.forkScoped
         );
         const stderr = yield* child.stderr.pipe(
@@ -703,7 +715,12 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
         ) {
           yield* Effect.result(child.exitCode).pipe(Effect.timeoutOption(1000));
         }
-        yield* child.kill({ killSignal: "SIGKILL" }).pipe(Effect.ignore);
+        yield* child.kill({ killSignal: "SIGKILL" }).pipe(
+          Effect.ignore({
+            log: "Debug",
+            message: "Could not kill the code interpreter",
+          })
+        );
         const exit = yield* Effect.result(child.exitCode);
         const outcome: InterpreterOutcome = {
           ...ending,

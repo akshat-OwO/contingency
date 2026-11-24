@@ -154,7 +154,10 @@ const main = Effect.gen(function* interpreterProcess() {
       })
     ),
     // The server is gone or broke the protocol: nothing can answer a request.
-    Effect.ignoreCause,
+    Effect.ignoreCause({
+      log: "Debug",
+      message: "The code interpreter server stopped answering",
+    }),
     Effect.andThen(exit(2)),
     Effect.forkDetach
   );

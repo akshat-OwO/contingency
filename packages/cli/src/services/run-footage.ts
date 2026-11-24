@@ -180,10 +180,7 @@ export const makeRunFootage = (
           }
           return Effect.void;
         }),
-        Effect.tapError((cause) =>
-          Effect.logWarning("Run footage stopped", { error: cause })
-        ),
-        Effect.ignore,
+        Effect.ignore({ log: "Warn", message: "Run footage stopped" }),
         Effect.forkDetach
       );
 
@@ -211,9 +208,12 @@ export const makeRunFootage = (
               reason: failure,
             });
           }
-          yield* fileSystem
-            .remove(videoFile, { force: true })
-            .pipe(Effect.ignore);
+          yield* fileSystem.remove(videoFile, { force: true }).pipe(
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not remove the Run video file",
+            })
+          );
           return;
         }
         const captured: FootageManifest = {

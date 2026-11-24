@@ -1563,7 +1563,10 @@ const evaluateSnapshot = (
 
 const releaseGuard = (guard: JSHandle<SnapshotGuard | null>) =>
   Effect.tryPromise(() => guard.evaluate((value) => value?.stop())).pipe(
-    Effect.ignore,
+    Effect.ignore({
+      log: "Debug",
+      message: "Could not release the snapshot guard",
+    }),
     Effect.andThen(disposeHandles([guard]))
   );
 
@@ -2202,7 +2205,12 @@ export const makeAgentElementRegistry = (
         // structure here; a same-process one was handed it with its parent.
         yield* Effect.tryPromise(() =>
           parkPageStructure(child, request.handoffKey)
-        ).pipe(Effect.ignore);
+        ).pipe(
+          Effect.ignore({
+            log: "Debug",
+            message: "Could not park a frame's page structure",
+          })
+        );
         const childRefs = refsIn(child);
         const childRead = yield* Effect.result(
           collectDocument(
@@ -2357,7 +2365,12 @@ export const makeAgentElementRegistry = (
         (frame) =>
           Effect.tryPromise(() =>
             frame.evaluate(`delete document[${JSON.stringify(handoffKey)}]`)
-          ).pipe(Effect.ignore),
+          ).pipe(
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not remove a frame's structure handoff",
+            })
+          ),
         { concurrency: "unbounded", discard: true }
       );
       const orphaned: JSHandle<unknown>[] = [];
@@ -2365,7 +2378,12 @@ export const makeAgentElementRegistry = (
       const read = yield* Effect.gen(function* readEveryDocument() {
         yield* Effect.tryPromise(() =>
           parkPageStructure(page, handoffKey)
-        ).pipe(Effect.ignore);
+        ).pipe(
+          Effect.ignore({
+            log: "Debug",
+            message: "Could not park the page structure",
+          })
+        );
         const collected = yield* collectDocument(
           main,
           { ...scope, handoffKey, limit: SNAPSHOT_LIMIT, offset, point },
@@ -3011,7 +3029,12 @@ const settleNavigation = (page: Page, urlBefore: string): Effect.Effect<void> =>
           })
       );
     },
-  }).pipe(Effect.ignore);
+  }).pipe(
+    Effect.ignore({
+      log: "Debug",
+      message: "Could not wait for the next animation frame",
+    })
+  );
 
 /**
  * Read the Page after an action, once the navigation it started (if any) has
@@ -3135,7 +3158,10 @@ const readProbe = (page: Page): Effect.Effect<ProbeValue | undefined> =>
 
 const disposeProbe = (page: Page): Effect.Effect<void> =>
   Effect.tryPromise(() => page.evaluate<unknown>(PROBE_DISPOSE_SCRIPT)).pipe(
-    Effect.ignore
+    Effect.ignore({
+      log: "Debug",
+      message: "Could not dispose of the page probe",
+    })
   );
 
 /**
@@ -3169,7 +3195,12 @@ export const beginActionObservation = (
             state.target = element;
           }
         })
-      ).pipe(Effect.ignore);
+      ).pipe(
+        Effect.ignore({
+          log: "Debug",
+          message: "Could not mark the page activity target",
+        })
+      );
     }
     return { observed, pagesBefore, startedAt: Date.now(), urlBefore };
   });
@@ -3782,7 +3813,10 @@ const pointAt = (
             y: (top + bottom) / 2,
           });
     }),
-    Effect.ignore
+    Effect.ignore({
+      log: "Debug",
+      message: "Could not move the pointer to the element",
+    })
   );
 
 /**
@@ -3810,8 +3844,16 @@ const pointAtHandle = (
                 sink
               );
         },
-        (handle) => Effect.ignore(Effect.tryPromise(() => handle.dispose()))
-      ).pipe(Effect.ignore);
+        (handle) =>
+          Effect.tryPromise(() => handle.dispose()).pipe(
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not dispose of an element handle",
+            })
+          )
+      ).pipe(
+        Effect.ignore({ log: "Debug", message: "Could not hover the element" })
+      );
 
 /** The control the keyboard types into, unless nothing but the page has it. */
 const FOCUSED_CONTROL_SCRIPT = `(() => {
@@ -3839,7 +3881,13 @@ const guardFocusedInput = (page: Page, key: string) =>
                 reachablePosition(element, true)
               ).pipe(Effect.asVoid);
         },
-        (handle) => Effect.ignore(Effect.tryPromise(() => handle.dispose()))
+        (handle) =>
+          Effect.tryPromise(() => handle.dispose()).pipe(
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not dispose of an element handle",
+            })
+          )
       );
 
 /** Bring one element into reach, point at it, and act on it. */

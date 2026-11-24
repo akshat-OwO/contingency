@@ -120,6 +120,8 @@ import type { RecordedTargetAppBuild } from "./teaching-recording-store.ts";
 export interface IosWorkspaceError {
   readonly code: string;
   readonly message: string;
+  /** Names the recorded cause when the code does not state it (ADR 0089). */
+  readonly failureReference?: string;
 }
 const error = (code: string, message: string): IosWorkspaceError => ({
   code,
@@ -754,6 +756,7 @@ export const makeIosWorkspaceLayer = (options: {
                   ? current.summary.captureGaps
                   : [...current.summary.captureGaps, cause.code],
               error: cause.message,
+              failureReference: cause.failureReference ?? null,
               phase: "paused",
               refusal: iosWorkspaceRefusal(cause.code),
             },
@@ -843,6 +846,7 @@ export const makeIosWorkspaceLayer = (options: {
           summary: {
             ...current.summary,
             error: null,
+            failureReference: null,
             phase: "running",
             refusal: null,
           },
@@ -1045,7 +1049,12 @@ export const makeIosWorkspaceLayer = (options: {
           (session) =>
             session.lock
               .withPermits(1)(close(session, "process-exited"))
-              .pipe(Effect.ignore),
+              .pipe(
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not close an iOS Workspace session",
+                })
+              ),
           { discard: true }
         ).pipe(Effect.ensuring(Effect.sync(() => registry.dispose())))
       );
@@ -1105,7 +1114,12 @@ export const makeIosWorkspaceLayer = (options: {
           });
           yield* Scope.addFinalizer(
             scope,
-            store.releaseTargetAppBuild(recordingId).pipe(Effect.ignore)
+            store.releaseTargetAppBuild(recordingId).pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not release the target app build",
+              })
+            )
           );
           const adopted = yield* store.adoptTargetAppBuild({
             platform: "ios",
@@ -1464,7 +1478,13 @@ export const makeIosWorkspaceLayer = (options: {
                 })
               );
               if (Result.isFailure(initialized)) {
-                yield* close(session, "interrupted").pipe(Effect.ignore);
+                yield* close(session, "interrupted").pipe(
+                  Effect.ignore({
+                    log: "Debug",
+                    message:
+                      "Could not close an iOS Workspace session that failed to start",
+                  })
+                );
                 return yield* Effect.fail(initialized.failure);
               }
               return initialized.success;
@@ -1573,10 +1593,20 @@ export const makeIosWorkspaceLayer = (options: {
         Effect.gen(function* pauseUnverified() {
           const unverified = session.lane.unobserved();
           session.lane.discard();
-          yield* pause(session, cause).pipe(Effect.ignore);
+          yield* pause(session, cause).pipe(
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not pause the iOS Workspace session",
+            })
+          );
           if (unverified > 0) {
             markUnverified(session);
-            yield* persist(session).pipe(Effect.ignore);
+            yield* persist(session).pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not persist the iOS Workspace session",
+              })
+            );
           }
         });
       /** Whether a mirror observation can become a Teaching or Run keyframe. */
@@ -2802,7 +2832,13 @@ export const makeIosWorkspaceLayer = (options: {
                   Effect.tapError((cause) =>
                     cause.code === "ios_workspace_refused"
                       ? Effect.void
-                      : pause(session, cause).pipe(Effect.ignore)
+                      : pause(session, cause).pipe(
+                          Effect.ignore({
+                            log: "Debug",
+                            message:
+                              "Could not pause the iOS Workspace session",
+                          })
+                        )
                   ),
                   Effect.onInterrupt(() =>
                     pause(
@@ -2811,7 +2847,13 @@ export const makeIosWorkspaceLayer = (options: {
                         "execution_canceled",
                         "Cancellation does not undo forwarded input. Recover with a fresh same-device observation."
                       )
-                    ).pipe(Effect.ignore)
+                    ).pipe(
+                      Effect.ignore({
+                        log: "Debug",
+                        message:
+                          "Could not pause the canceled iOS Workspace session",
+                      })
+                    )
                   )
                 );
                 const result = yield* Effect.result(attempted);

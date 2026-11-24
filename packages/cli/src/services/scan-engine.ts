@@ -104,7 +104,12 @@ export const beginScanCollection = async (
     const session = await page.context().newCDPSession(page);
     const cancel = () => {
       Effect.runFork(
-        Effect.promise(() => session.detach()).pipe(Effect.ignore)
+        Effect.promise(() => session.detach()).pipe(
+          Effect.ignore({
+            log: "Debug",
+            message: "Could not detach the scan session",
+          })
+        )
       );
     };
     signal.addEventListener("abort", cancel, { once: true });
