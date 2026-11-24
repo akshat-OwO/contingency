@@ -10,7 +10,6 @@ import {
   Logger,
   References,
   Scope,
-  Tracer,
 } from "effect";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http";
 
@@ -20,7 +19,6 @@ import {
   makeNodeServerLayer,
   serveWithAccessLog,
 } from "../../src/services/http-server.ts";
-import { makeShareSafeTracer } from "../../src/services/share-safe-tracer.ts";
 
 const SECRET = "hunter2";
 
@@ -149,13 +147,9 @@ it.live("logs by route template, at Error only for a 5xx", () =>
       expect(statuses).toEqual([204, 500, 500, 204, 404]);
     }).pipe(
       Effect.provide(Logger.layer([logger])),
-      // Production records Debug for the Diagnostic Log, and every command's
-      // share-safe tracer lets the router record the matched route.
+      // Production records Debug for the Diagnostic Log. Effect's native
+      // tracer samples no spans, so the route cannot come from tracing.
       Effect.provideService(References.MinimumLogLevel, "Debug"),
-      Effect.provideService(
-        Tracer.Tracer,
-        makeShareSafeTracer(Tracer.nativeTracer, "")
-      ),
       Effect.timeout("30 seconds")
     );
     expect(records).toEqual([

@@ -4,7 +4,7 @@ import type { Socket } from "node:net";
 import path from "node:path";
 
 import { NodeHttpServer } from "@effect/platform-node";
-import { Cause, Effect, Exit, Layer, Option, Predicate } from "effect";
+import { Cause, Context, Effect, Exit, Layer, Option, Ref } from "effect";
 import type { FileSystem } from "effect";
 import {
   HttpMiddleware,
@@ -33,16 +33,28 @@ import type { RunVideoRendererService } from "./run-video-renderer.ts";
 import type { TeachingRecordingStoreService } from "./teaching-recording-store.ts";
 
 /**
- * The route template the router matched, such as `/api/runs/:id`, never the
- * requested path, which may carry private segments. The router records it on
- * the request's span whenever the tracer is not Effect's native one; the
- * share-safe tracer every command installs is not.
+ * Where the route middleware leaves the template the router matched, such as
+ * `/api/runs/:id`, for the access log. A request outside the access log has
+ * no slot.
  */
-const matchedRoute = Effect.currentSpan.pipe(
-  Effect.map((span) => span.attributes.get("http.route")),
-  Effect.option,
-  Effect.map(Option.filter(Predicate.isString))
-);
+const MatchedRoute = Context.Reference<
+  Ref.Ref<Option.Option<string>> | undefined
+>("contingency/http/MatchedRoute", { defaultValue: () => {} });
+
+/**
+ * Records each matched route's template. It runs inside the route, where the
+ * router's `RouteContext` exists, so it holds however the request is traced.
+ */
+const recordMatchedRoute = HttpRouter.middleware((httpEffect) =>
+  Effect.gen(function* recordRoute() {
+    const slot = yield* MatchedRoute;
+    const { route } = yield* HttpRouter.RouteContext;
+    if (slot !== undefined) {
+      yield* Ref.set(slot, Option.some(route.path));
+    }
+    return yield* httpEffect;
+  })
+).layer;
 
 /**
  * One record per response, in place of Effect's HTTP logger, which logs
@@ -55,8 +67,13 @@ const matchedRoute = Effect.currentSpan.pipe(
 export const httpAccessLog = HttpMiddleware.make((httpApp) =>
   Effect.gen(function* logHttpResponse() {
     const request = yield* HttpServerRequest.HttpServerRequest;
-    const exit = yield* Effect.exit(httpApp);
-    const route = yield* matchedRoute;
+    const slot = yield* Ref.make(Option.none<string>());
+    const exit = yield* Effect.exit(
+      Effect.provideService(httpApp, MatchedRoute, slot)
+    );
+    // The template, never the requested path, which may carry private
+    // segments.
+    const route = yield* Ref.get(slot);
     const annotate =
       (status: number) =>
       <A, E, R>(effect: Effect.Effect<A, E, R>) => {
@@ -100,9 +117,15 @@ export const httpAccessLog = HttpMiddleware.make((httpApp) =>
   }).pipe(Effect.withLogSpan("http"))
 );
 
-/** Serves routes with `httpAccessLog` instead of Effect's HTTP logger. */
+/**
+ * Serves routes with `httpAccessLog` instead of Effect's HTTP logger, and
+ * records each route's template for it.
+ */
 export const serveWithAccessLog = <E, R>(routes: Layer.Layer<never, E, R>) =>
-  HttpRouter.serve(routes, { disableLogger: true, middleware: httpAccessLog });
+  HttpRouter.serve(routes.pipe(Layer.provide(recordMatchedRoute)), {
+    disableLogger: true,
+    middleware: httpAccessLog,
+  });
 
 export { isAllowedWebSocketOrigin } from "./web-url.ts";
 
