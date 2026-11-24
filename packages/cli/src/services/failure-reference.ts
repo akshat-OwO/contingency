@@ -93,3 +93,30 @@ export const lookupFailure = (
   Effect.gen(function* readCause() {
     return (yield* FailureReferences).lookup(reference);
   });
+
+// Each typed error a foreign cause was replaced by, mapped to that cause. A
+// WeakMap keeps the cause off the error itself, so no encoding or spread can
+// carry it out of the process.
+const droppedCauses = new WeakMap<object, { readonly cause: unknown }>();
+
+/**
+ * Remembers the foreign cause a typed error replaces, for the seam that
+ * records it under a Failure Reference if the error gets that far.
+ */
+export const keepDroppedCause = <E extends object>(
+  error: E,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- A foreign rejection is unknown by definition; it is only kept, never read.
+  cause: unknown
+): E => {
+  droppedCauses.set(error, { cause });
+  return error;
+};
+
+/** The foreign cause a typed error replaced, if one was kept. */
+export const droppedCause = <E extends object>(
+  error: E
+): Option.Option<unknown> =>
+  Option.map(
+    Option.fromUndefinedOr(droppedCauses.get(error)),
+    ({ cause }) => cause
+  );

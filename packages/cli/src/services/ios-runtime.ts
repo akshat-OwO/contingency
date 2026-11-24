@@ -25,7 +25,7 @@ import {
 
 import type { AndroidObservation } from "./android-runtime-contract.ts";
 import { supportsIosPermissions } from "./ios-contract.ts";
-import type { IosDevice } from "./ios-contract.ts";
+import type { IosDevice, IosError } from "./ios-contract.ts";
 import { makeIosDiscovery } from "./ios-discovery.ts";
 import {
   compareIosEnvironments,
@@ -63,7 +63,11 @@ import type {
 } from "./native-app-runtime-contract.ts";
 import { adaptNativeAppRuntime } from "./native-app-runtime.ts";
 import { makeAgentDeviceScreenRecorder } from "./native-screen-recorder.ts";
-import { tryBackend } from "./platform-runtime-error.ts";
+import {
+  failFromTyped,
+  failReferenced,
+  tryBackend,
+} from "./platform-runtime-error.ts";
 import type {
   NativeSystemKey,
   PlatformRuntimeError,
@@ -356,6 +360,16 @@ export const iosAppStateProblem = (
   return state.state === "runningForeground" ? null : "runtime_failed";
 };
 
+/** An SDK snapshot rejection, named by reference unless it explains itself. */
+const snapshotRejection = (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- A rejected SDK promise is unknown by definition; `iosSnapshotFailure` parses it.
+  cause: unknown
+) => failReferenced(iosSnapshotFailure(cause), cause);
+
+/** A simulator host failure, naming the child process failure it replaced. */
+const hostFailure = (failure: IosError) =>
+  failFromTyped(iosRuntimeError(failure.code), failure);
+
 /** Session-bound SDK access shared by Teaching, Dry Runs, and Runs. */
 export const makeIosSessionAccess = <A, B>(input: {
   readonly snapshot: (options: CaptureSnapshotOptions) => Promise<A>;
@@ -397,12 +411,13 @@ export const makeIosSessionAccess = <A, B>(input: {
     }).pipe(
       Effect.map(Option.some),
       // Another app in front is not a failure: the caller follows it.
+      // Anything else is the SDK's own failure: name it by reference.
       Effect.catchIf(
         (cause) =>
           isAgentDeviceError(cause) && cause.code === "OBSERVATION_UNAVAILABLE",
-        () => Effect.succeed(Option.none<A>())
-      ),
-      Effect.mapError(iosSnapshotFailure)
+        () => Effect.succeed(Option.none<A>()),
+        snapshotRejection
+      )
     ),
 });
 
@@ -445,7 +460,7 @@ const startIosRuntime = (
     return yield* Effect.gen(function* acquireIos() {
       const prepared = yield* makeIosPreparation()
         .prepare(input)
-        .pipe(Effect.mapError((cause) => iosRuntimeError(cause.code)));
+        .pipe(Effect.catchTag("IosError", hostFailure));
       const { udid } = prepared.device;
       const session = `contingency-ios-${udid}`;
       const client = createAgentDeviceClient({
@@ -923,7 +938,7 @@ const createIosNativeRun = (
         .requireRunning(request.device)
         .pipe(
           Effect.asVoid,
-          Effect.mapError((cause) => iosRuntimeError(cause.code)),
+          Effect.catchTag("IosError", hostFailure),
           Effect.andThen(verifyIosFramebufferRelease()),
           Effect.asVoid
         ),
@@ -933,7 +948,7 @@ const createIosNativeRun = (
         environment: request.environment,
         setup: request.setup,
         udid: request.device.udid,
-      }).pipe(Effect.mapError((cause) => iosRuntimeError(cause.code))),
+      }).pipe(Effect.catchTag("IosError", hostFailure)),
     start: startIosRuntime,
     startingConditions: (request, observation) =>
       request.setup.conditions.every((condition) =>
@@ -969,7 +984,7 @@ const readInstalledIosBuild = (request: IosRunInput) =>
           apps.find((app) => app.bundleId === request.environment.bundleId)
             ?.build ?? null
       ),
-      Effect.mapError((cause) => iosRuntimeError(cause.code))
+      Effect.catchTag("IosError", hostFailure)
     );
 
 export const createIosRun = (

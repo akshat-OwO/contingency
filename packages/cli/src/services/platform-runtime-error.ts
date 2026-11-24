@@ -1,6 +1,6 @@
-import { Cause, Effect, Result } from "effect";
+import { Cause, Effect, Option, Result } from "effect";
 
-import { recordFailure } from "./failure-reference.ts";
+import { droppedCause, recordFailure } from "./failure-reference.ts";
 import type { PlatformRuntimeError } from "./platform-runtime.ts";
 
 const messages = {
@@ -132,4 +132,25 @@ export const tryBackend = <A>(
     return yield* Effect.fail(
       yield* referenceRuntimeFailure(toError(result.failure), result.failure)
     );
+  });
+
+/** Fails with `error`, naming the backend rejection it replaces by reference. */
+export const failReferenced = (
+  error: PlatformRuntimeError,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- A rejected backend promise is unknown by definition; it is only logged by shape and kept.
+  cause: unknown
+): Effect.Effect<never, PlatformRuntimeError> =>
+  referenceRuntimeFailure(error, cause).pipe(Effect.flatMap(Effect.fail));
+
+/**
+ * Fails with the runtime error a typed failure becomes, naming the foreign
+ * cause that failure replaced, when one was kept.
+ */
+export const failFromTyped = <E extends object>(
+  error: PlatformRuntimeError,
+  source: E
+): Effect.Effect<never, PlatformRuntimeError> =>
+  Option.match(droppedCause(source), {
+    onNone: () => Effect.fail(error),
+    onSome: (cause) => failReferenced(error, cause),
   });

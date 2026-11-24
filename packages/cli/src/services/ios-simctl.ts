@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 
 import { Context, Effect, Schema } from "effect";
 
-import { iosError } from "./ios-contract.ts";
+import { iosError, iosFailure } from "./ios-contract.ts";
 import type { IosError, IosApp } from "./ios-contract.ts";
 
 const execute = promisify(execFile);
@@ -15,7 +15,7 @@ export const iosCommand = (
   code: IosError["code"] = "preparation_failed"
 ) =>
   Effect.tryPromise({
-    catch: () => iosError(code),
+    catch: (cause) => iosFailure(code, cause),
     try: async (signal) => {
       const result = await execute(file, args, {
         maxBuffer: 16 * 1024 * 1024,
@@ -66,14 +66,14 @@ export const iosSimctlHost = {
     Effect.gen(function* installedBundles() {
       const root = path.join(dataPath, "Containers/Bundle/Application");
       const directories = yield* Effect.tryPromise({
-        catch: () => iosError("discovery_failed"),
+        catch: (cause) => iosFailure("discovery_failed", cause),
         try: () => readdir(root),
       });
       const apps: IosApp[] = [];
       for (const directory of directories) {
         const parent = path.join(root, directory);
         const entries = yield* Effect.tryPromise({
-          catch: () => iosError("discovery_failed"),
+          catch: (cause) => iosFailure("discovery_failed", cause),
           try: () => readdir(parent),
         });
         for (const entry of entries.filter((name) => name.endsWith(".app"))) {
@@ -90,7 +90,7 @@ export const iosSimctlHost = {
   runtimes: () => simctl(["list", "runtimes", "--json"]),
   terminate: (udid: string, bundleId: string) =>
     Effect.tryPromise({
-      catch: () => iosError("preparation_failed"),
+      catch: (cause) => iosFailure("preparation_failed", cause),
       try: async (signal) => {
         try {
           await execute("xcrun", ["simctl", "terminate", udid, bundleId], {

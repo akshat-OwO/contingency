@@ -7,6 +7,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
+import { splitFailureReference } from "@/lib/failure-message";
 import { useRpcDependencies } from "@/lib/rpc-dependencies";
 
 const FailureReferenceDetail = ({
@@ -82,3 +83,19 @@ export const PausedFailureReference = ({
     }
   />
 );
+
+/**
+ * A failure sentence as a notice shows it: the sentence, then its Failure
+ * Reference with the cause under debug, when the sentence names one.
+ */
+export const FailureText = ({ text }: { readonly text: string }) => {
+  const { failureReference, sentence } = splitFailureReference(text);
+  return failureReference === undefined ? (
+    text
+  ) : (
+    <>
+      <span>{sentence}</span>
+      <FailureReferenceNote failureReference={failureReference} />
+    </>
+  );
+};

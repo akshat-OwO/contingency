@@ -18,6 +18,33 @@ const decodeMessageBearing = Schema.decodeUnknownOption(MessageBearingFailure);
 const decodeString = Schema.decodeUnknownOption(Schema.String);
 const decodeRpcError = Schema.decodeUnknownOption(BrowserRpcError);
 
+/**
+ * A failure whose cause the server recorded ends its sentence with the
+ * reference, so the user can report it (ADR 0089). The notice that shows the
+ * sentence reads the reference back to offer the cause under debug.
+ */
+const REFERENCE_SUFFIX =
+  / Failure Reference (?<failureReference>[0-9A-HJKMNP-TV-Z]{6})\.$/u;
+
+const withReference = (sentence: string, failureReference: string) =>
+  `${sentence} Failure Reference ${failureReference}.`;
+
+/** A failure sentence and the Failure Reference it ends with, if any. */
+export const splitFailureReference = (
+  text: string
+): {
+  readonly sentence: string;
+  readonly failureReference: string | undefined;
+} => {
+  const match = REFERENCE_SUFFIX.exec(text);
+  return match === null
+    ? { failureReference: undefined, sentence: text }
+    : {
+        failureReference: match.groups?.failureReference,
+        sentence: text.slice(0, match.index),
+      };
+};
+
 /** A sentence has to have something in it to be worth showing. */
 const spoken = (message: string): Option.Option<string> =>
   message.trim() === "" ? Option.none() : Option.some(message);
@@ -38,12 +65,10 @@ export const failureMessage = <Failure>(
   decodeMessageBearing(failure).pipe(
     Option.flatMap(({ failureReference, message }) =>
       spoken(message).pipe(
-        // A failure whose cause the server recorded names it, so the user
-        // can report it (ADR 0089).
         Option.map((sentence) =>
           failureReference === undefined
             ? sentence
-            : `${sentence} Failure Reference ${failureReference}.`
+            : withReference(sentence, failureReference)
         )
       )
     ),

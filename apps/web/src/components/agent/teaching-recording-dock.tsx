@@ -21,6 +21,7 @@ import {
   sessionWaitsOnUserAtom,
   WAITING_ON_YOU_SENTENCE,
 } from "@/components/agent/agent-workspace-state";
+import { FailureText } from "@/components/agent/failure-reference";
 import { useRunSummaryCollapsed } from "@/components/agent/run-summary-dock";
 import { ShortcutKbd } from "@/components/agent/teaching-comment-composer";
 import type { ShortcutPlatform } from "@/components/agent/teaching-comment-shortcuts";
@@ -509,7 +510,9 @@ export const TeachingRecordingNotices = ({
       <Alert variant="destructive">
         <CircleAlertIcon aria-hidden="true" />
         <AlertTitle>That gesture did not go through</AlertTitle>
-        <AlertDescription>{error}</AlertDescription>
+        <AlertDescription>
+          <FailureText text={error} />
+        </AlertDescription>
       </Alert>
     )}
     {/*

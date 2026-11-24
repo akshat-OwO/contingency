@@ -5,6 +5,8 @@ import type {
 } from "@contingency/protocol";
 import { Schema } from "effect";
 
+import { keepDroppedCause } from "./failure-reference.ts";
+
 export const iosUuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu;
 export const IosDeviceSchema = Schema.Struct({
   deviceType: Schema.String.check(
@@ -92,5 +94,11 @@ export const iosError = (code: IosError["code"]): IosError => ({
   code,
   message: messages[code],
 });
+/** An iOS failure that replaces a child process's or SDK's own rejection. */
+export const iosFailure = (
+  code: IosError["code"],
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- A rejected child process is unknown by definition; it is kept for a Failure Reference, never read.
+  cause: unknown
+): IosError => keepDroppedCause(iosError(code), cause);
 export const isSupportedIosVersion = (version: string) =>
   /^(?:26|27)(?:\.\d+)*$/u.test(version);

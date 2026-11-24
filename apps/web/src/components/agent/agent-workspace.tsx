@@ -60,6 +60,7 @@ import { DryRunSummaryView } from "@/components/agent/dry-run-summary";
 import type { FlowDecisionActions } from "@/components/agent/dry-run-summary";
 import { isTaskDryRunSummary } from "@/components/agent/dry-run-summary-state";
 import { EndedRunSummary } from "@/components/agent/ended-run-summary";
+import { FailureText } from "@/components/agent/failure-reference";
 import {
   GuidedControlNotice,
   GuidedRunControl,
@@ -334,7 +335,9 @@ const UnavailableState = ({ message }: { readonly message: string }) => (
     <Alert className="text-left" variant="destructive">
       <CircleAlertIcon aria-hidden="true" />
       <AlertTitle>Agent Session unavailable</AlertTitle>
-      <AlertDescription>{message}</AlertDescription>
+      <AlertDescription>
+        <FailureText text={message} />
+      </AlertDescription>
     </Alert>
     <p className="text-muted-foreground mt-1 text-xs text-pretty">
       The session id selects a session; it is not an authentication token.
@@ -838,7 +841,9 @@ const AgentLiveView = ({
                 <Alert variant="destructive">
                   <CircleAlertIcon aria-hidden="true" />
                   <AlertTitle>Browser stream unavailable</AlertTitle>
-                  <AlertDescription>{browserStreamError}</AlertDescription>
+                  <AlertDescription>
+                    <FailureText text={browserStreamError} />
+                  </AlertDescription>
                 </Alert>
               )}
               {session.interruptedAction === null ? null : (

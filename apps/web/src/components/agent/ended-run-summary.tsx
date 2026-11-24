@@ -6,6 +6,7 @@ import { CircleAlertIcon, LoaderCircleIcon } from "lucide-react";
 
 import { InteractiveRunSummaryView } from "@/components/agent/dry-run-summary";
 import { isTaskInteractiveRunSummary } from "@/components/agent/dry-run-summary-state";
+import { FailureText } from "@/components/agent/failure-reference";
 import { RunSummaryView } from "@/components/agent/run-view";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -64,11 +65,15 @@ export const EndedRunSummary = ({ runId }: { readonly runId: AgentRunId }) => {
         <CircleAlertIcon aria-hidden="true" />
         <AlertTitle>The Run Summary could not be opened</AlertTitle>
         <AlertDescription>
-          <p>
-            {missingSummaryMessage(result.cause) ??
-              refusal(result) ??
-              "The server refused to read this Run Summary."}
-          </p>
+          <div>
+            <FailureText
+              text={
+                missingSummaryMessage(result.cause) ??
+                refusal(result) ??
+                "The server refused to read this Run Summary."
+              }
+            />
+          </div>
           <Button
             className="mt-2"
             onClick={retry}

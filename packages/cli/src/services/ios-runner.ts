@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import { Effect, Schema } from "effect";
 
 import { androidHelperRelease } from "./android-runtime-contract.ts";
-import { iosError } from "./ios-contract.ts";
+import { iosFailure } from "./ios-contract.ts";
 import { decodeIosJson } from "./ios-simctl.ts";
 
 const execute = promisify(execFile);
@@ -37,7 +37,7 @@ const runnerCommand = (
     )
   );
   return Effect.tryPromise({
-    catch: () => iosError("preparation_failed"),
+    catch: (cause) => iosFailure("preparation_failed", cause),
     try: async (signal) => {
       const running = execute(
         process.execPath,
@@ -90,7 +90,7 @@ export const openIosRunner = (
       "../.."
     );
     const manifest = yield* Effect.tryPromise({
-      catch: () => iosError("preparation_failed"),
+      catch: (cause) => iosFailure("preparation_failed", cause),
       try: () => readFile(path.join(packageRoot, "package.json"), "utf-8"),
     });
     yield* decodeIosJson(

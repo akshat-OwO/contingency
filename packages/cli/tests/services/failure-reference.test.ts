@@ -12,7 +12,15 @@ import {
   makeFailureReferenceStore,
   recordFailure,
 } from "../../src/services/failure-reference.ts";
-import { referenceRuntimeFailure } from "../../src/services/platform-runtime-error.ts";
+import {
+  iosRuntimeError,
+  makeIosSessionAccess,
+} from "../../src/services/ios-runtime.ts";
+import { iosCommand } from "../../src/services/ios-simctl.ts";
+import {
+  failFromTyped,
+  referenceRuntimeFailure,
+} from "../../src/services/platform-runtime-error.ts";
 
 const SECRET = "hunter2";
 
@@ -131,5 +139,105 @@ describe("an Android capture failure", () => {
       expect(error.failureReference).toBeUndefined();
       expect(records).toEqual([]);
     })
+  );
+});
+
+/** iOS session access whose SDK snapshot rejects with `failure`. */
+const rejectingSnapshot = (failure: Error) =>
+  makeIosSessionAccess({
+    open: () => Promise.resolve({}),
+    options: () => ({
+      platform: "ios",
+      requestId: "capture",
+      udid: "session-simulator",
+    }),
+    snapshot: () => Promise.reject(failure),
+  });
+
+/** The records naming a reference. */
+const naming = (
+  records: readonly SafeRecord[],
+  reference: string | undefined
+) =>
+  records.filter((record) =>
+    record.fields.some(
+      ([key, value]) => key === "failureReference" && value === reference
+    )
+  );
+
+describe("an iOS capture failure", () => {
+  it.effect("names an unexpected SDK rejection by reference", () =>
+    Effect.gen(function* unexpected() {
+      const { records, value: error } = yield* observed(
+        Effect.flip(
+          rejectingSnapshot(
+            new AppError("COMMAND_FAILED", `runner printed ${SECRET}`)
+          ).snapshot()
+        )
+      );
+      expect(error).toMatchObject({
+        code: "runtime_failed",
+        failureReference: expect.stringMatching(/^[0-9A-HJKMNP-TV-Z]{6}$/u),
+        operation: "capture",
+      });
+      const named = naming(records, error.failureReference);
+      expect(named).toHaveLength(1);
+      expect(named[0]?.cause).toContainEqual(
+        "  caused by Error(COMMAND_FAILED)"
+      );
+      expect(JSON.stringify(records)).not.toContain(SECRET);
+    })
+  );
+
+  it.effect(
+    "keeps a foreground handoff and a stale observation reference-free",
+    () =>
+      Effect.gen(function* expected() {
+        const { records, value } = yield* observed(
+          Effect.all([
+            rejectingSnapshot(
+              new AppError("OBSERVATION_UNAVAILABLE", "another app in front")
+            ).snapshot(),
+            Effect.flip(
+              rejectingSnapshot(
+                new AppError("COMMAND_FAILED", "busy", {
+                  reason: "runner_busy",
+                })
+              ).snapshot()
+            ),
+          ])
+        );
+        const [handoff, stale] = value;
+        expect(Option.isNone(handoff)).toBe(true);
+        expect(stale.code).toBe("observation_stale");
+        expect(stale.failureReference).toBeUndefined();
+        expect(records).toEqual([]);
+      })
+  );
+
+  it.effect(
+    "names a failed simulator command once it becomes a runtime error",
+    () =>
+      Effect.gen(function* simulatorCommand() {
+        const { records, value: error } = yield* observed(
+          Effect.flip(
+            iosCommand(process.execPath, [
+              "-e",
+              `console.error("${SECRET}"); process.exit(3)`,
+            ]).pipe(
+              Effect.catchTag("IosError", (failure) =>
+                failFromTyped(iosRuntimeError(failure.code), failure)
+              )
+            )
+          )
+        );
+        expect(error.code).toBe("preparation_failed");
+        const named = naming(records, error.failureReference);
+        expect(named).toHaveLength(1);
+        expect(named[0]?.cause[0]).toBe(
+          "fail PlatformRuntimeError(preparation_failed)"
+        );
+        expect(JSON.stringify(records)).not.toContain(SECRET);
+      })
   );
 });

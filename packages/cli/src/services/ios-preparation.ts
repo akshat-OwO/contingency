@@ -5,7 +5,11 @@ import path from "node:path";
 import { startingDataOf } from "@contingency/protocol";
 import { Effect } from "effect";
 
-import { iosError, supportsIosPermissions } from "./ios-contract.ts";
+import {
+  iosError,
+  iosFailure,
+  supportsIosPermissions,
+} from "./ios-contract.ts";
 import type { IosEnvironment, IosPreparationInput } from "./ios-contract.ts";
 import { makeIosDiscovery } from "./ios-discovery.ts";
 import { openIosRunner, stopIosRunner } from "./ios-runner.ts";
@@ -14,7 +18,7 @@ import type { IosSimctlService } from "./ios-simctl.ts";
 
 const fileIo = <A>(run: () => Promise<A>) =>
   Effect.tryPromise({
-    catch: () => iosError("preparation_failed"),
+    catch: (cause) => iosFailure("preparation_failed", cause),
     try: run,
   });
 
