@@ -294,11 +294,15 @@ describe("a child its scope owns", () => {
         stderr: { on: () => {} },
       };
       const child = yield* superviseChild("fixture", () => fake);
+      // Started at once, so the wait is under way while the child runs.
       const waiting = yield* Effect.forkChild(
-        child.stop({ graceMs: 1000, signal: null })
+        child.stop({ graceMs: 1000, signal: null }),
+        { startImmediately: true }
       );
+      expect(child.running()).toBe(true);
       exitCode = 0;
-      yield* TestClock.adjust("1 second");
+      // Past the deadline and any kill's grace, so a wrong outcome shows.
+      yield* TestClock.adjust("2 seconds");
       const exit = yield* Fiber.join(waiting).pipe(Effect.timeout(HANG_GUARD));
       expect(exit).toMatchObject({ exitCode: 0, outcome: "succeeded" });
       expect(signals).toEqual([]);
