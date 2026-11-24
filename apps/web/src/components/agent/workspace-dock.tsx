@@ -313,7 +313,8 @@ const requestsIslandClassName =
  *
  * A transient notice, such as a refused gesture, floats at the top centre of
  * the stage. It takes no layout space and lets pointer input through, so the
- * device or page keeps its size and the next attempt is never blocked.
+ * device or page keeps its size and the next attempt is never blocked. Only
+ * a Failure Reference it names, with its Cause under debug, takes input.
  */
 export const DockShell = ({
   children,

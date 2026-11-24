@@ -8,7 +8,7 @@ import { Atom } from "effect/reactivity";
 import { afterEach, expect, test } from "vitest";
 
 import { FailureReferenceNote } from "@/components/agent/failure-reference";
-import { DockNotice } from "@/components/agent/workspace-dock";
+import { DockNotice, DockShell } from "@/components/agent/workspace-dock";
 import { failureMessage } from "@/lib/failure-message";
 import { RpcDependenciesProvider } from "@/lib/rpc-dependencies";
 
@@ -76,3 +76,31 @@ test.each([
     }
   }
 );
+
+/** The nearest element that sets pointer events: the one that decides input. */
+const pointerEventsOf = (element: Element) =>
+  element
+    .closest('[class*="pointer-events-"]')
+    ?.className.match(/pointer-events-(?<value>none|auto)/u)?.groups?.value;
+
+test("a stage notice lets input through except to its reference and Cause", () => {
+  render(
+    <RpcDependenciesProvider overrides={answering("Error: the page crashed")}>
+      <DockShell
+        notice={<DockNotice>{defect}</DockNotice>}
+        status={<span>Ready</span>}
+      >
+        {null}
+      </DockShell>
+    </RpcDependenciesProvider>
+  );
+  expect(
+    pointerEventsOf(
+      screen.getByText("Contingency failed unexpectedly.", { exact: false })
+    )
+  ).toBe("none");
+  expect(pointerEventsOf(screen.getByText("7KQ2MZ"))).toBe("auto");
+  expect(pointerEventsOf(screen.getByRole("button", { name: "Cause" }))).toBe(
+    "auto"
+  );
+});

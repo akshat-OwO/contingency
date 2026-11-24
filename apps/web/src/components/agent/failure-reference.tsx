@@ -20,7 +20,9 @@ const FailureReferenceDetail = ({
   const [open, setOpen] = useState(false);
   const detail = result._tag === "Success" ? result.value.detail : null;
   return (
-    <div className="text-muted-foreground space-y-1 text-xs">
+    // A stage notice lets pointer input through to the page or device; the
+    // reference and its Cause still take it, so they can be copied and opened.
+    <div className="text-muted-foreground pointer-events-auto space-y-1 text-xs">
       <p>
         Failure Reference{" "}
         <code className="text-foreground font-mono select-all">
