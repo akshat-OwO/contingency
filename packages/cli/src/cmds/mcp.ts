@@ -8,7 +8,6 @@ import {
   Effect,
   FileSystem,
   Layer,
-  Logger,
   Option,
   Result,
   Schema,
@@ -76,6 +75,7 @@ import {
   describeSystemOne,
 } from "../services/mcp-process-info.ts";
 import { NativeAgentTouchesLive } from "../services/native-agent-touch.ts";
+import { applySettingsLogLevel } from "../services/observability.ts";
 import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
 import {
   loadSettings,
@@ -254,6 +254,7 @@ export const mcpCommand = Command.make(
       catalogRoot: catalogDirectory.root,
       env: process.env,
     });
+    yield* applySettingsLogLevel(settings.provider);
     for (const warning of settings.warnings) {
       yield* Console.error(warning);
     }
@@ -330,7 +331,11 @@ export const mcpCommand = Command.make(
             localInstallation.dataDirectory,
             installation
           ).pipe(
-            Effect.catch((error) => Effect.logDebug(error.message)),
+            Effect.catch((error) =>
+              Effect.logDebug("Local System One update check failed", {
+                error,
+              })
+            ),
             Effect.forkChild
           );
         }
@@ -573,7 +578,7 @@ export const mcpCommand = Command.make(
         }
         return yield* untilClientLeaves(Option.isSome(agent));
       })
-    ).pipe(Effect.provideService(Logger.LogToStderr, true));
+    );
   })
 ).pipe(
   Command.withDescription(

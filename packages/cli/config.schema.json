@@ -6,6 +6,27 @@
       "type": "string",
       "description": "The JSON Schema this file follows. `contingency config init` pins it to the installed CLI version."
     },
+    "log": {
+      "type": "object",
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": [
+            "trace",
+            "debug",
+            "info",
+            "warn",
+            "error",
+            "fatal",
+            "none"
+          ],
+          "description": "The lowest level the terminal shows. debug also switches to one compact line per record, as --debug does. The Diagnostic Log in ~/.contingency/logs always records debug.",
+          "default": "warn"
+        }
+      },
+      "additionalProperties": false,
+      "description": "What the terminal shows of Contingency's log."
+    },
     "mcp": {
       "type": "object",
       "properties": {
@@ -53,6 +74,17 @@
       },
       "additionalProperties": false,
       "description": "System One, which pursues delegated sub-goals."
+    },
+    "telemetry": {
+      "type": "object",
+      "properties": {
+        "otlpEndpoint": {
+          "type": "string",
+          "description": "An OTLP/HTTP collector that receives this machine's spans and metrics, such as http://localhost:4318. Setting it is consent to send them there. User file only: a project file that sets it fails validation."
+        }
+      },
+      "additionalProperties": false,
+      "description": "Span and metric export. Off unless an endpoint is set here or in OTEL_EXPORTER_OTLP_ENDPOINT."
     },
     "web": {
       "type": "object",

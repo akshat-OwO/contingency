@@ -325,7 +325,7 @@ export const RunVideoRendererLive = Layer.effect(
      */
     const fallBack = (directory: string, reason: string) =>
       Effect.gen(function* keepRealTimeFootage() {
-        yield* Effect.logWarning(`Run video kept in real time: ${reason}`);
+        yield* Effect.logWarning("Run video kept in real time", { reason });
         const renamed = yield* Effect.result(
           fileSystem.rename(
             path.join(directory, FOOTAGE_VIDEO_FILE),

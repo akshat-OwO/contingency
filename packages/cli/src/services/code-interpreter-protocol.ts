@@ -1,5 +1,7 @@
 import { Schema } from "effect";
 
+import { RelayedRecord } from "./diagnostic-log.ts";
+
 /**
  * The process boundary between Contingency's server and the OpenCode
  * interpreter process, a feasibility prototype for ADR 0059 (#459).
@@ -117,6 +119,18 @@ export const InterpreterMessage = Schema.Union([
   DoneMessage,
 ]);
 
+/** Interpreter → server: one Diagnostic Log record, already allowlisted. */
+export const InterpreterLogMessage = Schema.Struct({
+  record: RelayedRecord,
+  type: Schema.Literal("log"),
+});
+
+/** Every line the interpreter writes on stdout. */
+export const InterpreterLine = Schema.Union([
+  InterpreterMessage,
+  InterpreterLogMessage,
+]);
+
 /** Watchdog → server on fd 3: a sample, or why it is killing the process. */
 export const WatchdogMessage = Schema.Union([
   Schema.Struct({ memory: MemoryUsage, type: Schema.Literal("sample") }),
@@ -135,7 +149,7 @@ export const WatchdogOptions = Schema.Struct({
 
 export type OfferedOperation = typeof InterpreterOperation.Type;
 export type ServerInstruction = typeof ServerMessage.Type;
-export type InterpreterReport = typeof InterpreterMessage.Type;
+export type InterpreterReport = typeof InterpreterLine.Type;
 export type MemoryReading = typeof MemoryUsage.Type;
 
 /** One protocol message as the line that carries it. */

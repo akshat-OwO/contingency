@@ -33,6 +33,14 @@ If `$schema` names a different CLI version, Contingency prints a one-line warnin
 
 Validation is strict. An unknown key, a value of the wrong type, or an environment-only key stops startup. The error names the file and the JSON pointer of each problem, for example `/mcp/port: Expected number`.
 
+## `log`
+
+What the terminal shows of Contingency's log.
+
+| Key | Environment variable | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `log.level` | `CONTINGENCY_LOG_LEVEL` | `"trace"` or `"debug"` or `"info"` or `"warn"` or `"error"` or `"fatal"` or `"none"` | `"warn"` | The lowest level the terminal shows. debug also switches to one compact line per record, as --debug does. The Diagnostic Log in ~/.contingency/logs always records debug. |
+
 ## `mcp`
 
 The `contingency mcp` server.
@@ -52,6 +60,14 @@ System One, which pursues delegated sub-goals.
 | `systemOne.first` | `CONTINGENCY_SYSTEM_ONE_FIRST` | boolean | `false` | Tell the agent to try a System One Pursuit for each Flow step first. Has no effect without a configured endpoint or installed Local System One. |
 | `systemOne.local` | `CONTINGENCY_SYSTEM_ONE_LOCAL` | boolean | `true` | Automatically use an installed Local System One when no endpoint is configured. Setup is always a user terminal action. |
 | `systemOne.url` | `CONTINGENCY_SYSTEM_ONE_URL` | string | — | The System One endpoint: its origin or its full /v1/systemone route. Setting it is consent to send Pursuit requests, and the API key, there. User file only: a project file that sets it fails validation. The API key is environment-only (CONTINGENCY_SYSTEM_ONE_API_KEY). |
+
+## `telemetry`
+
+Span and metric export. Off unless an endpoint is set here or in OTEL_EXPORTER_OTLP_ENDPOINT.
+
+| Key | Environment variable | Type | Default | Description |
+| --- | --- | --- | --- | --- |
+| `telemetry.otlpEndpoint` | `OTEL_EXPORTER_OTLP_ENDPOINT` | string | — | An OTLP/HTTP collector that receives this machine's spans and metrics, such as http://localhost:4318. Setting it is consent to send them there. User file only: a project file that sets it fails validation. |
 
 ## `web`
 
@@ -80,6 +96,7 @@ These Settings may be set in the environment or in the user file, but not in a p
 | Setting | Environment variable |
 | --- | --- |
 | `systemOne.url` | `CONTINGENCY_SYSTEM_ONE_URL` |
+| `telemetry.otlpEndpoint` | `OTEL_EXPORTER_OTLP_ENDPOINT` |
 
 A Variable value, such as a password a Flow uses, is never a Setting. Supply Variable values when a Run asks for them; see [Variables](./variables.md).
 

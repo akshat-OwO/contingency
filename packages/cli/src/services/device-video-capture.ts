@@ -218,9 +218,9 @@ export const makeDeviceVideoCapture = (input: {
         yield* fileSystem.rename(`${file}.tmp`, file);
       }).pipe(
         Effect.tapError((cause) =>
-          Effect.logWarning(
-            `Could not save the device video record: ${cause.message}`
-          )
+          Effect.logWarning("Could not save the device video record", {
+            error: cause,
+          })
         ),
         Effect.ignore
       );
@@ -317,9 +317,9 @@ export const makeDeviceVideoCapture = (input: {
         .makeDirectory(folder, { mode: 0o700, recursive: true })
         .pipe(Effect.result);
       if (made._tag === "Failure") {
-        yield* Effect.logWarning(
-          `Could not prepare the device video folder: ${made.failure.message}`
-        );
+        yield* Effect.logWarning("Could not prepare the device video folder", {
+          error: made.failure,
+        });
         return;
       }
       if (active === undefined) {

@@ -8,6 +8,7 @@ import type { Schema } from "effect";
 import packageJson from "../../package.json" with { type: "json" };
 import { mcpConfig } from "../../src/cmds/mcp.ts";
 import { webConfig } from "../../src/cmds/web.ts";
+import { logLevelConfig } from "../../src/services/observability.ts";
 import {
   decodeSettingsFile,
   initSettingsFile,
@@ -414,4 +415,42 @@ describe("config init", () => {
       })
     )
   );
+});
+
+describe("log and telemetry", () => {
+  it("decodes log.level and refuses a level it does not know", () => {
+    expect(failures({ log: { level: "debug" } }, "project")).toEqual([]);
+    expect(failures({ log: { level: "loud" } })).toHaveLength(1);
+  });
+
+  it.effect(
+    "log.level reaches CONTINGENCY_LOG_LEVEL, and the environment outranks it",
+    () =>
+      Effect.gen(function* logLevelKey() {
+        const file = makeSettingsProvider({
+          env: {},
+          user: { log: { level: "info" } },
+        });
+        expect(yield* logLevelConfig.parse(file)).toEqual(Option.some("info"));
+        const env = makeSettingsProvider({
+          env: { CONTINGENCY_LOG_LEVEL: "error" },
+          user: { log: { level: "info" } },
+        });
+        expect(yield* logLevelConfig.parse(env)).toEqual(Option.some("error"));
+      })
+  );
+
+  it("a project file that sets the OTLP endpoint fails validation", () => {
+    expect(
+      failures(
+        { telemetry: { otlpEndpoint: "http://collector.test:4318" } },
+        "project"
+      )
+    ).toEqual([
+      "/telemetry/otlpEndpoint: not allowed in a project file; set OTEL_EXPORTER_OTLP_ENDPOINT or telemetry.otlpEndpoint in ~/.contingency/config.json instead",
+    ]);
+    expect(
+      failures({ telemetry: { otlpEndpoint: "http://localhost:4318" } }, "user")
+    ).toEqual([]);
+  });
 });

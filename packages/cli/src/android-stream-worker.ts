@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
@@ -29,6 +30,7 @@ import type {
   AndroidStreamPacket,
   AndroidWindowVisibility,
 } from "./services/android-stream-contract.ts";
+import { makeWorkerLoggerLayer } from "./services/diagnostic-log.ts";
 import {
   makeWheelFinger,
   WHEEL_RELEASE_MILLIS,
@@ -48,6 +50,11 @@ const send = (packet: AndroidStreamPacket) =>
       resume(error ? Effect.fail(error) : Effect.succeed(true))
     );
   });
+
+/** Resolves once every line written before it has reached the pipe. */
+const drained = Effect.callback<true>((resume) => {
+  process.stdout.write("", () => resume(Effect.succeed(true)));
+});
 
 Effect.scoped(
   Effect.gen(function* streamSelectedDevice() {
@@ -299,6 +306,17 @@ Effect.scoped(
     );
   })
 ).pipe(
-  Effect.catchCause(() => send({ _tag: "state", state: "lost" })),
+  Effect.catchCause((cause) =>
+    Effect.logError("Android stream worker stopped", cause).pipe(
+      Effect.andThen(drained),
+      Effect.andThen(send({ _tag: "state", state: "lost" }))
+    )
+  ),
+  // Records go to the parent on stdout, which logs them as its own.
+  Effect.provide(
+    makeWorkerLoggerLayer((record) => {
+      process.stdout.write(`${JSON.stringify({ _tag: "log", record })}\n`);
+    }, homedir())
+  ),
   NodeRuntime.runMain
 );

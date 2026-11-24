@@ -402,7 +402,7 @@ export const makeTeachingRecorder = (
       Effect.acquireRelease(
         Effect.tryPromise({
           catch: (cause) =>
-            browserFailure("Could not start the Teaching Trace", cause),
+            browserFailure("Could not start the Browser Trace", cause),
           try: () =>
             target.context.tracing.start({
               // Video and keyframes already retain the visual evidence.

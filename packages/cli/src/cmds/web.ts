@@ -25,6 +25,7 @@ import {
 import { makeHttpServerLayer } from "../services/http-server.ts";
 import { makeIosWorkspaceLayer } from "../services/ios-workspace.ts";
 import { NativeAgentTouchesLive } from "../services/native-agent-touch.ts";
+import { applySettingsLogLevel } from "../services/observability.ts";
 import { RunVideoRendererLive } from "../services/run-video-renderer.ts";
 import { loadSettings } from "../services/settings.ts";
 import {
@@ -68,6 +69,7 @@ export const webCommand = Command.make(
       catalogRoot: selectedCatalogRoot,
       env: process.env,
     });
+    yield* applySettingsLogLevel(settings.provider);
     for (const warning of settings.warnings) {
       yield* Console.error(warning);
     }

@@ -816,7 +816,7 @@ const CatalogRunSummary = ({
  */
 /** Said under a verified Flow's Dry Run, whose evidence Cleanup deleted. */
 const CLEANED_DRY_RUN =
-  "Cleanup deleted this Dry Run's video and Trace when the Flow was verified. Its Run Summary is kept.";
+  "Cleanup deleted this Dry Run's video and Browser Trace when the Flow was verified. Its Run Summary is kept.";
 
 const StoredRunSummary = ({
   cleanup,
@@ -1026,7 +1026,7 @@ const RecordingSummary = ({
     </h3>
     <p className="bg-island-hover rounded-xl px-3 py-2.5 text-pretty">
       {recording.cleanup === "purged"
-        ? "Cleanup removed the video, Trace and events after the Flow was verified. Only the manifest is left."
+        ? "Cleanup removed the video, Browser Trace and events after the Flow was verified. Only the manifest is left."
         : "Sensitive learning evidence. Cleanup deletes it once you verify the Flow, after a passing Dry Run."}
     </p>
     <footer className="border-island-border flex flex-wrap items-center gap-2 border-t pt-3">

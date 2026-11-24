@@ -301,7 +301,8 @@ export const makeTimedVideoEncoder = (
           if (state.draining) {
             if (options.lossy) {
               return Effect.logDebug(
-                `Dropped a frame while the ${options.label} encoder was busy.`
+                "Dropped a frame while the video encoder was busy",
+                { label: options.label }
               );
             }
             return drained.pipe(Effect.andThen(write(frame, atMs)));

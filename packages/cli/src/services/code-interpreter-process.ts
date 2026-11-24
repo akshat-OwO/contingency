@@ -1,3 +1,4 @@
+import { homedir } from "node:os";
 import v8 from "node:v8";
 import { Worker } from "node:worker_threads";
 
@@ -19,6 +20,7 @@ import type {
   MemoryReading,
   OperationResultMessage,
 } from "./code-interpreter-protocol.ts";
+import { makeWorkerLoggerLayer } from "./diagnostic-log.ts";
 
 /**
  * The OpenCode interpreter process (ADR 0059, #459). It runs exactly one
@@ -259,8 +261,24 @@ const main = Effect.gen(function* interpreterProcess() {
   return yield* exit(0);
 });
 
+/** Resolves once every line written before it has reached the pipe. */
+const drained = Effect.callback<true>((resume) => {
+  process.stdout.write("", () => resume(Effect.succeed(true)));
+});
+
 main.pipe(
-  Effect.catchCause(() => exit(3)),
+  Effect.catchCause((cause) =>
+    Effect.logError("Code interpreter process failed", cause).pipe(
+      Effect.andThen(drained),
+      Effect.andThen(exit(3))
+    )
+  ),
   Effect.provide(NodeStdio.layer),
+  // Records go to the server on stdout, which logs them as its own.
+  Effect.provide(
+    makeWorkerLoggerLayer((record) => {
+      process.stdout.write(encodeLine({ record, type: "log" }));
+    }, homedir())
+  ),
   NodeRuntime.runMain
 );

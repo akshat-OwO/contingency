@@ -4,7 +4,6 @@ import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 import {
   Deferred,
-  Logger,
   Effect,
   Queue,
   Schema,
@@ -152,6 +151,8 @@ export const acquireIosStream = (
   host: IosStreamHost = iosStreamHost
 ) =>
   Effect.gen(function* acquireIosMirror() {
+    // Node callbacks log through this fiber's loggers, not the defaults.
+    const logWith = Effect.runSyncWith(yield* Effect.context<never>());
     const lock = Semaphore.makeUnsafe(1);
     const integrity = makeIosStreamIntegrity();
     const registry = AtomRegistry.make();
@@ -223,11 +224,11 @@ export const acquireIosStream = (
         return;
       }
       registry.set(transport, "lost");
-      Effect.runSync(
+      logWith(
         Effect.logWarning("iOS framebuffer transport lost", {
           reason,
           sessionId,
-        }).pipe(Effect.provideService(Logger.LogToStderr, true))
+        })
       );
       Effect.runFork(onFault(code).pipe(Effect.forkIn(scope)));
       clearTimeout(silence);
@@ -373,13 +374,16 @@ export const acquireIosStream = (
             child.once("error", () => childFailed());
             child.once("close", (exitCode, signal) => {
               if (worker === child) {
-                Effect.runSync(
+                logWith(
                   Effect.logWarning("iOS framebuffer helper closed", {
                     exitCode,
-                    helperFailure,
+                    // A known helper sentence, as a code the log can keep.
+                    helperFailure: helperFailure
+                      ?.toLowerCase()
+                      .replaceAll(" ", "_"),
                     sessionId,
                     signal,
-                  }).pipe(Effect.provideService(Logger.LogToStderr, true))
+                  })
                 );
               }
               childFailed();

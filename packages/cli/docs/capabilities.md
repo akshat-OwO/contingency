@@ -31,7 +31,7 @@ What it can't do:
 
 - Share control during recording. The user drives the browser from Start to Stop, and Takeover is not available.
 - Capture anything before **Start recording** or after **Stop**.
-- Keep the recording. Verifying the learned Flow deletes its video, Trace, events, and keyframes.
+- Keep the recording. Verifying the learned Flow deletes its video, Browser Trace, events, and keyframes.
 - Hide sensitive data completely. Videos and Traces are unredacted. Variable values remain visible in all journey evidence.
 
 ## Guided Run

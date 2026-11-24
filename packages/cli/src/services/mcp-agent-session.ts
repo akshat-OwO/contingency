@@ -279,7 +279,7 @@ const AgentSessionHistoryGetTool = readOnly(
 const AgentSessionCloseTool = Tool.make("agent_session_close", {
   dependencies: [AgentSession],
   description:
-    "Close an Agent Session and release its owned browser. For Teaching, this finalizes the local video and Trace so the Teaching Recording becomes ready to learn from.",
+    "Close an Agent Session and release its owned browser. For Teaching, this finalizes the local video and Browser Trace so the Teaching Recording becomes ready to learn from.",
   failure: AgentSessionFailure,
   parameters: AgentSessionCloseParameters,
   success: SessionResult,

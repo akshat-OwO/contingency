@@ -3056,7 +3056,7 @@ const makeAgentSession = (
               catch: (cause) =>
                 error(
                   "agent_session_invalid",
-                  `Could not start the Teaching Trace: ${cause instanceof Error ? cause.message : String(cause)}`
+                  `Could not start the Browser Trace: ${cause instanceof Error ? cause.message : String(cause)}`
                 ),
               try: () =>
                 target.value.context.tracing.start({

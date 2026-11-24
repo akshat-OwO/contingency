@@ -1,14 +1,14 @@
 import path from "node:path";
 
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
-import { Effect, FileSystem } from "effect";
+import { Console, Effect, FileSystem } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 const cliRoot = path.resolve(import.meta.dirname, "../..");
 
 const run = (label: string, command: string, args: readonly string[]) =>
   Effect.gen(function* runBuildStep() {
-    yield* Effect.logInfo(label);
+    yield* Console.log(label);
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const code = yield* spawner.exitCode(
       ChildProcess.make(command, args, {
@@ -40,7 +40,7 @@ Effect.gen(function* buildCli() {
     "src/packaging/build-ios-framebuffer.ts",
   ]);
 
-  yield* Effect.logInfo("Copy packaged resources");
+  yield* Console.log("Copy packaged resources");
   for (const directory of [
     "resources",
     "demo",
@@ -78,7 +78,7 @@ Effect.gen(function* buildCli() {
     { concurrency: 2, discard: true }
   );
 
-  yield* Effect.logInfo("Copy docs site");
+  yield* Console.log("Copy docs site");
   yield* fs.copy(
     path.resolve(cliRoot, "../../apps/docs/dist"),
     path.join(cliRoot, "dist/docs-site"),

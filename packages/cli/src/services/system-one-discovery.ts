@@ -30,9 +30,9 @@ export const resolveSystemOne = (
     // An unreadable installation must not stop MCP from starting.
     const installed = yield* local.status.pipe(
       Effect.catch((error) =>
-        Effect.logWarning(`Ignoring Local System One: ${error.message}`).pipe(
-          Effect.map(constUndefined)
-        )
+        Effect.logWarning("Ignoring an unreadable Local System One", {
+          error,
+        }).pipe(Effect.map(constUndefined))
       )
     );
     if (installed === undefined) {

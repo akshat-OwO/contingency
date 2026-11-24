@@ -101,6 +101,39 @@ const WebSettings = Schema.Struct({
   ),
 }).annotate({ description: "The `contingency web` Workspace." });
 
+/** Log levels, as the `log.level` Setting spells them. */
+export const SETTINGS_LOG_LEVELS = [
+  "trace",
+  "debug",
+  "info",
+  "warn",
+  "error",
+  "fatal",
+  "none",
+] as const;
+
+const LogSettings = Schema.Struct({
+  level: Schema.optionalKey(
+    Schema.Literals(SETTINGS_LOG_LEVELS).annotate({
+      default: "warn",
+      description:
+        "The lowest level the terminal shows. debug also switches to one compact line per record, as --debug does. The Diagnostic Log in ~/.contingency/logs always records debug.",
+    })
+  ),
+}).annotate({ description: "What the terminal shows of Contingency's log." });
+
+const TelemetrySettings = Schema.Struct({
+  otlpEndpoint: Schema.optionalKey(
+    Schema.String.annotate({
+      description:
+        "An OTLP/HTTP collector that receives this machine's spans and metrics, such as http://localhost:4318. Setting it is consent to send them there. User file only: a project file that sets it fails validation.",
+    })
+  ),
+}).annotate({
+  description:
+    "Span and metric export. Off unless an endpoint is set here or in OTEL_EXPORTER_OTLP_ENDPOINT.",
+});
+
 /** The decoded shape of one `config.json`. */
 export const SettingsFile = Schema.Struct({
   $schema: Schema.optionalKey(
@@ -109,8 +142,10 @@ export const SettingsFile = Schema.Struct({
         "The JSON Schema this file follows. `contingency config init` pins it to the installed CLI version.",
     })
   ),
+  log: Schema.optionalKey(LogSettings),
   mcp: Schema.optionalKey(McpSettings),
   systemOne: Schema.optionalKey(SystemOneSettings),
+  telemetry: Schema.optionalKey(TelemetrySettings),
   web: Schema.optionalKey(WebSettings),
 }).annotate({
   description:
@@ -123,6 +158,9 @@ type Section = Exclude<keyof Settings, "$schema">;
 
 /** The environment variable each file key stands in for. */
 export const SETTING_ENV = {
+  log: {
+    level: "CONTINGENCY_LOG_LEVEL",
+  },
   mcp: {
     channel: "CONTINGENCY_MCP_CHANNEL",
     port: "CONTINGENCY_MCP_PORT",
@@ -132,6 +170,9 @@ export const SETTING_ENV = {
     first: "CONTINGENCY_SYSTEM_ONE_FIRST",
     local: "CONTINGENCY_SYSTEM_ONE_LOCAL",
     url: "CONTINGENCY_SYSTEM_ONE_URL",
+  },
+  telemetry: {
+    otlpEndpoint: "OTEL_EXPORTER_OTLP_ENDPOINT",
   },
   web: {
     host: "CONTINGENCY_WEB_HOST",
@@ -176,6 +217,9 @@ const ForbiddenProbe = Schema.fromJsonString(
         url: Schema.optionalKey(Schema.Unknown),
       })
     ),
+    telemetry: Schema.optionalKey(
+      Schema.Struct({ otlpEndpoint: Schema.optionalKey(Schema.Unknown) })
+    ),
   })
 );
 type ForbiddenKeys = typeof ForbiddenProbe.Type;
@@ -216,7 +260,8 @@ export type SettingsScope = "project" | "user";
 /**
  * Settings a project file may not hold. The System One endpoint receives the
  * machine's API key, so a checked-in file must not choose where that key goes
- * (ADR 0057 scopes the endpoint to the machine).
+ * (ADR 0057 scopes the endpoint to the machine). The OTLP endpoint receives
+ * this machine's spans and metrics, so it is scoped the same way.
  */
 export const MACHINE_ONLY_SETTINGS: readonly {
   readonly env: string;
@@ -229,6 +274,14 @@ export const MACHINE_ONLY_SETTINGS: readonly {
     key: "systemOne.url",
     pointer: "/systemOne/url",
     present: (probe) => probe.systemOne?.url !== undefined,
+  },
+  {
+    // Spans carry hosts and Flow names, so a shared file must not choose
+    // where this machine's telemetry goes.
+    env: "OTEL_EXPORTER_OTLP_ENDPOINT",
+    key: "telemetry.otlpEndpoint",
+    pointer: "/telemetry/otlpEndpoint",
+    present: (probe) => probe.telemetry?.otlpEndpoint !== undefined,
   },
 ];
 
@@ -361,6 +414,13 @@ export const makeSettingsProvider = (layers: SettingsLayers) => {
 
 export const userSettingsPath = (home: string = os.homedir()) =>
   path.join(home, GLOBAL_CATALOG_DIRECTORY, SETTINGS_FILE);
+
+/**
+ * The directory of the user's own file. As a `loadSettings` Catalog Root it
+ * reads that file alone, for Settings a command needs before it has a root.
+ */
+export const userSettingsDirectory = (home: string = os.homedir()) =>
+  path.join(home, GLOBAL_CATALOG_DIRECTORY);
 
 export const projectSettingsPath = (catalogRoot: string) =>
   path.join(catalogRoot, SETTINGS_FILE);

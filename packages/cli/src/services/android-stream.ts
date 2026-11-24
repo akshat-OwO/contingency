@@ -21,6 +21,7 @@ import {
   AndroidStreamPacket,
   androidStreamRelease,
 } from "./android-stream-contract.ts";
+import { RelayedRecord, relayWorkerRecord } from "./diagnostic-log.ts";
 import { awaitExit } from "./ffmpeg.ts";
 
 export interface AndroidStreamAccess {
@@ -56,7 +57,13 @@ const connecting: AndroidStreamPacket = { _tag: "state", state: "connecting" };
 const encode = (packet: AndroidStreamPacket) =>
   Buffer.from(`${JSON.stringify(packet)}\n`);
 const decode = Schema.decodeUnknownOption(
-  Schema.fromJsonString(AndroidStreamPacket)
+  Schema.fromJsonString(
+    Schema.Union([
+      AndroidStreamPacket,
+      // The worker's Diagnostic Log records, already allowlisted.
+      Schema.Struct({ _tag: Schema.Literal("log"), record: RelayedRecord }),
+    ])
+  )
 );
 const execute = promisify(execFile);
 /** A packet for the session's recorder. */
@@ -137,6 +144,9 @@ export const acquireAndroidStream = (
     cleanupTransport(device, scid)
 ) =>
   Effect.gen(function* acquireStream() {
+    // Worker records are relayed from a Node callback, through this fiber's
+    // loggers rather than the defaults.
+    const relayWith = Effect.runForkWith(yield* Effect.context<never>());
     const registry = AtomRegistry.make();
     const closed = Atom.make(false).pipe(Atom.keepAlive);
     const status = Atom.make<AndroidStreamPacket>(connecting).pipe(
@@ -287,6 +297,13 @@ export const acquireAndroidStream = (
                   ended();
                   child.kill("SIGTERM");
                   return;
+                }
+                if (packet.value._tag === "log") {
+                  relayWith(
+                    relayWorkerRecord("android-stream", packet.value.record)
+                  );
+                  newline = pending.indexOf("\n");
+                  continue;
                 }
                 live = !settled;
                 broadcast(packet.value);

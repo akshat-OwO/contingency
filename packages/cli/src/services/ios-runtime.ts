@@ -166,7 +166,6 @@ export const traceIosCapture = <A>(
           yield* Effect.logWarning("iOS capture failed", {
             attempt,
             code: failure.code,
-            detail: failure.message,
             durationMs: Number(ended - started) / 1e6,
             operation: failure.operation,
             steps,
