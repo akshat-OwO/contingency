@@ -73,6 +73,12 @@ export const scrubPurgedInstructions = <
           JSON.stringify({ ...summary, instructions: [] }, null, 2),
           { mode: 0o600 }
         )
-        .pipe(Effect.andThen(fs.rename(temporary, file)), Effect.ignore);
+        .pipe(
+          Effect.andThen(fs.rename(temporary, file)),
+          Effect.ignore({
+            log: "Debug",
+            message: "Could not purge native instructions",
+          })
+        );
     }
   });

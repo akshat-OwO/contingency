@@ -345,7 +345,10 @@ export const evaluateBrowserScript = (
   }).pipe(
     Effect.onInterrupt(() =>
       Effect.tryPromise(() => cdp.send("Runtime.terminateExecution")).pipe(
-        Effect.ignore
+        Effect.ignore({
+          log: "Debug",
+          message: "Could not terminate the evaluation",
+        })
       )
     ),
     Effect.interruptible,

@@ -81,7 +81,14 @@ export const makeChromiumAgentBrowser: AgentBrowserFactory = ({
                     policy !== undefined &&
                     !policy.allows(action.url)
                   ) {
-                    yield* policy.refuse(action.url).pipe(Effect.ignore);
+                    yield* policy
+                      .refuse(action.url)
+                      .pipe(
+                        Effect.ignore({
+                          log: "Debug",
+                          message: "Could not record a refused navigation",
+                        })
+                      );
                     return yield* Effect.fail(
                       makeBrowserRpcError(
                         "agent_browser_failed",

@@ -1305,7 +1305,10 @@ const pursue = (params: PursueParameters, attempts: AttemptCount) =>
         );
       }).pipe(
         // A Run that ended mid-Pursuit keeps the attempts on its timeline.
-        Effect.ignore
+        Effect.ignore({
+          log: "Debug",
+          message: "Could not record the Pursuit attempts",
+        })
       );
 
     const steps: AgentPursuitResult["steps"][number][] = [];

@@ -487,7 +487,12 @@ export const mcpCommand = Command.make(
         yield* Effect.addFinalizer(() =>
           fileSystem
             .remove(ownerMarker, { recursive: true })
-            .pipe(Effect.ignore)
+            .pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not remove the MCP owner marker",
+              })
+            )
         );
         // A TTY means a human started this process for URL clients. Stdio
         // would then consume the terminal. Claude and Codex spawn us with a

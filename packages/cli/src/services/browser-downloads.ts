@@ -65,7 +65,9 @@ export const saveDownload = (
     };
     const { directory } = options;
     if (directory === undefined) {
-      yield* Effect.ignore(Effect.tryPromise(() => download.cancel()));
+      yield* Effect.tryPromise(() => download.cancel()).pipe(
+        Effect.ignore({ log: "Debug", message: "Could not cancel a download" })
+      );
       return {
         ...base,
         error: "No Catalog Root is selected for download evidence.",

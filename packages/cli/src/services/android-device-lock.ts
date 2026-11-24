@@ -80,7 +80,13 @@ export const acquireAndroidDeviceLock = (
               : Effect.fail(unreadable(lockPath))
           )
         ),
-      () => Effect.ignore(Effect.tryPromise(() => unlink(staged)))
+      () =>
+        Effect.tryPromise(() => unlink(staged)).pipe(
+          Effect.ignore({
+            log: "Debug",
+            message: "Could not remove the staged device lock",
+          })
+        )
     );
     const database = yield* Effect.try({
       catch: () => unreadable(lockPath),

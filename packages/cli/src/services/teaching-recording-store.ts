@@ -585,7 +585,16 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         const firstAttempt = yield* Effect.result(create);
         if (Result.isSuccess(firstAttempt)) {
           return yield* operation.pipe(
-            Effect.ensuring(fileSystem.remove(lockPath).pipe(Effect.ignore))
+            Effect.ensuring(
+              fileSystem
+                .remove(lockPath)
+                .pipe(
+                  Effect.ignore({
+                    log: "Debug",
+                    message: "Could not remove the recording lock",
+                  })
+                )
+            )
           );
         }
         const observed = yield* fileSystem
@@ -610,7 +619,16 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
           return yield* Effect.fail(conflict);
         }
         return yield* operation.pipe(
-          Effect.ensuring(fileSystem.remove(lockPath).pipe(Effect.ignore))
+          Effect.ensuring(
+            fileSystem
+              .remove(lockPath)
+              .pipe(
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not remove the recording lock",
+                })
+              )
+          )
         );
       });
     };
@@ -716,7 +734,14 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
               )
             ),
             Effect.ensuring(
-              fileSystem.remove(temporary, { force: true }).pipe(Effect.ignore)
+              fileSystem
+                .remove(temporary, { force: true })
+                .pipe(
+                  Effect.ignore({
+                    log: "Debug",
+                    message: "Could not remove the temporary manifest",
+                  })
+                )
             )
           );
         return manifest;
@@ -1686,7 +1711,12 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                 Effect.onError(() =>
                   fileSystem
                     .remove(destination, { force: true, recursive: true })
-                    .pipe(Effect.ignore)
+                    .pipe(
+                      Effect.ignore({
+                        log: "Debug",
+                        message: "Could not remove a partial recording copy",
+                      })
+                    )
                 )
               )
             ),
@@ -2143,13 +2173,16 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                       )
                     )
               ),
-              Effect.ignore
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not recover a verification",
+              })
             );
           },
           { discard: true }
         )
       ),
-      Effect.ignore
+      Effect.ignore({ log: "Debug", message: "Verification recovery stopped" })
     );
     // Cleanup recovery is best-effort during startup. The manifest remains
     // purge-pending with the retained file names when a retry still fails.
@@ -2172,12 +2205,15 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
                 SessionEventOrigin,
                 manifest.eventOrigin ?? "workspace"
               ),
-              Effect.ignore
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not recover a cleanup",
+              })
             ),
           { discard: true }
         )
       ),
-      Effect.ignore
+      Effect.ignore({ log: "Debug", message: "Cleanup recovery stopped" })
     );
 
     return TeachingRecordingStore.of({

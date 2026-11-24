@@ -466,7 +466,15 @@ export const makeBrowserRuntimeFactory = (
             input.navigationPolicy,
             input.run
           ),
-          (id) => browser.close(id).pipe(Effect.ignore)
+          (id) =>
+            browser
+              .close(id)
+              .pipe(
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not close the browser",
+                })
+              )
         )
       );
       const agentBrowser = yield* factory({

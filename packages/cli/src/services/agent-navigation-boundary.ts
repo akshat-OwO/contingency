@@ -117,7 +117,12 @@ export class NavigationCoordinator {
           this.send(sessionId, "Fetch.failRequest", {
             errorReason: "BlockedByClient",
             requestId,
-          }).pipe(Effect.ignore)
+          }).pipe(
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not fail a blocked request",
+            })
+          )
         )
       );
     }).pipe(Effect.catchCause(() => Effect.void));
@@ -275,7 +280,13 @@ export const installAgentNavigationBoundary = (
     const info = yield* Effect.acquireUseRelease(
       attempt(() => context.newCDPSession(page)),
       (probe) => attempt(() => probe.send("Target.getTargetInfo")),
-      (probe) => attempt(() => probe.detach()).pipe(Effect.ignore)
+      (probe) =>
+        attempt(() => probe.detach()).pipe(
+          Effect.ignore({
+            log: "Debug",
+            message: "Could not detach the target probe",
+          })
+        )
     );
     const { browserContextId: contextId, targetId } = info.targetInfo;
     if (contextId === undefined) {
@@ -307,7 +318,12 @@ export const installAgentNavigationBoundary = (
           yield* attempt(() => route.continue());
         }).pipe(
           Effect.catchCause(() =>
-            attempt(() => route.abort("failed")).pipe(Effect.ignore)
+            attempt(() => route.abort("failed")).pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not abort a refused route",
+              })
+            )
           )
         );
         await Effect.runPromise(check);

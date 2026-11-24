@@ -417,7 +417,12 @@ export const makeTeachingRecorder = (
               target.context.tracing.stop(
                 existsSync(options.directory) ? { path: traceFile } : undefined
               ),
-          }).pipe(Effect.ignore)
+          }).pipe(
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not stop the Browser Trace",
+            })
+          )
       )
     );
     const encoder = yield* Scope.provide(scope)(
@@ -446,7 +451,7 @@ export const makeTeachingRecorder = (
             Effect.andThen(Deferred.fail(capturing, cause))
           )
         ),
-        Effect.ignore,
+        Effect.ignore({ log: "Debug", message: "Teaching capture stopped" }),
         Effect.ensuring(Deferred.succeed(capturing, true)),
         Effect.forkIn(scope)
       );
@@ -584,7 +589,10 @@ export const makeTeachingRecorder = (
                 ),
                 Effect.flatMap(encoder.write),
                 Effect.tapError((cause) => Ref.set(failure, cause.message)),
-                Effect.ignore
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not write a Teaching frame",
+                })
               );
           }
           yield* Scope.close(scope, Exit.void);
@@ -647,7 +655,12 @@ export const makeTeachingRecorder = (
           }
           yield* fileSystem
             .writeFileString(eventFile, contents, { flag: "a" })
-            .pipe(Effect.ignore);
+            .pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not write a Teaching event",
+              })
+            );
           for (const keyframe of keyframes) {
             const content = demonstration.keyframeBytes.get(
               keyframe.contentHash
@@ -658,7 +671,12 @@ export const makeTeachingRecorder = (
                   path.join(options.directory, `${keyframe.id}.png`),
                   Buffer.from(content.image, "base64")
                 )
-                .pipe(Effect.ignore);
+                .pipe(
+                  Effect.ignore({
+                    log: "Debug",
+                    message: "Could not write a Teaching keyframe",
+                  })
+                );
             }
           }
           return { failure: captureFailure, traceFile, videoFile };

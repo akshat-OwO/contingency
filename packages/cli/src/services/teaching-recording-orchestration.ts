@@ -124,7 +124,10 @@ const refreshSession = (manifest: TeachingRecordingManifest) =>
             .observeSessionManifest(manifest)
             .pipe(
               Effect.andThen(sessions.value.get(manifest.sessionId)),
-              Effect.ignore
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not refresh the Agent Session",
+              })
             )
         : Effect.void
     )
@@ -190,7 +193,12 @@ export const stopDryRun = (input: TeachingRecordingMutation) =>
       if (Option.isSome(sessions)) {
         yield* sessions.value
           .completeRun(lifecycle.dryRunSessionId)
-          .pipe(Effect.ignore);
+          .pipe(
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not complete the Dry Run",
+            })
+          );
       }
     }
     return manifest;
@@ -522,14 +530,28 @@ export const startDryRun = (input: DryRunStartInput) =>
       })
       .pipe(
         Effect.tapError(() =>
-          sessions.close(session.id, input.operationId).pipe(Effect.ignore)
+          sessions
+            .close(session.id, input.operationId)
+            .pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not close the Dry Run session",
+              })
+            )
         ),
         Effect.mapError(fromCause)
       );
     if (started.lifecycle._tag !== "dry-running" && !replay) {
       return yield* Effect.die("A started Dry Run did not enter dry-running.");
     }
-    yield* sessions.get(started.sessionId).pipe(Effect.ignore);
+    yield* sessions
+      .get(started.sessionId)
+      .pipe(
+        Effect.ignore({
+          log: "Debug",
+          message: "Could not refresh the Dry Run session",
+        })
+      );
     // An Agent Session lives in the process that started it, so a Stop from
     // the Workspace can only persist the transition. This process watches the
     // durable manifest and closes its own Chromium once the Dry Run leaves
@@ -541,7 +563,16 @@ export const startDryRun = (input: DryRunStartInput) =>
           Effect.map((current) => current.lifecycle._tag !== "dry-running"),
           Effect.catchCause(() => Effect.succeed(true)),
           Effect.repeat({ until: (ended: boolean) => ended }),
-          Effect.andThen(sessions.completeRun(session.id).pipe(Effect.ignore))
+          Effect.andThen(
+            sessions
+              .completeRun(session.id)
+              .pipe(
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not complete the Dry Run",
+                })
+              )
+          )
         )
       );
     }

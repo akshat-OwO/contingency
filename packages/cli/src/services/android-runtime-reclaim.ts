@@ -260,7 +260,14 @@ export const reclaimOrphanedAndroidRuntimes = (
     // already died leaves a dead claim, which agent-device clears itself.
     const stopped: string[] = [];
     for (const directory of orphans) {
-      yield* input.stopDaemon(directory).pipe(Effect.ignore);
+      yield* input
+        .stopDaemon(directory)
+        .pipe(
+          Effect.ignore({
+            log: "Debug",
+            message: "Could not stop an orphaned agent-device daemon",
+          })
+        );
       if (!(yield* daemonAlive(directory, probe))) {
         stopped.push(directory);
       }
@@ -290,7 +297,12 @@ export const reclaimOrphanedAndroidRuntimes = (
     for (const directory of stopped) {
       yield* Effect.tryPromise(() =>
         rm(directory, { force: true, recursive: true })
-      ).pipe(Effect.ignore);
+      ).pipe(
+        Effect.ignore({
+          log: "Debug",
+          message: "Could not remove an orphaned agent-device directory",
+        })
+      );
     }
     return stopped;
   });

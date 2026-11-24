@@ -2102,7 +2102,10 @@ const makeAgentSession = (
               sessionEvents.observeManifest(sessionId, manifest)
             )
           ),
-          Effect.ignore,
+          Effect.ignore({
+            log: "Debug",
+            message: "Could not read the Teaching Recording manifest",
+          }),
           Effect.andThen(browserRefresh)
         );
       }
@@ -2249,7 +2252,13 @@ const makeAgentSession = (
             (created) =>
               fileSystem
                 .remove(created, { recursive: true })
-                .pipe(Effect.ignore)
+                .pipe(
+                  Effect.ignore({
+                    log: "Debug",
+                    message:
+                      "Could not remove a temporary Agent Session directory",
+                  })
+                )
           )
         );
         const lockPath = `${directory}/session.lock`;
@@ -2265,7 +2274,15 @@ const makeAgentSession = (
                   )
                 )
               ),
-            () => fileSystem.remove(lockPath).pipe(Effect.ignore)
+            () =>
+              fileSystem
+                .remove(lockPath)
+                .pipe(
+                  Effect.ignore({
+                    log: "Debug",
+                    message: "Could not remove the Agent Session lock",
+                  })
+                )
           )
         );
       });
@@ -2303,7 +2320,14 @@ const makeAgentSession = (
             prefix: "screenshots-",
           }),
           (created) =>
-            files.remove(created, { recursive: true }).pipe(Effect.ignore)
+            files
+              .remove(created, { recursive: true })
+              .pipe(
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not remove the screenshot directory",
+                })
+              )
         )
       ).pipe(
         Effect.mapError((cause) =>
@@ -2460,7 +2484,10 @@ const makeAgentSession = (
                 )
               )
             ),
-            Effect.ignore
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not capture a Teaching keyframe",
+            })
           );
           // Read only once the open gesture is photographed, and on the capture's
           // own clock, so no event the recording holds reads later than its Stop.
@@ -2647,7 +2674,12 @@ const makeAgentSession = (
           if (record.retentionFile !== undefined && fileSystem !== undefined) {
             yield* fileSystem
               .remove(record.retentionFile, { force: true })
-              .pipe(Effect.ignore);
+              .pipe(
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not remove the retention note",
+                })
+              );
           }
           // The timeline describes the discarded Demonstration, so it goes with
           // it: `setup` after a deletion is a clean bundle, not one that still
@@ -2887,7 +2919,12 @@ const makeAgentSession = (
           const recorderScope = yield* Scope.make("sequential");
           yield* Scope.addFinalizer(
             record.scope,
-            Scope.close(recorderScope, Exit.interrupt()).pipe(Effect.ignore)
+            Scope.close(recorderScope, Exit.interrupt()).pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not close the recorder scope",
+              })
+            )
           );
           const recorderResult = yield* Effect.result(
             Scope.provide(recorderScope)(
@@ -2918,7 +2955,12 @@ const makeAgentSession = (
                 operationId: operation,
                 recordingId,
               })
-              .pipe(Effect.ignore);
+              .pipe(
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not stop the failed Teaching Recording",
+                })
+              );
             const failedAt = now().toISOString();
             const failed: AgentSessionSnapshot = {
               ...record.snapshot,
@@ -2962,7 +3004,10 @@ const makeAgentSession = (
                 )
               )
             ),
-            Effect.ignore,
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not stop the Teaching Recording at its limit",
+            }),
             Effect.forkIn(record.scope)
           );
           const recording: AgentSessionSnapshot = {
@@ -3071,7 +3116,12 @@ const makeAgentSession = (
                   target.value.context.tracing.stop(
                     existsSync(directory) ? { path: traceFile } : undefined
                   ),
-              }).pipe(Effect.ignore)
+              }).pipe(
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not stop the Browser Trace",
+                })
+              )
           )
         );
         // A Run's artifacts are governed by its own Run directory, not by the
@@ -3923,7 +3973,10 @@ const makeAgentSession = (
                   yield* Scope.addFinalizer(
                     parentScope,
                     Scope.close(sessionScope, Exit.interrupt()).pipe(
-                      Effect.ignore
+                      Effect.ignore({
+                        log: "Debug",
+                        message: "Could not close the Agent Session scope",
+                      })
                     )
                   );
                 }
@@ -4143,7 +4196,10 @@ const makeAgentSession = (
                       Stream.runForEach((event) =>
                         saveSessionDownload(sessionId, event)
                       ),
-                      Effect.ignore,
+                      Effect.ignore({
+                        log: "Debug",
+                        message: "Session downloads stopped",
+                      }),
                       Effect.forkIn(sessionScope)
                     );
                     yield* publish(base);
@@ -4771,7 +4827,12 @@ const makeAgentSession = (
             now().toISOString()
           );
         }
-      }).pipe(Effect.ignore);
+      }).pipe(
+        Effect.ignore({
+          log: "Debug",
+          message: "Could not record the input burst",
+        })
+      );
 
     /**
      * Close a burst once typing pauses, so the Fill is on the Timeline while
@@ -7276,7 +7337,13 @@ const makeAgentSession = (
         return ledger.serializeMutation(
           Effect.forEach(
             liveSessionIds,
-            (sessionId) => interruptUnlocked(sessionId).pipe(Effect.ignore),
+            (sessionId) =>
+              interruptUnlocked(sessionId).pipe(
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not interrupt an Agent Session",
+                })
+              ),
             { discard: true }
           )
         );

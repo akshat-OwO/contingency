@@ -182,7 +182,12 @@ export const webCommand = Command.make(
         yield* Effect.addFinalizer(() =>
           fileSystem
             .remove(ownerMarker, { recursive: true })
-            .pipe(Effect.ignore)
+            .pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not remove the Workspace owner marker",
+              })
+            )
         );
         yield* Layer.build(
           makeHttpServerLayer({

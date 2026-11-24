@@ -262,7 +262,10 @@ export const makeTabDevtools = (
             }
           })
         ),
-        Effect.ignore
+        Effect.ignore({
+          log: "Debug",
+          message: "Could not read a request's sizes",
+        })
       )
     );
   };
@@ -324,7 +327,10 @@ export const makeTabDevtools = (
             }
           })
         ),
-        Effect.ignore
+        Effect.ignore({
+          log: "Debug",
+          message: "Could not read an adopted request's response",
+        })
       )
     );
   };

@@ -239,7 +239,9 @@ const releaseInputSession = (session: CreateSession) =>
     yield* Ref.set(session.inputSession, null);
     yield* tryBrowser("Could not detach browser input", () =>
       active.cdp.detach()
-    ).pipe(Effect.ignore);
+    ).pipe(
+      Effect.ignore({ log: "Debug", message: "Could not detach browser input" })
+    );
   });
 
 const inputSessionFor = (session: CreateSession, page: Page) =>
@@ -643,7 +645,13 @@ const makeService = (
       (sessionId, exit) =>
         Exit.isSuccess(exit)
           ? Effect.void
-          : closeSession(sessionId).pipe(Effect.ignore)
+          : closeSession(sessionId).pipe(
+              Effect.ignore({
+                log: "Debug",
+                message:
+                  "Could not close a browser session that failed to open",
+              })
+            )
     );
   });
 
@@ -714,7 +722,14 @@ const makeService = (
           )
         ).pipe(
           Effect.andThen(pageClipboard(cdp, page, text)),
-          Effect.ensuring(applyPermissions(session).pipe(Effect.ignore))
+          Effect.ensuring(
+            applyPermissions(session).pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not restore the clipboard permissions",
+              })
+            )
+          )
         );
       }),
     close: closeSession,
@@ -743,7 +758,13 @@ const makeService = (
               viewport: { height: size.height, width: size.width },
             })
           ),
-          (opened) => Effect.promise(() => opened.close()).pipe(Effect.ignore)
+          (opened) =>
+            Effect.promise(() => opened.close()).pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not close a browser context",
+              })
+            )
         );
         return yield* tryBrowser("Could not open the video compositor", () =>
           context.newPage()
@@ -1159,7 +1180,12 @@ export const makeCreateBrowserLayer = (options: CreateBrowserOptions = {}) =>
           Effect.forEach(
             registry.get(launched).values(),
             (current) =>
-              Effect.promise(() => current.browser.close()).pipe(Effect.ignore),
+              Effect.promise(() => current.browser.close()).pipe(
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not close a browser",
+                })
+              ),
             { discard: true }
           ).pipe(Effect.ensuring(Effect.sync(() => registry.dispose())))
         )

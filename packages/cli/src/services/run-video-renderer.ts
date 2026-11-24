@@ -155,7 +155,14 @@ export const RunVideoRendererLive = Layer.effect(
           if (Number.isInteger(holder) && holder > 0 && isAlive(holder)) {
             return false;
           }
-          yield* fileSystem.remove(file, { force: true }).pipe(Effect.ignore);
+          yield* fileSystem
+            .remove(file, { force: true })
+            .pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not remove a stale render lock",
+              })
+            );
         }
         return false;
       });
@@ -312,7 +319,12 @@ export const RunVideoRendererLive = Layer.effect(
           (name) =>
             fileSystem
               .remove(path.join(directory, name), { force: true })
-              .pipe(Effect.ignore)
+              .pipe(
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not remove Run footage",
+                })
+              )
         ),
         { discard: true }
       );
@@ -341,7 +353,12 @@ export const RunVideoRendererLive = Layer.effect(
             JSON.stringify({ reason }),
             { mode: 0o600 }
           )
-          .pipe(Effect.ignore);
+          .pipe(
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not write the Run video fallback",
+            })
+          );
         yield* removeFootage(directory);
       });
 
@@ -351,7 +368,12 @@ export const RunVideoRendererLive = Layer.effect(
         Effect.andThen(
           fileSystem
             .remove(path.join(directory, FALLBACK_FILE), { force: true })
-            .pipe(Effect.ignore)
+            .pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not remove the Run video fallback",
+              })
+            )
         )
       );
 
@@ -405,7 +427,12 @@ export const RunVideoRendererLive = Layer.effect(
           Effect.ensuring(
             fileSystem
               .remove(path.join(directory, LOCK_FILE), { force: true })
-              .pipe(Effect.ignore)
+              .pipe(
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not remove the Run video lock",
+                })
+              )
           )
         );
       });

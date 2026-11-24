@@ -556,7 +556,16 @@ const makeTeachingRecordingLearning = Effect.fn(
       const first = yield* Effect.result(create);
       if (Result.isSuccess(first)) {
         return yield* operation.pipe(
-          Effect.ensuring(fileSystem.remove(lockPath).pipe(Effect.ignore))
+          Effect.ensuring(
+            fileSystem
+              .remove(lockPath)
+              .pipe(
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not remove the learning lock",
+                })
+              )
+          )
         );
       }
       const observed = yield* fileSystem
@@ -579,7 +588,16 @@ const makeTeachingRecordingLearning = Effect.fn(
         return yield* Effect.fail(conflict);
       }
       return yield* operation.pipe(
-        Effect.ensuring(fileSystem.remove(lockPath).pipe(Effect.ignore))
+        Effect.ensuring(
+          fileSystem
+            .remove(lockPath)
+            .pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not remove the learning lock",
+              })
+            )
+        )
       );
     });
   };
@@ -901,7 +919,12 @@ const makeTeachingRecordingLearning = Effect.fn(
             Effect.ensuring(
               fileSystem
                 .remove(temporary, { force: true, recursive: true })
-                .pipe(Effect.ignore)
+                .pipe(
+                  Effect.ignore({
+                    log: "Debug",
+                    message: "Could not remove the temporary Flow documents",
+                  })
+                )
             ),
             Effect.uninterruptible
           );
