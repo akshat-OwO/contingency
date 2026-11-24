@@ -38,8 +38,8 @@ import type { TeachingRecordingStoreService } from "./teaching-recording-store.t
  * no slot.
  */
 const MatchedRoute = Context.Reference<
-  Ref.Ref<Option.Option<string>> | undefined
->("contingency/http/MatchedRoute", { defaultValue: () => {} });
+  Option.Option<Ref.Ref<Option.Option<string>>>
+>("contingency/http/MatchedRoute", { defaultValue: Option.none });
 
 /**
  * Records each matched route's template. It runs inside the route, where the
@@ -49,8 +49,8 @@ const recordMatchedRoute = HttpRouter.middleware((httpEffect) =>
   Effect.gen(function* recordRoute() {
     const slot = yield* MatchedRoute;
     const { route } = yield* HttpRouter.RouteContext;
-    if (slot !== undefined) {
-      yield* Ref.set(slot, Option.some(route.path));
+    if (Option.isSome(slot)) {
+      yield* Ref.set(slot.value, Option.some(route.path));
     }
     return yield* httpEffect;
   })
@@ -69,7 +69,7 @@ export const httpAccessLog = HttpMiddleware.make((httpApp) =>
     const request = yield* HttpServerRequest.HttpServerRequest;
     const slot = yield* Ref.make(Option.none<string>());
     const exit = yield* Effect.exit(
-      Effect.provideService(httpApp, MatchedRoute, slot)
+      Effect.provideService(httpApp, MatchedRoute, Option.some(slot))
     );
     // The template, never the requested path, which may carry private
     // segments.
