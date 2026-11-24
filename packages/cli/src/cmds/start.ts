@@ -16,6 +16,10 @@ import {
 } from "../services/agent-launch.ts";
 import type { ReadyHarness } from "../services/agent-launch.ts";
 import { CATALOG_DIRECTORY } from "../services/flow-catalog.ts";
+import {
+  applySettingsLogLevel,
+  Observability,
+} from "../services/observability.ts";
 import { loadSettings } from "../services/settings.ts";
 import {
   renderStartupScreen,
@@ -94,6 +98,7 @@ export const startCommand = Command.make(
     // The session server reads these Settings itself; reading them here too
     // reports an invalid file before the agent starts, not inside it.
     const settings = yield* loadSettings({ catalogRoot, env: process.env });
+    yield* applySettingsLogLevel(settings.provider);
     for (const warning of settings.warnings) {
       yield* Console.error(warning);
     }
@@ -160,6 +165,10 @@ export const startCommand = Command.make(
     const code = yield* Effect.scoped(
       Effect.gen(function* runAgent() {
         yield* holdSignals;
+        // The agent owns this terminal while it runs: this process's records
+        // go only to its Diagnostic Log until the agent exits.
+        const observability = yield* Observability;
+        yield* observability.silenceTerminal;
         const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
         const handle = yield* spawner.spawn(
           ChildProcess.make(plan.command, [...plan.args], {

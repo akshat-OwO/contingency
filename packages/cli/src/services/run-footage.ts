@@ -106,7 +106,9 @@ export const makeRunFootage = (
       })
     );
     if (started._tag === "Failure") {
-      yield* Effect.logWarning(started.failure.message);
+      yield* Effect.logWarning("Run footage encoder did not start", {
+        error: started.failure,
+      });
       return;
     }
     const encoder = started.success;
@@ -179,7 +181,7 @@ export const makeRunFootage = (
           return Effect.void;
         }),
         Effect.tapError((cause) =>
-          Effect.logWarning(`Run footage stopped: ${cause.message}`)
+          Effect.logWarning("Run footage stopped", { error: cause })
         ),
         Effect.ignore,
         Effect.forkDetach
@@ -205,7 +207,9 @@ export const makeRunFootage = (
         const failure = yield* encoder.finish;
         if (failure !== undefined || last === undefined) {
           if (failure !== undefined) {
-            yield* Effect.logWarning(failure);
+            yield* Effect.logWarning("Run footage encoder failed", {
+              reason: failure,
+            });
           }
           yield* fileSystem
             .remove(videoFile, { force: true })
@@ -232,9 +236,9 @@ export const makeRunFootage = (
           )
         );
         if (saved._tag === "Failure") {
-          yield* Effect.logWarning(
-            `Could not save the Run footage manifest: ${saved.failure.message}`
-          );
+          yield* Effect.logWarning("Could not save the Run footage manifest", {
+            error: saved.failure,
+          });
           return;
         }
         manifest = captured;

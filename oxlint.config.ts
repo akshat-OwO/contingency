@@ -95,6 +95,7 @@ export default defineConfig({
     },
     {
       files: [
+        "packages/cli/src/services/diagnostic-log.ts",
         "packages/cli/src/services/recorder-events.ts",
         "packages/cli/src/services/run-footage.ts",
         "packages/protocol/src/agent-browser.ts",
@@ -127,6 +128,7 @@ export default defineConfig({
     },
   ],
   rules: {
+    "contingency/fixed-log-message": "error",
     "no-restricted-imports": ["error", { patterns: restrictedUiImports() }],
   },
   settings: jsPluginSettings,

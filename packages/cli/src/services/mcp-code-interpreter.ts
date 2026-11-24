@@ -221,14 +221,23 @@ const INTERNAL_FAILURE =
 const refusalOf = (tool: Tool.Any, cause: Cause.Cause<unknown>) => {
   const failure = Cause.findErrorOption(cause);
   if (Option.isNone(failure) || Cause.hasDies(cause)) {
-    return Effect.logError(cause).pipe(Effect.as(INTERNAL_FAILURE));
+    return Effect.logError("MCP tool failed unexpectedly", cause).pipe(
+      Effect.annotateLogs({ tool: tool.name }),
+      Effect.as(INTERNAL_FAILURE)
+    );
   }
   const error = failure.value;
   if (AiError.isAiError(error)) {
     return Effect.succeed(error.reason.message);
   }
   if (!Schema.is(tool.failureSchema)(error)) {
-    return Effect.logError(cause).pipe(Effect.as(INTERNAL_FAILURE));
+    return Effect.logError(
+      "MCP tool failed with an undeclared error",
+      cause
+    ).pipe(
+      Effect.annotateLogs({ tool: tool.name }),
+      Effect.as(INTERNAL_FAILURE)
+    );
   }
   if (error instanceof Error && error.message !== "") {
     return Effect.succeed(error.message);

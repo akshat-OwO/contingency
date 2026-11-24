@@ -166,7 +166,9 @@ const startUnlocked = (session: CreateSession) =>
               ) {
                 return;
               }
-              yield* Effect.logWarning(outcome.failure.message);
+              yield* Effect.logWarning("Browser screencast failed", {
+                error: outcome.failure,
+              });
               yield* stopUnlocked(session);
               emitStatus(session, false);
             })

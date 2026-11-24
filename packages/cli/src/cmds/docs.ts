@@ -1,11 +1,15 @@
 import { Console, Context, Effect, Layer, Option, Result } from "effect";
 import { Argument, Command, Flag } from "effect/cli";
-import { HttpRouter, HttpServer } from "effect/http";
+import { HttpServer } from "effect/http";
 
 import { makeDocsSiteRoutes } from "../routes/docs-site.ts";
 import { DOC_SITE_PAGES, DOCS_SITE_PATH } from "../services/doc-topics.ts";
 import { defaultCatalogRoot } from "../services/flow-catalog.ts";
-import { makeNodeServerLayer } from "../services/http-server.ts";
+import {
+  makeNodeServerLayer,
+  serveWithAccessLog,
+} from "../services/http-server.ts";
+import { applySettingsLogLevel } from "../services/observability.ts";
 import { loadSettings } from "../services/settings.ts";
 import { UiInterface } from "../services/ui-interface.ts";
 import { isListenAddressInUse } from "./mcp.ts";
@@ -46,7 +50,7 @@ const serveDocs = (host: string, port: number) =>
       ? bound.success
       : yield* Layer.build(makeNodeServerLayer({ host, port: 0 }));
     yield* Layer.build(
-      HttpRouter.serve(makeDocsSiteRoutes()).pipe(
+      serveWithAccessLog(makeDocsSiteRoutes()).pipe(
         Layer.provide(Layer.succeedContext(server))
       )
     );
@@ -78,6 +82,7 @@ export const docsCommand = Command.make(
       catalogRoot: defaultCatalogRoot(),
       env: process.env,
     });
+    yield* applySettingsLogLevel(settings.provider);
     for (const warning of settings.warnings) {
       yield* Console.error(warning);
     }

@@ -7,7 +7,7 @@
  *     vpx packages/cli/tests/integration/site-corpus/record.ts [--only wikipedia]
  */
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
-import { Effect, Result } from "effect";
+import { Console, Effect, Result } from "effect";
 import { chromium } from "playwright-core";
 
 import { readSiteList, saveSite, siteCorpusRoot } from "./corpus.ts";
@@ -58,7 +58,7 @@ Effect.gen(function* recordCorpus() {
       yield* saveSite(root, site, exchanges);
       return exchanges.length;
     }).pipe(Effect.scoped, Effect.result);
-    yield* Effect.log(
+    yield* Console.log(
       Result.isSuccess(outcome)
         ? `${site.id}: ${String(outcome.success)} exchanges`
         : `${site.id}: failed (${String(outcome.failure)})`

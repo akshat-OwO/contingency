@@ -374,7 +374,7 @@ export const DeviceVideoRendererLive = Layer.effect(
      */
     const fallBack = (folder: string, reason: string) =>
       Effect.gen(function* keepRawFootage() {
-        yield* Effect.logWarning(`Device video kept as recorded: ${reason}`);
+        yield* Effect.logWarning("Device video kept as recorded", { reason });
         yield* fileSystem
           .remove(path.join(folder, PARTIAL_FILE), { force: true })
           .pipe(Effect.ignore);

@@ -142,7 +142,7 @@ const SummaryVideo = ({
       </p>
     ) : (
       <RunVideo
-        note="The video and Trace stay on this machine."
+        note="The video and Browser Trace stay on this machine."
         // The path is copied from the Task tab, not under the player.
         pathInPlayer={false}
         seekAt={seekAt}

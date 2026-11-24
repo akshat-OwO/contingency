@@ -2,7 +2,8 @@
  * Contingency's own lint rules. `no-test-wait` keeps tests deterministic: a
  * test waits on the event it asserts, never on the wall clock, so it gives the
  * same verdict on a fast laptop and a starved CI runner. See
- * `docs/agents/testing.md`.
+ * `docs/agents/testing.md`. `fixed-log-message` keeps the Diagnostic Log safe
+ * to share.
  */
 
 const REAL_TIME_EFFECTS = new Set(["delay", "sleep"]);
@@ -104,7 +105,82 @@ const noTestWait = {
   },
 };
 
+const LOG_FUNCTIONS = new Set([
+  "log",
+  "logDebug",
+  "logError",
+  "logFatal",
+  "logInfo",
+  "logTrace",
+  "logWarning",
+]);
+
+/** A message the Diagnostic Log can keep: a literal with no interpolation. */
+const isFixedMessage = (node) =>
+  (node.type === "Literal" && /^["']/u.test(node.raw ?? "")) ||
+  (node.type === "TemplateLiteral" && node.expressions.length === 0);
+
+/**
+ * `fixed-log-message` keeps the Diagnostic Log safe to share as-is (ADR
+ * 0089). A message is a fixed string; every value that changes goes in an
+ * annotation, where the log's allowlist decides how it renders.
+ */
+const fixedLogMessage = {
+  create(context) {
+    const effectNames = new Set(["Effect"]);
+    const logImports = new Set();
+    return {
+      CallExpression(node) {
+        const { callee } = node;
+        const isLog =
+          (callee.type === "MemberExpression" &&
+            effectNames.has(objectName(callee)) &&
+            LOG_FUNCTIONS.has(memberName(callee))) ||
+          (callee.type === "Identifier" && logImports.has(callee.name));
+        const [first] = node.arguments;
+        if (isLog && first !== undefined && !isFixedMessage(first)) {
+          context.report({ messageId: "message", node: first });
+        }
+      },
+      ImportDeclaration(node) {
+        const source = node.source.value;
+        for (const specifier of node.specifiers) {
+          const local = specifier.local.name;
+          const imported =
+            specifier.type === "ImportSpecifier"
+              ? specifier.imported.name
+              : null;
+          if (source === "effect" && imported === "Effect") {
+            effectNames.add(local);
+          }
+          if (source === "effect/Effect") {
+            if (specifier.type === "ImportNamespaceSpecifier") {
+              effectNames.add(local);
+            } else if (LOG_FUNCTIONS.has(imported)) {
+              logImports.add(local);
+            }
+          }
+        }
+      },
+    };
+  },
+  meta: {
+    docs: {
+      description:
+        "Log messages are fixed strings, so the log stays share-safe.",
+    },
+    messages: {
+      message:
+        'Log a fixed string and put each changing value in an annotation, such as `Effect.logWarning("Run footage stopped", { error })`. The Diagnostic Log renders annotations through an allowlist. See docs/adr/0089-failure-causes-stay-local-behind-a-failure-reference.md.',
+    },
+    type: "problem",
+  },
+};
+
 export default {
   meta: { name: "contingency" },
-  rules: { "no-test-wait": noTestWait },
+  rules: {
+    "fixed-log-message": fixedLogMessage,
+    "no-test-wait": noTestWait,
+  },
 };

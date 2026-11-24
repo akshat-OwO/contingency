@@ -43,6 +43,8 @@ it.live.each([
                 ),
                 CONTINGENCY_MCP_PORT: "0",
                 CONTINGENCY_WEB_PORT: "0",
+                // Keeps the Diagnostic Log and user Settings out of the real home.
+                HOME: directory,
                 NODE_ENV: "production",
               },
               stdio: "pipe",

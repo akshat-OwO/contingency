@@ -67,7 +67,7 @@ This runs one local MCP server and serves the Workspace, the interface where you
 
 When stdin is not a terminal, Contingency automatically assigns an available Workspace port to each process. This includes MCP clients, Docker without `-t`, systemd, and CI. Headless HTTP callers that require a fixed endpoint must set the `mcp.port` Setting, for example `CONTINGENCY_MCP_PORT=7777`. A launch with terminal stdin defaults to port 7777. Use the Workspace URL the server returns.
 
-During Teaching you drive the browser exclusively while the agent observes; the Workspace also exposes browser setup tooling — Emulation, storage inspection, devtools — so you can configure the environment before you demonstrate. When you stop recording, Contingency keeps a Teaching Recording on disk. The agent reads its timeline and keyframes, writes a Flow to `contingency/<group…>/<flow>/flow.md`, and proves the flow with a Dry Run in a fresh browser context. You verify the Flow in the Workspace, and Contingency then deletes the recording's video, Trace, events, and keyframes.
+During Teaching you drive the browser exclusively while the agent observes; the Workspace also exposes browser setup tooling — Emulation, storage inspection, devtools — so you can configure the environment before you demonstrate. When you stop recording, Contingency keeps a Teaching Recording on disk. The agent reads its timeline and keyframes, writes a Flow to `contingency/<group…>/<flow>/flow.md`, and proves the flow with a Dry Run in a fresh browser context. You verify the Flow in the Workspace, and Contingency then deletes the recording's video, Browser Trace, events, and keyframes.
 
 Once verified, the agent runs the Flow within an Execution Boundary: it may only visit the hosts you demonstrated on, and an irreversible browser action waits for your confirmation every time. The Run also reopens the browser under the Emulation you taught it, so a journey demonstrated on a phone runs as a phone. Scheduling stays outside Contingency — have CI or cron invoke MCP when you want a sanity check.
 
@@ -90,6 +90,29 @@ contingency config init
 ```
 
 The [Settings reference](./docs/settings.md) lists every key, its environment variable, and its default.
+
+## Logs and debugging
+
+The terminal shows only warnings and errors. To see what Contingency is doing, add `--debug` to any command. Each record is then one line with its time, level, span, Agent Session or Run, and duration:
+
+```sh
+contingency web --debug
+```
+
+`--log-level <level>` sets the terminal's level directly to `trace`, `debug`, `info`, `warn`, `error`, `fatal`, or `none`, and outranks `--debug`. To keep a level, set `CONTINGENCY_LOG_LEVEL` or `log.level` in a Settings file.
+
+Whatever the terminal shows, every process writes its **Diagnostic Log** at debug level to `~/.contingency/logs`. Each process writes its own file, and Contingency keeps the newest 20 files of up to 10 MB each. The Diagnostic Log never holds what you typed, Variable values, page content, or full URLs. Every logged value passes an allowlist, and an error keeps only its name, code, and stack frames. You can attach a log file to an issue as it is. `--debug` output follows the same rules.
+
+### Export spans and metrics
+
+To inspect spans and metrics, point Contingency at an OTLP/HTTP collector. For example, with a local Grafana stack:
+
+```sh
+docker run --rm -p 3000:3000 -p 4318:4318 grafana/otel-lgtm
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 contingency web
+```
+
+Then open Grafana at `http://localhost:3000`. Export is off unless an endpoint is set. To keep an endpoint, set `telemetry.otlpEndpoint` in `~/.contingency/config.json`. A project file that sets it fails validation, because a shared file must not choose where your machine's data goes. Spans follow the Diagnostic Log's rules: their attributes and events pass the same allowlist, and a failed span carries its error's name, code, and stack frames, never its message.
 
 ## Reference
 
@@ -127,11 +150,11 @@ contingency docs teach --no-browser
 
 ## Artifacts
 
-A Teaching session keeps a local video and Playwright Trace, and a Run keeps its own evidence. These are unredacted and therefore sensitive: Contingency scrubs exact secret values from readable Trace entries where it can, but the scrub is best effort and does not make an artifact safe to share. Nothing leaves your machine without your confirmation — the Teaching Timeline the external agent reads carries bounded actions, Instructions, URL transitions, and keyframe references, never the raw video or Trace.
+A Teaching session keeps a local video and a Browser Trace (a Playwright trace), and a Run keeps its own evidence. These are unredacted and therefore sensitive, unlike the Diagnostic Log: Contingency scrubs exact secret values from readable Browser Trace entries where it can, but the scrub is best effort and does not make an artifact safe to share. Nothing leaves your machine without your confirmation — the Teaching Timeline the external agent reads carries bounded actions, Instructions, URL transitions, and keyframe references, never the raw video or Browser Trace.
 
 ## Teaching Recording cleanup
 
-A Teaching Recording is temporary evidence, not the artifact you keep. Verifying the Flow learned from it deletes its video, Trace, events, and keyframes; the Flow directory and its supporting documents remain.
+A Teaching Recording is temporary evidence, not the artifact you keep. Verifying the Flow learned from it deletes its video, Browser Trace, events, and keyframes; the Flow directory and its supporting documents remain.
 
 Cleanup is idempotent and resumes at startup. If a file cannot be deleted, the verified Flow stands and the Workspace names the retained sensitive files and offers a retry. Rejecting a drafted Flow keeps every Teaching artifact so the agent can try again.
 

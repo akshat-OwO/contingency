@@ -4,9 +4,15 @@ import type { Socket } from "node:net";
 import path from "node:path";
 
 import { NodeHttpServer } from "@effect/platform-node";
-import { Cause, Effect, Exit, Layer } from "effect";
+import { Cause, Effect, Exit, Layer, Option } from "effect";
 import type { FileSystem } from "effect";
-import { HttpMiddleware, HttpRouter, HttpStaticServer } from "effect/http";
+import {
+  HttpMiddleware,
+  HttpRouter,
+  HttpServerError,
+  HttpServerRequest,
+  HttpStaticServer,
+} from "effect/http";
 
 import {
   makeAgentRunArtifactRoutes,
@@ -26,16 +32,55 @@ import type { CreateBrowserService } from "./create-browser-contract.ts";
 import type { RunVideoRendererService } from "./run-video-renderer.ts";
 import type { TeachingRecordingStoreService } from "./teaching-recording-store.ts";
 
-/** Keep cancellation out of HTTP failure logs while retaining real failures. */
-export const quietHttpInterruptions = HttpRouter.middleware((httpEffect) =>
-  httpEffect.pipe(
-    Effect.onExit((exit) =>
-      Exit.isFailure(exit) && Cause.hasInterruptsOnly(exit.cause)
-        ? HttpMiddleware.withLoggerDisabled(Effect.void)
-        : Effect.void
-    )
-  )
-).layer;
+/**
+ * One record per response, in place of Effect's HTTP logger, which logs
+ * every response at Info. A response, or a client's mistake such as a missing
+ * route, is Debug, so a production terminal shows none. A server failure is
+ * Error. Cancellation, such as Ctrl-C closing a long poll or a WebSocket, is
+ * not logged.
+ */
+export const httpAccessLog = HttpMiddleware.make((httpApp) =>
+  Effect.gen(function* logHttpResponse() {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+    const exit = yield* Effect.exit(httpApp);
+    const fields = {
+      "http.method": request.method,
+      "http.path": request.url,
+    };
+    if (Exit.isSuccess(exit)) {
+      yield* Effect.logDebug("HTTP response sent").pipe(
+        Effect.annotateLogs({ ...fields, "http.status": exit.value.status })
+      );
+      return yield* exit;
+    }
+    // The router carries the response it chose as a defect beside the cause.
+    const [response, failure] = HttpServerError.causeResponseStripped(
+      exit.cause
+    );
+    const status = { ...fields, "http.status": response.status };
+    if (Option.isNone(failure)) {
+      yield* Effect.logDebug("HTTP response sent").pipe(
+        Effect.annotateLogs(status)
+      );
+    } else if (Cause.hasInterruptsOnly(failure.value)) {
+      // Cancellation, such as Ctrl-C closing a long poll: nothing failed.
+    } else if (response.status < 500) {
+      // The client asked for something wrong, such as a missing route.
+      yield* Effect.logDebug("HTTP request refused", failure.value).pipe(
+        Effect.annotateLogs(status)
+      );
+    } else {
+      yield* Effect.logError("HTTP request failed", failure.value).pipe(
+        Effect.annotateLogs(status)
+      );
+    }
+    return yield* exit;
+  }).pipe(Effect.withLogSpan("http"))
+);
+
+/** Serves routes with `httpAccessLog` instead of Effect's HTTP logger. */
+export const serveWithAccessLog = <E, R>(routes: Layer.Layer<never, E, R>) =>
+  HttpRouter.serve(routes, { disableLogger: true, middleware: httpAccessLog });
 
 export { isAllowedWebSocketOrigin } from "./web-url.ts";
 
@@ -161,7 +206,7 @@ export const makeHttpServerLayer = ({
   // The artifact routes read their stores per request, so those are provided
   // to the served router rather than to the route layers.
   const serveRoutes = <E, R>(routes: Layer.Layer<never, E, R>) =>
-    HttpRouter.serve(
+    serveWithAccessLog(
       Layer.mergeAll(
         routes,
         makeIosStreamRoutes(allowedOrigins).pipe(
@@ -181,7 +226,7 @@ export const makeHttpServerLayer = ({
         ),
         mcp,
         webRoutes
-      ).pipe(Layer.provide(quietHttpInterruptions))
+      )
     ).pipe(Layer.provide(server ?? makeNodeServerLayer({ host, port })));
   // The Agent Run video route exists only where a Run store does: a process
   // that owns no Agent Sessions has no persisted Interactive Runs to serve.

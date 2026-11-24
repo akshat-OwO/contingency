@@ -15,7 +15,7 @@ import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http";
 
 import {
   makeNodeServerLayer,
-  quietHttpInterruptions,
+  serveWithAccessLog,
 } from "../../src/services/http-server.ts";
 
 it.live.each(["websocket", "long-poll"] as const)(
@@ -41,9 +41,7 @@ it.live.each(["websocket", "long-poll"] as const)(
               : Effect.andThen(Deferred.succeed(started, true), Effect.never)
           );
           const context = yield* Layer.build(
-            HttpRouter.serve(
-              routes.pipe(Layer.provide(quietHttpInterruptions))
-            ).pipe(
+            serveWithAccessLog(routes).pipe(
               Layer.provideMerge(
                 makeNodeServerLayer({ host: "127.0.0.1", port: 0 })
               )
@@ -82,12 +80,14 @@ it.live.each(["websocket", "long-poll"] as const)(
               const annotations = event.fiber.getRef(
                 References.CurrentLogAnnotations
               );
-              if (annotations["http.url"] === "/pending") {
+              if (annotations["http.path"] === "/pending") {
                 statuses.push(annotations["http.status"]);
               }
             }),
           ])
         ),
+        // Even the Diagnostic Log's level records nothing for a cancellation.
+        Effect.provideService(References.MinimumLogLevel, "Debug"),
         Effect.timeout("30 seconds")
       );
       expect(statuses).toEqual([]);
@@ -95,7 +95,7 @@ it.live.each(["websocket", "long-poll"] as const)(
   35_000
 );
 
-it.live("retains successful response and real failure logs", () =>
+it.live("logs a response at Debug and a real failure at Error", () =>
   Effect.gen(function* retainHttpLogs() {
     const statuses: unknown[] = [];
     const logger = Logger.make((event) => {
@@ -103,16 +103,16 @@ it.live("retains successful response and real failure logs", () =>
         "http.status"
       ];
       if (status !== undefined) {
-        statuses.push(status);
+        statuses.push([status, event.logLevel]);
       }
     });
     yield* Effect.gen(function* serveResponses() {
       const routes = Layer.mergeAll(
         HttpRouter.add("GET", "/ok", HttpServerResponse.empty()),
         HttpRouter.add("GET", "/failure", Effect.die("request failed"))
-      ).pipe(Layer.provide(quietHttpInterruptions));
+      );
       const context = yield* Layer.build(
-        HttpRouter.serve(routes).pipe(
+        serveWithAccessLog(routes).pipe(
           Layer.provideMerge(
             makeNodeServerLayer({ host: "127.0.0.1", port: 0 })
           )
@@ -128,12 +128,22 @@ it.live("retains successful response and real failure logs", () =>
       const failure = yield* Effect.promise(() =>
         fetch(`http://127.0.0.1:${address.port}/failure`)
       );
+      const missing = yield* Effect.promise(() =>
+        fetch(`http://127.0.0.1:${address.port}/missing`)
+      );
       expect(success.status).toBe(204);
       expect(failure.status).toBe(500);
+      expect(missing.status).toBe(404);
     }).pipe(
       Effect.provide(Logger.layer([logger])),
+      // Production records Debug for the Diagnostic Log.
+      Effect.provideService(References.MinimumLogLevel, "Debug"),
       Effect.timeout("30 seconds")
     );
-    expect(statuses).toEqual([204, 500]);
+    expect(statuses).toEqual([
+      [204, "Debug"],
+      [500, "Error"],
+      [404, "Debug"],
+    ]);
   })
 );

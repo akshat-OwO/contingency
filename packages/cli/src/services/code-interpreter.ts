@@ -14,7 +14,7 @@ import type { Types } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
 import {
-  InterpreterMessage,
+  InterpreterLine,
   WatchdogMessage,
   encodeLine,
   strictDecode,
@@ -23,7 +23,9 @@ import type {
   OfferedOperation,
   MemoryReading,
   ServerInstruction,
+  InterpreterMessage,
 } from "./code-interpreter-protocol.ts";
+import { relayWorkerRecord } from "./diagnostic-log.ts";
 
 /**
  * Runs one program in a fresh OpenCode interpreter process, the experimental
@@ -241,7 +243,7 @@ export const resolveInterpreterEntry = (moduleDirectory: string): string =>
 const interpreterEntry = resolveInterpreterEntry(import.meta.dirname);
 
 const decodeMessage = Schema.decodeUnknownEffect(
-  Schema.fromJsonString(InterpreterMessage),
+  Schema.fromJsonString(InterpreterLine),
   strictDecode
 );
 const decodeWatchdog = Schema.decodeUnknownEffect(
@@ -446,10 +448,15 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
                 message: `Malformed interpreter message: ${decoded.failure.message.slice(0, 500)}`,
               } satisfies Read;
             }
-            if (decoded.success.type === "done") {
+            const message = decoded.success;
+            if (message.type === "log") {
+              yield* relayWorkerRecord("code-interpreter", message.record);
+              return;
+            }
+            if (message.type === "done") {
               yield* endProgram;
             }
-            return { _tag: "message", message: decoded.success } satisfies Read;
+            return { _tag: "message", message } satisfies Read;
           });
         yield* child.stdout.pipe(
           Stream.tap((chunk) =>
@@ -461,7 +468,9 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
           Stream.splitLines,
           Stream.runForEach((text) =>
             decodeLine(text).pipe(
-              Effect.flatMap((read) => Queue.offer(reads, read))
+              Effect.flatMap((read) =>
+                read === undefined ? Effect.void : Queue.offer(reads, read)
+              )
             )
           ),
           Effect.ignore,

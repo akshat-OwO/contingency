@@ -146,7 +146,8 @@ export const makeTeachingEncoder = (
         } catch (error) {
           Effect.runSync(
             Effect.logDebug(
-              `Could not measure Teaching encoded output file size; keeping the last measurement: ${String(error)}`
+              "Could not measure the Teaching video size; keeping the last measurement",
+              { error }
             )
           );
           return lastBytes;

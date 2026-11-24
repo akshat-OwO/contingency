@@ -188,7 +188,9 @@ A proof is incomplete unless it includes:
 - A second observation for mutations: reopen the view or read the written catalog under `$CONTINGENCY_VERIFY_DIR/state/catalog`.
 - The feature id and entry point used.
 
-Traces and Run videos are sensitive. Teaching, Dry Runs, and Interactive Runs may write them under the isolated state dir; do not copy them into `artifacts/` unless the feature file asks, and never reuse the user's real catalog.
+When a step fails, read the newest file in `~/.contingency/logs`, the Diagnostic Log of each process you started. It is share-safe, so you may copy it into `artifacts/`.
+
+Browser Traces and Run videos are sensitive. Teaching, Dry Runs, and Interactive Runs may write them under the isolated state dir; do not copy them into `artifacts/` unless the feature file asks, and never reuse the user's real catalog.
 
 Mocks are not allowed for Agent Sessions, Playwright, or the web UI. The ecommerce HTTP server (`control-contingency ecommerce start`) is verification scaffolding. Cleanup removes that server.
 

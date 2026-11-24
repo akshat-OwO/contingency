@@ -185,7 +185,7 @@ export const RunSummaryView = ({
         </p>
       ) : (
         <RunVideo
-          note="The video and Trace stay on this machine. Nothing is uploaded without your direct confirmation."
+          note="The video and Browser Trace stay on this machine. Nothing is uploaded without your direct confirmation."
           src={videoSrc ?? agentRunVideoPath(summary.runId)}
           timeMap={
             summary.schemaVersion === 3 ? summary.videoTimeMap : undefined
