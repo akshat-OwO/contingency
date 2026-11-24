@@ -557,14 +557,12 @@ const makeTeachingRecordingLearning = Effect.fn(
       if (Result.isSuccess(first)) {
         return yield* operation.pipe(
           Effect.ensuring(
-            fileSystem
-              .remove(lockPath)
-              .pipe(
-                Effect.ignore({
-                  log: "Debug",
-                  message: "Could not remove the learning lock",
-                })
-              )
+            fileSystem.remove(lockPath).pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not remove the learning lock",
+              })
+            )
           )
         );
       }
@@ -589,14 +587,12 @@ const makeTeachingRecordingLearning = Effect.fn(
       }
       return yield* operation.pipe(
         Effect.ensuring(
-          fileSystem
-            .remove(lockPath)
-            .pipe(
-              Effect.ignore({
-                log: "Debug",
-                message: "Could not remove the learning lock",
-              })
-            )
+          fileSystem.remove(lockPath).pipe(
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not remove the learning lock",
+            })
+          )
         )
       );
     });

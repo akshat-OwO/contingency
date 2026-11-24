@@ -2,10 +2,12 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 
 import { AgentSessionId, BrowserDevtoolsInput } from "@contingency/protocol";
-import { Effect, FileSystem, Schema } from "effect";
+import { Cause, Effect, FileSystem, Schema } from "effect";
 import { Tool, Toolkit } from "effect/ai";
 
 import { AgentSession } from "./agent-session.ts";
+import { recordFailure } from "./failure-reference.ts";
+import { mcpFailureText } from "./failure-seam.ts";
 import { FlowCatalog } from "./flow-catalog.ts";
 import { AgentSessionFailure, failure } from "./mcp-agent-session.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
@@ -28,8 +30,12 @@ export const BrowserDevtoolsTools = withStrictParameters(
 
 const PROFILE_FORMATS = { cpu: "cpuprofile", trace: "trace" } as const;
 
-const harFailure = (code: string, message: string) =>
-  new AgentSessionFailure({ code, message: `${message} (${code})` });
+const harFailure = (code: string, message: string, failureReference?: string) =>
+  new AgentSessionFailure({
+    code,
+    failureReference,
+    message: mcpFailureText(`${message} (${code})`, failureReference),
+  });
 
 export const BrowserDevtoolsToolHandlersLive = BrowserDevtoolsTools.toLayer({
   agent_browser_devtools: ({ sessionId, command, tabId }) =>
@@ -67,19 +73,29 @@ export const BrowserDevtoolsToolHandlersLive = BrowserDevtoolsTools.toLayer({
         directory,
         `${id}.${format === "trace" ? "trace.json" : format}`
       );
-      const writeFailure = () =>
-        harFailure(
-          format === "har"
-            ? "agent_devtools_har_write_failed"
-            : "agent_devtools_profile_write_failed",
-          `Could not write the ${format} file inside Catalog Root.`
+      const code =
+        format === "har"
+          ? "agent_devtools_har_write_failed"
+          : "agent_devtools_profile_write_failed";
+      // The file system's own error stays local, named by a reference.
+      const writeFailure = (cause: unknown) =>
+        recordFailure(Cause.fail(cause), code).pipe(
+          Effect.flatMap((reference) =>
+            Effect.fail(
+              harFailure(
+                code,
+                `Could not write the ${format} file inside Catalog Root.`,
+                reference
+              )
+            )
+          )
         );
       yield* fs
         .makeDirectory(directory, { recursive: true })
-        .pipe(Effect.mapError(writeFailure));
+        .pipe(Effect.catch(writeFailure));
       yield* fs
         .writeFileString(file, profile?.data ?? JSON.stringify(value))
-        .pipe(Effect.mapError(writeFailure));
+        .pipe(Effect.catch(writeFailure));
       return { format, path: file };
     }).pipe(
       Effect.flatMap((value) =>

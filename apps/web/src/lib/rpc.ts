@@ -6,6 +6,7 @@ import type {
   AgentRunId,
   AgentSessionId,
   CatalogRootScope,
+  FailureReference,
   DeviceErasePlatform,
   FlowName,
   AgentSessionSnapshot,
@@ -458,6 +459,15 @@ export const endedRunSummaryAtom = Atom.family((runId: AgentRunId) =>
 export const catalogBrowseAtom = ContingencyRpcClient.query(
   "catalog.browse.get",
   {}
+);
+
+/**
+ * The recorded cause behind a Failure Reference. The server answers null
+ * unless it logs at debug, so only a debugging user sees a cause.
+ */
+export const failureDetailAtom = Atom.family(
+  (failureReference: FailureReference) =>
+    ContingencyRpcClient.query("failure.detail.get", { failureReference })
 );
 
 /** One Flow package the Flows page reads, per root and name. */

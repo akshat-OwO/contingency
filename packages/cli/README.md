@@ -103,6 +103,8 @@ contingency web --debug
 
 Whatever the terminal shows, every process writes its **Diagnostic Log** at debug level to `~/.contingency/logs`. Each process writes its own file, and Contingency keeps the newest 20 files of up to 10 MB each. The Diagnostic Log never holds what you typed, Variable values, page content, or full URLs. Every logged value passes an allowlist, and an error keeps only its name, code, and stack frames. You can attach a log file to an issue as it is. `--debug` output follows the same rules.
 
+When a failure's cause is not one Contingency can state, such as a device backend error or an internal failure, the Workspace and the agent receive a six-character **Failure Reference** instead of the cause. The Diagnostic Log has one record with that reference, and the process keeps the full cause in memory. Under `--debug`, the Workspace also shows that cause in a collapsed **Cause** beside the reference. An agent never receives the cause.
+
 ### Export spans and metrics
 
 To inspect spans and metrics, point Contingency at an OTLP/HTTP collector. For example, with a local Grafana stack:

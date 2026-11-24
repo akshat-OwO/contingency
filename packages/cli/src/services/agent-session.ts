@@ -2250,15 +2250,13 @@ const makeAgentSession = (
                 )
               ),
             (created) =>
-              fileSystem
-                .remove(created, { recursive: true })
-                .pipe(
-                  Effect.ignore({
-                    log: "Debug",
-                    message:
-                      "Could not remove a temporary Agent Session directory",
-                  })
-                )
+              fileSystem.remove(created, { recursive: true }).pipe(
+                Effect.ignore({
+                  log: "Debug",
+                  message:
+                    "Could not remove a temporary Agent Session directory",
+                })
+              )
           )
         );
         const lockPath = `${directory}/session.lock`;
@@ -2275,14 +2273,12 @@ const makeAgentSession = (
                 )
               ),
             () =>
-              fileSystem
-                .remove(lockPath)
-                .pipe(
-                  Effect.ignore({
-                    log: "Debug",
-                    message: "Could not remove the Agent Session lock",
-                  })
-                )
+              fileSystem.remove(lockPath).pipe(
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not remove the Agent Session lock",
+                })
+              )
           )
         );
       });
@@ -2320,14 +2316,12 @@ const makeAgentSession = (
             prefix: "screenshots-",
           }),
           (created) =>
-            files
-              .remove(created, { recursive: true })
-              .pipe(
-                Effect.ignore({
-                  log: "Debug",
-                  message: "Could not remove the screenshot directory",
-                })
-              )
+            files.remove(created, { recursive: true }).pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not remove the screenshot directory",
+              })
+            )
         )
       ).pipe(
         Effect.mapError((cause) =>

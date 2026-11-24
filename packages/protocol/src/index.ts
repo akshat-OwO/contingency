@@ -53,6 +53,7 @@ import {
   TextScale,
   PermissionDecisions,
 } from "./emulation.ts";
+import { FailureDetailGet, FailureDetailResult } from "./failure-reference.ts";
 import {
   IosWorkspaceCommand,
   IosWorkspaceSnapshot,
@@ -60,6 +61,7 @@ import {
 } from "./ios-workspace.ts";
 import { optionalNullable } from "./optional-field.ts";
 import { IosDeviceSelection } from "./platform.ts";
+import { RpcFailures } from "./rpc-failures.ts";
 import { TeachingScan } from "./scans.ts";
 import {
   BrowserCookieWrite,
@@ -129,7 +131,14 @@ export {
   BrowserRpcError,
   isBrowserRpcError,
   makeBrowserRpcError,
+  withFailureReference,
 } from "./browser-rpc-error.ts";
+export {
+  FailureDetailGet,
+  FailureDetailResult,
+  FailureReference,
+} from "./failure-reference.ts";
+export { RpcFailures } from "./rpc-failures.ts";
 export type {
   BrowserFailureReason as BrowserFailureReasonType,
   BrowserRpcError as BrowserRpcErrorType,
@@ -1091,6 +1100,13 @@ const CatalogNativeRunGetRpc = Rpc.make("catalog.run.native.get", {
   payload: CatalogNativeRunGet,
   success: CatalogNativeRunResult,
 });
+/** The recorded cause of a Failure Reference, shown in the Workspace under debug. */
+const FailureDetailGetRpc = Rpc.make("failure.detail.get", {
+  error: BrowserRpcError,
+  payload: FailureDetailGet,
+  success: FailureDetailResult,
+});
+
 export class ContingencyRpcs extends RpcGroup.make(
   Rpc.make("ios.devices.list", {
     error: BrowserRpcError,
@@ -1266,8 +1282,9 @@ export class ContingencyRpcs extends RpcGroup.make(
   RecordingViewGetRpc,
   CatalogBrowseGetRpc,
   CatalogFlowGetRpc,
-  CatalogNativeRunGetRpc
-) {}
+  CatalogNativeRunGetRpc,
+  FailureDetailGetRpc
+).middleware(RpcFailures) {}
 
 /** Browser devtools operations available only through agent_code_execute. */
 const devtoolsOperationId = Schema.String.check(

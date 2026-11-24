@@ -155,14 +155,12 @@ export const RunVideoRendererLive = Layer.effect(
           if (Number.isInteger(holder) && holder > 0 && isAlive(holder)) {
             return false;
           }
-          yield* fileSystem
-            .remove(file, { force: true })
-            .pipe(
-              Effect.ignore({
-                log: "Debug",
-                message: "Could not remove a stale render lock",
-              })
-            );
+          yield* fileSystem.remove(file, { force: true }).pipe(
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not remove a stale render lock",
+            })
+          );
         }
         return false;
       });
@@ -317,14 +315,12 @@ export const RunVideoRendererLive = Layer.effect(
       Effect.all(
         [FOOTAGE_VIDEO_FILE, FOOTAGE_MANIFEST_FILE, PARTIAL_VIDEO_FILE].map(
           (name) =>
-            fileSystem
-              .remove(path.join(directory, name), { force: true })
-              .pipe(
-                Effect.ignore({
-                  log: "Debug",
-                  message: "Could not remove Run footage",
-                })
-              )
+            fileSystem.remove(path.join(directory, name), { force: true }).pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not remove Run footage",
+              })
+            )
         ),
         { discard: true }
       );

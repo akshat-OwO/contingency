@@ -63,6 +63,7 @@ import type {
 } from "./native-app-runtime-contract.ts";
 import { adaptNativeAppRuntime } from "./native-app-runtime.ts";
 import { makeAgentDeviceScreenRecorder } from "./native-screen-recorder.ts";
+import { tryBackend } from "./platform-runtime-error.ts";
 import type {
   NativeSystemKey,
   PlatformRuntimeError,
@@ -239,11 +240,7 @@ const io = <A>(
   run: (signal: AbortSignal) => Promise<A>,
   operation: NonNullable<PlatformRuntimeError["operation"]>,
   code: PlatformRuntimeError["code"] = "runtime_failed"
-) =>
-  Effect.tryPromise({
-    catch: (cause) => iosAgentDeviceFailure(cause, code, operation),
-    try: run,
-  });
+) => tryBackend(run, (cause) => iosAgentDeviceFailure(cause, code, operation));
 const identities = (
   id: AgentDeviceIdentifiers | undefined,
   udid: string,

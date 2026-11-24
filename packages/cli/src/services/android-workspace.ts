@@ -112,6 +112,8 @@ import type { RecordedTargetAppBuild } from "./teaching-recording-store.ts";
 export interface AndroidWorkspaceError {
   readonly code: string;
   readonly message: string;
+  /** Names the recorded cause when the code does not state it (ADR 0089). */
+  readonly failureReference?: string;
 }
 const error = (code: string, message: string): AndroidWorkspaceError => ({
   code,
@@ -760,6 +762,11 @@ export const makeAndroidWorkspaceLayer = (options: {
                 current.summary.error !== null
                   ? current.summary.error
                   : cause.message,
+              failureReference:
+                cause.code === "preparation_required" &&
+                current.summary.error !== null
+                  ? (current.summary.failureReference ?? null)
+                  : (cause.failureReference ?? null),
               phase: "paused",
             },
           }));
@@ -848,7 +855,12 @@ export const makeAndroidWorkspaceLayer = (options: {
             },
           ],
           ran: true,
-          summary: { ...current.summary, error: null, phase: "running" },
+          summary: {
+            ...current.summary,
+            error: null,
+            failureReference: null,
+            phase: "running",
+          },
         }));
       };
       /**
@@ -1056,14 +1068,12 @@ export const makeAndroidWorkspaceLayer = (options: {
           });
           yield* Scope.addFinalizer(
             scope,
-            store
-              .releaseTargetAppBuild(recordingId)
-              .pipe(
-                Effect.ignore({
-                  log: "Debug",
-                  message: "Could not release the target app build",
-                })
-              )
+            store.releaseTargetAppBuild(recordingId).pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not release the target app build",
+              })
+            )
           );
           const adopted = yield* store.adoptTargetAppBuild({
             platform: "android",

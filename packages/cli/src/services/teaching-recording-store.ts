@@ -586,14 +586,12 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         if (Result.isSuccess(firstAttempt)) {
           return yield* operation.pipe(
             Effect.ensuring(
-              fileSystem
-                .remove(lockPath)
-                .pipe(
-                  Effect.ignore({
-                    log: "Debug",
-                    message: "Could not remove the recording lock",
-                  })
-                )
+              fileSystem.remove(lockPath).pipe(
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not remove the recording lock",
+                })
+              )
             )
           );
         }
@@ -620,14 +618,12 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
         }
         return yield* operation.pipe(
           Effect.ensuring(
-            fileSystem
-              .remove(lockPath)
-              .pipe(
-                Effect.ignore({
-                  log: "Debug",
-                  message: "Could not remove the recording lock",
-                })
-              )
+            fileSystem.remove(lockPath).pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not remove the recording lock",
+              })
+            )
           )
         );
       });
@@ -734,14 +730,12 @@ const makeTeachingRecordingStore = Effect.fn("TeachingRecordingStore.make")(
               )
             ),
             Effect.ensuring(
-              fileSystem
-                .remove(temporary, { force: true })
-                .pipe(
-                  Effect.ignore({
-                    log: "Debug",
-                    message: "Could not remove the temporary manifest",
-                  })
-                )
+              fileSystem.remove(temporary, { force: true }).pipe(
+                Effect.ignore({
+                  log: "Debug",
+                  message: "Could not remove the temporary manifest",
+                })
+              )
             )
           );
         return manifest;

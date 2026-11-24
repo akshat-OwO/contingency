@@ -18,6 +18,7 @@ import { Atom, AsyncResult } from "effect/reactivity";
 import { MessageSquareTextIcon, SmartphoneIcon } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { PausedFailureReference } from "@/components/agent/failure-reference";
 import {
   DockNotices,
   DockNotice,
@@ -918,7 +919,10 @@ export const AndroidSessionView = ({
             />
           }
           status={
-            <DockStatus badges={<AndroidStateBadges session={session} />}>
+            <DockStatus
+              badges={<AndroidStateBadges session={session} />}
+              details={<PausedFailureReference session={session} />}
+            >
               {androidDockPresentation(session).nextStep}
             </DockStatus>
           }

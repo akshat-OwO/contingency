@@ -120,6 +120,8 @@ import type { RecordedTargetAppBuild } from "./teaching-recording-store.ts";
 export interface IosWorkspaceError {
   readonly code: string;
   readonly message: string;
+  /** Names the recorded cause when the code does not state it (ADR 0089). */
+  readonly failureReference?: string;
 }
 const error = (code: string, message: string): IosWorkspaceError => ({
   code,
@@ -754,6 +756,7 @@ export const makeIosWorkspaceLayer = (options: {
                   ? current.summary.captureGaps
                   : [...current.summary.captureGaps, cause.code],
               error: cause.message,
+              failureReference: cause.failureReference ?? null,
               phase: "paused",
               refusal: iosWorkspaceRefusal(cause.code),
             },
@@ -843,6 +846,7 @@ export const makeIosWorkspaceLayer = (options: {
           summary: {
             ...current.summary,
             error: null,
+            failureReference: null,
             phase: "running",
             refusal: null,
           },
@@ -1110,14 +1114,12 @@ export const makeIosWorkspaceLayer = (options: {
           });
           yield* Scope.addFinalizer(
             scope,
-            store
-              .releaseTargetAppBuild(recordingId)
-              .pipe(
-                Effect.ignore({
-                  log: "Debug",
-                  message: "Could not release the target app build",
-                })
-              )
+            store.releaseTargetAppBuild(recordingId).pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not release the target app build",
+              })
+            )
           );
           const adopted = yield* store.adoptTargetAppBuild({
             platform: "ios",

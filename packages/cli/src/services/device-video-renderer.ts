@@ -136,14 +136,12 @@ export const DeviceVideoRendererLive = Layer.effect(
           if (Number.isInteger(holder) && holder > 0 && isAlive(holder)) {
             return false;
           }
-          yield* fileSystem
-            .remove(file, { force: true })
-            .pipe(
-              Effect.ignore({
-                log: "Debug",
-                message: "Could not remove a stale render lock",
-              })
-            );
+          yield* fileSystem.remove(file, { force: true }).pipe(
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not remove a stale render lock",
+            })
+          );
         }
         return false;
       });
@@ -279,14 +277,12 @@ export const DeviceVideoRendererLive = Layer.effect(
           PARTIAL_FILE,
         ],
         (name) =>
-          fileSystem
-            .remove(path.join(folder, name), { force: true })
-            .pipe(
-              Effect.ignore({
-                log: "Debug",
-                message: "Could not remove device footage",
-              })
-            ),
+          fileSystem.remove(path.join(folder, name), { force: true }).pipe(
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not remove device footage",
+            })
+          ),
         { discard: true }
       );
 

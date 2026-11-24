@@ -270,14 +270,12 @@ export const makeDeviceVideoCapture = (input: {
               offset(stoppedAt),
               Math.max(0, startMs)
             );
-            yield* fileSystem
-              .remove(file, { force: true })
-              .pipe(
-                Effect.ignore({
-                  log: "Debug",
-                  message: "Could not remove an oversized device video file",
-                })
-              );
+            yield* fileSystem.remove(file, { force: true }).pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not remove an oversized device video file",
+              })
+            );
             continue;
           }
           total += bytes;

@@ -192,14 +192,12 @@ export const makeAndroidStreamRecorder = (input: {
   let active: ActiveRecording | undefined;
 
   const removeFolder = (directory: string) =>
-    fileSystem
-      .remove(directory, { force: true, recursive: true })
-      .pipe(
-        Effect.ignore({
-          log: "Debug",
-          message: "Could not remove the stream recording folder",
-        })
-      );
+    fileSystem.remove(directory, { force: true, recursive: true }).pipe(
+      Effect.ignore({
+        log: "Debug",
+        message: "Could not remove the stream recording folder",
+      })
+    );
 
   /** Moves a file out of its working folder, beside the session's others. */
   const keep = (recording: ActiveRecording, open: OpenFile, name: string) => {

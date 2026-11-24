@@ -56,14 +56,12 @@ export const clearIosAppData = (
     }
     // cfprefsd caches the app's preferences; deleting the domain drops them.
     // An app that never wrote preferences has no domain to delete.
-    yield* io
-      .device(["spawn", udid, "defaults", "delete", bundleId])
-      .pipe(
-        Effect.ignore({
-          log: "Debug",
-          message: "Could not delete the app's preferences",
-        })
-      );
+    yield* io.device(["spawn", udid, "defaults", "delete", bundleId]).pipe(
+      Effect.ignore({
+        log: "Debug",
+        message: "Could not delete the app's preferences",
+      })
+    );
     yield* fileIo(async () => {
       const entries = await readdir(container);
       await Promise.all(

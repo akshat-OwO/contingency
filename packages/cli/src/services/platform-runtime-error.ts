@@ -1,3 +1,6 @@
+import { Cause, Effect, Result } from "effect";
+
+import { recordFailure } from "./failure-reference.ts";
 import type { PlatformRuntimeError } from "./platform-runtime.ts";
 
 const messages = {
@@ -84,3 +87,49 @@ export const appInstallationRefused = (
   code: "app_installation_refused",
   message: `The device refused to install the Target App build: ${reason}. Nothing was uninstalled, so the installed app and its data are unchanged.`,
 });
+
+/** Failures whose code is the whole story: the device is busy or mid-transition. */
+const SELF_EXPLAINING = new Set<PlatformRuntimeError["code"]>([
+  "capture_incomplete",
+  "device_in_use",
+  "observation_stale",
+]);
+
+/**
+ * Records the backend failure a runtime error replaces, so the error can name
+ * it by Failure Reference. The backend's own message never leaves: it is
+ * logged by its shape and kept whole only in memory (ADR 0089). A failure
+ * whose code or backend reason explains it gets no reference.
+ */
+export const referenceRuntimeFailure = (
+  error: PlatformRuntimeError,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- A rejected backend promise is unknown by definition; it is only logged by shape and kept, never read.
+  cause: unknown
+): Effect.Effect<PlatformRuntimeError> =>
+  error.backendReason !== undefined || SELF_EXPLAINING.has(error.code)
+    ? Effect.succeed(error)
+    : recordFailure(Cause.fail({ ...error, cause }), error.code).pipe(
+        Effect.annotateLogs({ operation: error.operation }),
+        Effect.map((failureReference) => ({ ...error, failureReference }))
+      );
+
+/**
+ * Runs one backend call. Its failure becomes the runtime error `toError`
+ * names, which carries a Failure Reference when its code does not explain it.
+ */
+export const tryBackend = <A>(
+  run: (signal: AbortSignal) => Promise<A>,
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- `toError` is the parser of the backend's unknown rejection.
+  toError: (cause: unknown) => PlatformRuntimeError
+): Effect.Effect<A, PlatformRuntimeError> =>
+  Effect.gen(function* callBackend() {
+    const result = yield* Effect.result(
+      Effect.tryPromise({ catch: (cause) => cause, try: run })
+    );
+    if (Result.isSuccess(result)) {
+      return result.success;
+    }
+    return yield* Effect.fail(
+      yield* referenceRuntimeFailure(toError(result.failure), result.failure)
+    );
+  });

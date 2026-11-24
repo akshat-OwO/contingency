@@ -8,6 +8,7 @@ import { Effect, Option, Schema } from "effect";
 import { Tool, Toolkit } from "effect/ai";
 
 import { AndroidWorkspace } from "./android-workspace.ts";
+import { mcpFailure } from "./failure-seam.ts";
 import { iosUuid } from "./ios-contract.ts";
 import { IosWorkspace } from "./ios-workspace.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
@@ -16,12 +17,12 @@ import { OwnedDevices } from "./owned-devices.ts";
 
 const DeviceWorkspaceFailure = Schema.Struct({
   code: Schema.String,
+  /** Names the recorded cause when the code does not state it (ADR 0089). */
+  failureReference: Schema.optionalKey(Schema.String),
   message: Schema.String,
 });
-const deviceFailure = (cause: typeof DeviceWorkspaceFailure.Type) => ({
-  code: cause.code,
-  message: cause.message,
-});
+const deviceFailure = (cause: typeof DeviceWorkspaceFailure.Type) =>
+  mcpFailure(cause);
 
 const available = <A>(service: Effect.Effect<Option.Option<A>>) =>
   service.pipe(

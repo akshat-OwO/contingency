@@ -42,6 +42,7 @@ import {
   textSnapshot,
 } from "./agent-snapshot-text.ts";
 import { webHost } from "./domain-scope.ts";
+import { mcpFailureText } from "./failure-seam.ts";
 import {
   SessionResult,
   SessionStartResult,
@@ -174,16 +175,24 @@ export class AgentSessionFailure extends Schema.Error<AgentSessionFailure>(
   "AgentSessionFailure"
 )({
   code: Schema.String,
+  failureReference: Schema.optional(Schema.String),
   message: Schema.String,
   reason: Schema.optional(BrowserFailureReason),
 }) {}
 
-export const failure = (cause: AgentSessionError) =>
-  new AgentSessionFailure({
+export const failure = (cause: AgentSessionError) => {
+  const failureReference =
+    cause._tag === "BrowserRpcError" ? cause.failureReference : undefined;
+  return new AgentSessionFailure({
     code: cause.code,
-    message: `${cause.message} (${cause.code})`,
+    failureReference,
+    message: mcpFailureText(
+      `${cause.message} (${cause.code})`,
+      failureReference
+    ),
     reason: cause._tag === "BrowserRpcError" ? cause.reason : undefined,
   });
+};
 
 const AgentBrowserObserveParameters = Schema.Struct({
   sessionId: AgentBrowserObserve.fields.sessionId,

@@ -680,7 +680,7 @@ export const DockStatus = ({
             <PopoverTitle className="sr-only">Status</PopoverTitle>
             <p className="text-[13px] leading-normal text-pretty">{children}</p>
             {details === undefined ? null : (
-              <div className="max-h-56 space-y-3 overflow-y-auto border-t pt-2.5">
+              <div className="max-h-56 space-y-3 overflow-y-auto border-t pt-2.5 empty:hidden">
                 {details}
               </div>
             )}

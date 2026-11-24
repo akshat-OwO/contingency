@@ -9,7 +9,10 @@ import { Option, Schema } from "effect";
  * promise holds whatever the transport threw, and a value whose `message` is
  * an object is what rendered `[object Object]` in the dock (#211).
  */
-const MessageBearingFailure = Schema.Struct({ message: Schema.String });
+const MessageBearingFailure = Schema.Struct({
+  failureReference: Schema.optionalKey(Schema.String),
+  message: Schema.String,
+});
 
 const decodeMessageBearing = Schema.decodeUnknownOption(MessageBearingFailure);
 const decodeString = Schema.decodeUnknownOption(Schema.String);
@@ -33,9 +36,18 @@ export const failureMessage = <Failure>(
   fallback: string
 ): string =>
   decodeMessageBearing(failure).pipe(
-    Option.map(({ message }) => message),
-    Option.orElse(() => decodeString(failure)),
-    Option.flatMap(spoken),
+    Option.flatMap(({ failureReference, message }) =>
+      spoken(message).pipe(
+        // A failure whose cause the server recorded names it, so the user
+        // can report it (ADR 0089).
+        Option.map((sentence) =>
+          failureReference === undefined
+            ? sentence
+            : `${sentence} Failure Reference ${failureReference}.`
+        )
+      )
+    ),
+    Option.orElse(() => decodeString(failure).pipe(Option.flatMap(spoken))),
     Option.getOrElse(() => fallback)
   );
 

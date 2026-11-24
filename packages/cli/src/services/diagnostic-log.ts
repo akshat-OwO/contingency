@@ -226,6 +226,7 @@ const FIELD_KINDS = new Map<string, Render>([
   ["reason", code],
   ["rssCeilingBytes", count],
   ["recordingId", code],
+  ["rpc", code],
   ["runId", code],
   ["scid", code],
   ["serial", code],

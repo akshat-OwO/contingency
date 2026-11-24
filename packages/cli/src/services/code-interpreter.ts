@@ -715,14 +715,12 @@ export const runInterpreterProgram = Effect.fn("runInterpreterProgram")(
         ) {
           yield* Effect.result(child.exitCode).pipe(Effect.timeoutOption(1000));
         }
-        yield* child
-          .kill({ killSignal: "SIGKILL" })
-          .pipe(
-            Effect.ignore({
-              log: "Debug",
-              message: "Could not kill the code interpreter",
-            })
-          );
+        yield* child.kill({ killSignal: "SIGKILL" }).pipe(
+          Effect.ignore({
+            log: "Debug",
+            message: "Could not kill the code interpreter",
+          })
+        );
         const exit = yield* Effect.result(child.exitCode);
         const outcome: InterpreterOutcome = {
           ...ending,

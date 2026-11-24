@@ -218,7 +218,8 @@ const noSilentIgnore = {
     const ignoreImports = new Set();
     const check = (node, name) => {
       const { parent } = node;
-      const called = parent?.type === "CallExpression" && parent.callee === node;
+      const called =
+        parent?.type === "CallExpression" && parent.callee === node;
       if (!(called && logsWithFixedMessage(parent))) {
         context.report({ data: { name }, messageId: "silent", node });
       }

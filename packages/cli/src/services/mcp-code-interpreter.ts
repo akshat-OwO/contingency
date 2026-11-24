@@ -8,7 +8,16 @@ import type {
   AgentSessionSnapshot,
   AndroidWorkspaceSummary as AndroidSummary,
 } from "@contingency/protocol";
-import { Cause, Context, Effect, Layer, Option, Schema, Stream } from "effect";
+import {
+  Cause,
+  Context,
+  Effect,
+  Layer,
+  Option,
+  Predicate,
+  Schema,
+  Stream,
+} from "effect";
 import type { Types } from "effect";
 import { AiError, McpSchema, McpServer, Tool, Toolkit } from "effect/ai";
 import { HttpServerRequest } from "effect/http";
@@ -32,6 +41,8 @@ import {
   ExecutionValues,
   ExecutionValuesLive,
 } from "./execution-values.ts";
+import { recordFailure } from "./failure-reference.ts";
+import { mcpFailureText } from "./failure-seam.ts";
 import { IosWorkspace } from "./ios-workspace.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import { compactMcpValue } from "./mcp-value.ts";
@@ -219,34 +230,47 @@ const INTERNAL_FAILURE =
  * replaced, exactly as McpServer does for a native call.
  */
 const refusalOf = (tool: Tool.Any, cause: Cause.Cause<unknown>) => {
+  // A defect or an undeclared error: the agent gets a reference, never the
+  // cause (ADR 0089).
+  const internal = recordFailure(cause, "internal_failure").pipe(
+    Effect.annotateLogs({ tool: tool.name }),
+    Effect.map((reference) => mcpFailureText(INTERNAL_FAILURE, reference))
+  );
   const failure = Cause.findErrorOption(cause);
   if (Option.isNone(failure) || Cause.hasDies(cause)) {
-    return Effect.logError("MCP tool failed unexpectedly", cause).pipe(
-      Effect.annotateLogs({ tool: tool.name }),
-      Effect.as(INTERNAL_FAILURE)
-    );
+    return internal;
   }
   const error = failure.value;
   if (AiError.isAiError(error)) {
-    return Effect.succeed(error.reason.message);
-  }
-  if (!Schema.is(tool.failureSchema)(error)) {
-    return Effect.logError(
-      "MCP tool failed with an undeclared error",
-      cause
-    ).pipe(
+    // Invalid parameters explain themselves, so they get no reference.
+    return Effect.logInfo("MCP tool parameters refused").pipe(
       Effect.annotateLogs({ tool: tool.name }),
-      Effect.as(INTERNAL_FAILURE)
+      Effect.as(error.reason.message)
     );
   }
+  if (!Schema.is(tool.failureSchema)(error)) {
+    return internal;
+  }
+  const referenced =
+    Predicate.hasProperty(error, "failureReference") &&
+    Predicate.isString(error.failureReference);
+  const refused = referenced
+    ? Effect.void
+    : Effect.logInfo("MCP tool refused").pipe(
+        Effect.annotateLogs({
+          code: Predicate.hasProperty(error, "code") ? error.code : undefined,
+          tool: tool.name,
+        })
+      );
   if (error instanceof Error && error.message !== "") {
-    return Effect.succeed(error.message);
+    return refused.pipe(Effect.as(error.message));
   }
   // SAFETY: a declared failure encodes without services, as McpServer assumes.
   const encoding = Schema.encodeUnknownEffect(tool.failureSchema)(
     error
   ) as Effect.Effect<unknown, Schema.SchemaError>;
-  return encoding.pipe(
+  return refused.pipe(
+    Effect.andThen(encoding),
     Effect.map((encoded) => JSON.stringify(encoded)),
     Effect.orElseSucceed(() => INTERNAL_FAILURE)
   );

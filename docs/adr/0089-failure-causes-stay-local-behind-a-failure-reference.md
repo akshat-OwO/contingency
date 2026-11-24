@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 ---
 
 # Failure causes stay local behind a Failure Reference

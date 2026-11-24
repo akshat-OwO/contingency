@@ -208,14 +208,12 @@ export const makeRunFootage = (
               reason: failure,
             });
           }
-          yield* fileSystem
-            .remove(videoFile, { force: true })
-            .pipe(
-              Effect.ignore({
-                log: "Debug",
-                message: "Could not remove the Run video file",
-              })
-            );
+          yield* fileSystem.remove(videoFile, { force: true }).pipe(
+            Effect.ignore({
+              log: "Debug",
+              message: "Could not remove the Run video file",
+            })
+          );
           return;
         }
         const captured: FootageManifest = {

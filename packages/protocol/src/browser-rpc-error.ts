@@ -1,5 +1,7 @@
 import { Schema } from "effect";
 
+import { FailureReference } from "./failure-reference.ts";
+
 /**
  * Why a browser action failed, in words that never carry what was typed. A
  * sensitive control's failure keeps only this, so a caller can still tell a
@@ -75,7 +77,12 @@ export const BrowserRpcError = Schema.TaggedStruct("BrowserRpcError", {
     // by a version whose Run Summary this one cannot decode.
     "agent_run_invalid",
     "agent_run_not_found",
+    // A defect: the server failed in a way no code above describes. The
+    // Failure Reference names its cause in the server's Diagnostic Log.
+    "internal_failure",
   ]),
+  /** Present when the cause is not fully stated; see ADR 0089. */
+  failureReference: Schema.optionalKey(FailureReference),
   message: Schema.String,
   reason: Schema.optionalKey(BrowserFailureReason),
 });
@@ -90,6 +97,15 @@ export const makeBrowserRpcError = (
   reason === undefined
     ? { _tag: "BrowserRpcError", code, message }
     : { _tag: "BrowserRpcError", code, message, reason };
+
+/** The error, naming the Failure Reference its cause was recorded under. */
+export const withFailureReference = (
+  error: BrowserRpcError,
+  failureReference: FailureReference | null | undefined
+): BrowserRpcError =>
+  failureReference === null || failureReference === undefined
+    ? error
+    : { ...error, failureReference };
 
 export const isBrowserRpcError = (value: unknown): value is BrowserRpcError =>
   typeof value === "object" &&

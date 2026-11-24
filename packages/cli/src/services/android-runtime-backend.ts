@@ -46,7 +46,7 @@ import {
 import { makeAndroidSessionLifecycle } from "./android-session-lifecycle.ts";
 import { androidWindowVisibility } from "./android-stream-contract.ts";
 import { performNativeAppFill } from "./native-app-fill.ts";
-import { platformRuntimeError } from "./platform-runtime-error.ts";
+import { platformRuntimeError, tryBackend } from "./platform-runtime-error.ts";
 import type { PlatformRuntimeError } from "./platform-runtime.ts";
 
 const execute = promisify(execFile);
@@ -124,11 +124,7 @@ const io = <A>(
   operation: (signal: AbortSignal) => Promise<A>,
   code: Parameters<typeof platformRuntimeError>[0] = "runtime_failed",
   step: NonNullable<PlatformRuntimeError["operation"]> = "host-io"
-) =>
-  Effect.tryPromise({
-    catch: (cause) => androidBackendError(cause, code, step),
-    try: operation,
-  });
+) => tryBackend(operation, (cause) => androidBackendError(cause, code, step));
 
 export { performNativeAppFill as performAndroidFill } from "./native-app-fill.ts";
 

@@ -82,6 +82,8 @@ export interface PlatformFillResult {
 
 export interface PlatformRuntimeError {
   readonly _tag: "PlatformRuntimeError";
+  /** Names the recorded cause when the backend's own failure was dropped. */
+  readonly failureReference?: string;
   readonly operation?:
     | "host-io"
     | "open"
@@ -467,14 +469,12 @@ export const makeBrowserRuntimeFactory = (
             input.run
           ),
           (id) =>
-            browser
-              .close(id)
-              .pipe(
-                Effect.ignore({
-                  log: "Debug",
-                  message: "Could not close the browser",
-                })
-              )
+            browser.close(id).pipe(
+              Effect.ignore({
+                log: "Debug",
+                message: "Could not close the browser",
+              })
+            )
         )
       );
       const agentBrowser = yield* factory({
