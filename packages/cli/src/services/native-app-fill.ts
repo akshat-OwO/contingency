@@ -1,35 +1,36 @@
 import { isAgentDeviceError } from "agent-device";
 import { Effect } from "effect";
 
-import { platformRuntimeError } from "./platform-runtime-error.ts";
+import { platformRuntimeError, tryBackend } from "./platform-runtime-error.ts";
 import type { PlatformRuntimeError } from "./platform-runtime.ts";
 
+/**
+ * A fill the SDK refused. One its reason explains is retried or reported by
+ * that reason; any other names its cause by Failure Reference.
+ */
 const fillIo = <A>(
   operation: (signal: AbortSignal) => Promise<A>,
   runtimeError: (code: "runtime_failed") => PlatformRuntimeError
 ) =>
-  Effect.tryPromise({
-    catch: (cause): PlatformRuntimeError => {
-      const error = {
-        ...runtimeError("runtime_failed"),
-        operation: "fill" as const,
-      };
-      if (isAgentDeviceError(cause)) {
-        const reason = cause.details?.reason;
-        if (
-          reason === "ref_generation_mismatch" ||
-          reason === "stale_ref" ||
-          reason === "device_not_found" ||
-          reason === "request_canceled" ||
-          reason === "android_text_input_unverified" ||
-          reason === "input_unverified"
-        ) {
-          return { ...error, backendReason: reason };
-        }
+  tryBackend(operation, (cause): PlatformRuntimeError => {
+    const error = {
+      ...runtimeError("runtime_failed"),
+      operation: "fill" as const,
+    };
+    if (isAgentDeviceError(cause)) {
+      const reason = cause.details?.reason;
+      if (
+        reason === "ref_generation_mismatch" ||
+        reason === "stale_ref" ||
+        reason === "device_not_found" ||
+        reason === "request_canceled" ||
+        reason === "android_text_input_unverified" ||
+        reason === "input_unverified"
+      ) {
+        return { ...error, backendReason: reason };
       }
-      return error;
-    },
-    try: operation,
+    }
+    return error;
   });
 
 /** SDK readback failures acknowledge entry without making the journey fail. */

@@ -1,9 +1,8 @@
-import { spawn } from "node:child_process";
-
 import type { NativeInput } from "@contingency/protocol";
 import { Clock, Effect, Fiber, Scope, Semaphore } from "effect";
 
-import { awaitExit } from "./ffmpeg.ts";
+import { spawnPiped, superviseChild } from "./child-process.ts";
+import type { ChildLike, SupervisedChild } from "./child-process.ts";
 import { verifyIosHidRelease } from "./ios-framebuffer-release.ts";
 import { iosCommand } from "./ios-simctl.ts";
 import { makeWheelFinger, WHEEL_RELEASE_MILLIS } from "./wheel-finger.ts";
@@ -222,15 +221,8 @@ export interface IosHid {
   readonly warm?: () => Effect.Effect<void>;
 }
 
-export interface IosHidProcess {
-  readonly exitCode: number | null;
-  readonly signalCode: NodeJS.Signals | null;
-  readonly kill: (signal: NodeJS.Signals) => boolean;
-  readonly once: (
-    event: "close" | "error",
-    listener: (...args: readonly unknown[]) => void
-  ) => void;
-  readonly stderr: { readonly resume: () => void };
+/** The helper as its protocol sees it; `child-process.ts` owns the rest. */
+export interface IosHidProcess extends ChildLike {
   readonly stdin: {
     readonly end: () => void;
     readonly on: (event: "error", listener: () => void) => void;
@@ -254,7 +246,7 @@ export interface IosHidHost {
 const iosHidHost: IosHidHost = {
   command: iosCommand,
   helper: verifyIosHidRelease,
-  spawn: (helper, args) => spawn(helper, [...args], { stdio: "pipe" }),
+  spawn: spawnPiped,
 };
 
 /**
@@ -266,16 +258,15 @@ export const IOS_HID_READY_TIMEOUT_MILLIS = 15_000;
 const unavailable = () =>
   new Error("The simulator input helper is unavailable. Nothing was sent.");
 
-const isProcessAlive = (owned: IosHidProcess) =>
-  owned.exitCode === null && owned.signalCode === null;
+type IosHidHelper = SupervisedChild<IosHidProcess>;
 
-const stopProcess = async (owned: IosHidProcess) => {
-  if (isProcessAlive(owned)) {
-    owned.stdin.end();
-    owned.kill("SIGTERM");
-    await awaitExit(owned);
-  }
-};
+/** Ends the helper's input, then stops it. */
+const stopHelper = (owned: IosHidHelper) =>
+  Effect.sync(() => {
+    if (owned.running()) {
+      owned.process.stdin.end();
+    }
+  }).pipe(Effect.andThen(owned.stop()), Effect.asVoid);
 
 /** One session's input helper, owned by its scope. */
 export const makeIosHid = (
@@ -284,23 +275,21 @@ export const makeIosHid = (
   host: IosHidHost = iosHidHost
 ): Effect.Effect<IosHid> =>
   Effect.gen(function* acquireIosHid() {
-    let child: IosHidProcess | undefined;
-    const liveProcesses = new Set<IosHidProcess>();
+    let child: IosHidHelper | undefined;
     let closed = false;
     const startLock = Semaphore.makeUnsafe(1);
+    // Each helper's own finalizer, added as it starts, stops it and waits
+    // for it to exit; this one only refuses new helpers.
     yield* Scope.addFinalizer(
       scope,
-      Effect.promise(async () => {
+      Effect.sync(() => {
         closed = true;
         child = undefined;
-        // Keep ownership of every spawned helper (including one interrupted
-        // during warm-up) until its process actually exits.
-        await Promise.all(Array.from(liveProcesses, stopProcess));
       })
     );
     const start = startLock.withPermits(1)(
       Effect.gen(function* startHelper() {
-        if (child !== undefined && isProcessAlive(child)) {
+        if (child !== undefined && child.running()) {
           return child;
         }
         child = undefined;
@@ -319,62 +308,52 @@ export const makeIosHid = (
         if (closed) {
           return yield* Effect.fail(unavailable());
         }
-        const started = host.spawn(helper, [developer.trim(), selected]);
-        liveProcesses.add(started);
-        started.once("close", () => {
-          liveProcesses.delete(started);
+        const started = yield* superviseChild("ios-hid", () =>
+          host.spawn(helper, [developer.trim(), selected])
+        ).pipe(Scope.provide(scope), Effect.mapError(unavailable));
+        const owned = started.process;
+        owned.once("close", () => {
           if (child === started) {
             child = undefined;
           }
         });
-        started.stdin.on("error", () => {
+        owned.stdin.on("error", () => {
           // A helper that exits mid-write fails that forward through its callback.
         });
-        started.stderr.resume();
         let retired = false;
-        const signalTerminate = () => {
-          if (!retired && isProcessAlive(started)) {
-            retired = true;
-            started.stdin.end();
-            started.kill("SIGTERM");
+        const retire = Effect.suspend(() => {
+          if (retired || !started.running()) {
+            return Effect.void;
           }
-        };
+          retired = true;
+          return stopHelper(started).pipe(Effect.forkIn(scope), Effect.asVoid);
+        });
         const ready = yield* Effect.callback<boolean>((resume) => {
           let output = "";
           const onData = (chunk: Buffer) => {
             output += chunk.toString("utf-8");
             if (output.includes("\n")) {
-              started.stdout.off("data", onData);
+              owned.stdout.off("data", onData);
               resume(Effect.succeed(output.startsWith("ready ")));
             }
           };
-          started.stdout.on("data", onData);
-          started.once("close", () => resume(Effect.succeed(false)));
-          started.once("error", () => resume(Effect.succeed(false)));
+          owned.stdout.on("data", onData);
+          owned.once("close", () => resume(Effect.succeed(false)));
+          owned.once("error", () => resume(Effect.succeed(false)));
           return Effect.sync(() => {
-            started.stdout.off("data", onData);
-            signalTerminate();
-          });
+            owned.stdout.off("data", onData);
+          }).pipe(Effect.andThen(retire));
         }).pipe(
           Effect.timeoutOrElse({
             duration: IOS_HID_READY_TIMEOUT_MILLIS,
             orElse: () => Effect.succeed(false),
           })
         );
-        if (!ready || closed || !isProcessAlive(started)) {
-          signalTerminate();
-          if (isProcessAlive(started)) {
-            yield* Effect.promise(() => awaitExit(started)).pipe(
-              Effect.ignore({
-                log: "Debug",
-                message: "Could not wait for the iOS helper to exit",
-              }),
-              Effect.forkIn(scope)
-            );
-          }
+        if (!ready || closed || !started.running()) {
+          yield* retire;
           return yield* Effect.fail(unavailable());
         }
-        started.stdout.resume();
+        owned.stdout.resume();
         child = started;
         return started;
       })
@@ -384,7 +363,7 @@ export const makeIosHid = (
         Effect.gen(function* writeToSimulator() {
           const helper = yield* start;
           yield* Effect.callback<true, Error>((resume) => {
-            helper.stdin.write(lines, (cause) =>
+            helper.process.stdin.write(lines, (cause) =>
               resume(cause ? Effect.fail(unavailable()) : Effect.succeed(true))
             );
           }).pipe(
@@ -392,13 +371,7 @@ export const makeIosHid = (
               if (child === helper) {
                 child = undefined;
               }
-              return Effect.promise(() => stopProcess(helper)).pipe(
-                Effect.ignore({
-                  log: "Debug",
-                  message: "Could not stop the iOS helper",
-                }),
-                Effect.forkIn(scope)
-              );
+              return stopHelper(helper).pipe(Effect.forkIn(scope));
             })
           );
         }),

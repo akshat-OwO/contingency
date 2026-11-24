@@ -3,32 +3,29 @@ import net from "node:net";
 
 import { NodeServices } from "@effect/platform-node";
 import { Effect, FileSystem, Schedule, Schema } from "effect";
-import { ChildProcess, ChildProcessSpawner } from "effect/process";
 
+import { runChildText } from "./child-process.ts";
 import type { LocalSystemOneServer } from "./local-system-one-lifecycle.ts";
 import {
   localSystemOneError,
   LocalSystemOneError,
 } from "./local-system-one.ts";
 
+/**
+ * A host tool's answer, such as `ps`'s. Its exit code is part of the answer:
+ * `ps` exits non-zero for a process that is gone.
+ */
 export const localSystemOneOutput = (
   command: string,
   args: readonly string[]
 ) =>
-  ChildProcessSpawner.ChildProcessSpawner.pipe(
-    Effect.flatMap((spawner) =>
-      spawner.string(
-        ChildProcess.make(command, [...args], {
-          stderr: "ignore",
-          stdin: "ignore",
-        })
-      )
-    )
-  ).pipe(
-    Effect.map((text) => text.trim()),
-    Effect.mapError(localSystemOneError),
-    Effect.provide(NodeServices.layer)
-  );
+  runChildText({
+    args,
+    child: command,
+    command,
+    exitCodeIsAnswer: true,
+    timeoutMs: 30_000,
+  }).pipe(Effect.mapError(localSystemOneError));
 
 const readSystemFile = (file: string) =>
   FileSystem.FileSystem.pipe(

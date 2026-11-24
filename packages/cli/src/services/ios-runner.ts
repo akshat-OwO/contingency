@@ -1,16 +1,42 @@
-import { execFile } from "node:child_process";
 import { readFile, access } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { promisify } from "node:util";
 
-import { Effect, Schema } from "effect";
+import { Effect, Option, Schema } from "effect";
 
 import { androidHelperRelease } from "./android-runtime-contract.ts";
+import { runChild } from "./child-process.ts";
+import type { Recognized } from "./child-process.ts";
 import { iosFailure } from "./ios-contract.ts";
 import { decodeIosJson } from "./ios-simctl.ts";
 
-const execute = promisify(execFile);
+/** agent-device's `--json` refusal: its code and, when it gives one, why. */
+const AgentDeviceRefusal = Schema.fromJsonString(
+  Schema.Struct({
+    error: Schema.Struct({
+      code: Schema.String,
+      details: Schema.optional(
+        Schema.Struct({ reason: Schema.optional(Schema.String) })
+      ),
+    }),
+    success: Schema.Literal(false),
+  })
+);
+const decodeRefusal = Schema.decodeUnknownOption(AgentDeviceRefusal);
+
+/** The codes agent-device printed, never its message. */
+export const recognizeAgentDevice = ({
+  stdout,
+}: {
+  readonly stdout?: string | undefined;
+}): Recognized =>
+  Option.match(decodeRefusal((stdout ?? "").trim()), {
+    onNone: () => ({}),
+    onSome: ({ error }) => ({
+      code: error.code,
+      reason: error.details?.reason,
+    }),
+  });
 /** daemon is process-scoped; --session is invalid for that command. */
 export const iosRunnerArguments = (
   directory: string,
@@ -36,26 +62,23 @@ const runnerCommand = (
       ([key]) => !key.startsWith("AGENT_DEVICE_")
     )
   );
-  return Effect.tryPromise({
-    catch: (cause) => iosFailure("preparation_failed", cause),
-    try: async (signal) => {
-      const running = execute(
-        process.execPath,
-        [
-          path.join(packageRoot, "bin/agent-device.mjs"),
-          ...iosRunnerArguments(directory, udid, args),
-        ],
-        { env, maxBuffer: 16 * 1024 * 1024, signal, timeout: 300_000 }
-      );
-      running.child.stderr?.on("data", (chunk: Buffer) =>
-        process.stderr.write(chunk)
-      );
-      running.child.stdout?.on("data", (chunk: Buffer) =>
-        process.stderr.write(chunk)
-      );
-      await running;
-    },
-  });
+  // Its output stays with the supervision module: the log keeps its codes,
+  // a failure keeps its tail for the Failure Reference.
+  return runChild({
+    args: [
+      path.join(packageRoot, "bin/agent-device.mjs"),
+      ...iosRunnerArguments(directory, udid, args),
+      "--json",
+    ],
+    child: "agent-device",
+    command: process.execPath,
+    env,
+    recognize: recognizeAgentDevice,
+    timeoutMs: 300_000,
+  }).pipe(
+    Effect.asVoid,
+    Effect.mapError((failure) => iosFailure("preparation_failed", failure))
+  );
 };
 /** Stop only the daemon in this session's private state directory. */
 export const stopIosRunner = (directory: string, udid: string) =>

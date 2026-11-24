@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
@@ -13,7 +12,8 @@ import {
 } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
-import { awaitExit } from "./ffmpeg.ts";
+import { spawnPiped, superviseChild } from "./child-process.ts";
+import type { SupervisedChild } from "./child-process.ts";
 import type { IosDevice } from "./ios-contract.ts";
 import { verifyIosFramebufferRelease } from "./ios-framebuffer-release.ts";
 import { iosRuntimeError } from "./ios-runtime.ts";
@@ -139,7 +139,7 @@ export interface IosStreamHost {
 const iosStreamHost: IosStreamHost = {
   command: iosCommand,
   helper: verifyIosFramebufferRelease,
-  spawn: (helper, args) => spawn(helper, [...args], { stdio: "pipe" }),
+  spawn: spawnPiped,
 };
 
 export const acquireIosStream = (
@@ -194,7 +194,7 @@ export const acquireIosStream = (
       ReturnType<typeof iosRuntimeError>
     >();
     const viewers = new Set<(bytes: Uint8Array | null) => void>();
-    let worker: ChildProcessWithoutNullStreams | undefined;
+    let worker: SupervisedChild<ChildProcessWithoutNullStreams> | undefined;
     let revoked = false;
     let closing = false;
     let generation = "";
@@ -262,9 +262,8 @@ export const acquireIosStream = (
         viewers.clear();
         if (worker) {
           const owned = worker;
-          owned.stdin.end("stop\n");
-          owned.kill("SIGTERM");
-          yield* Effect.promise(() => awaitExit(owned));
+          owned.process.stdin.end("stop\n");
+          yield* owned.stop();
         }
       })
     );
@@ -333,15 +332,21 @@ export const acquireIosStream = (
               ReturnType<typeof iosRuntimeError>
             >();
             launched = announced;
-            const child = host.spawn(helper, [
-              developer,
-              selected.udid,
-              display,
-              orientation,
-            ]);
-            worker = child;
+            const framebuffer = yield* superviseChild("ios-framebuffer", () =>
+              host.spawn(helper, [
+                developer,
+                selected.udid,
+                display,
+                orientation,
+              ])
+            ).pipe(
+              Scope.provide(scope),
+              Effect.mapError(() => iosRuntimeError("capture_incomplete"))
+            );
+            const child = framebuffer.process;
+            worker = framebuffer;
             const childFailed = (reason: IosStreamGap = "helper-exited") => {
-              if (worker === child) {
+              if (worker === framebuffer) {
                 failed("capture_incomplete", reason);
               }
             };
@@ -373,7 +378,7 @@ export const acquireIosStream = (
             child.stdin.on("error", () => childFailed());
             child.once("error", () => childFailed());
             child.once("close", (exitCode, signal) => {
-              if (worker === child) {
+              if (worker === framebuffer) {
                 logWith(
                   Effect.logWarning("iOS framebuffer helper closed", {
                     exitCode,
@@ -395,7 +400,7 @@ export const acquireIosStream = (
             child.stdout.setEncoding("utf-8");
             child.stdout.on("data", (chunk: string) => {
               if (
-                worker !== child ||
+                worker !== framebuffer ||
                 revoked ||
                 ["lost", "restarting"].includes(registry.get(transport))
               ) {
@@ -404,7 +409,7 @@ export const acquireIosStream = (
               pending += chunk;
               if (pending.length > 4 * 1024 * 1024) {
                 childFailed();
-                child.kill("SIGTERM");
+                framebuffer.kill("SIGTERM");
                 return;
               }
               let newline = pending.indexOf("\n");
@@ -413,13 +418,13 @@ export const acquireIosStream = (
                 pending = pending.slice(newline + 1);
                 if (packet._tag === "None") {
                   childFailed("invalid-packet");
-                  child.kill("SIGTERM");
+                  framebuffer.kill("SIGTERM");
                   return;
                 }
                 if (packet.value.displayPort !== registry.get(displayBinding)) {
                   if (packet.value.displayPort !== requestedDisplay) {
                     childFailed("display-mismatch");
-                    child.kill("SIGTERM");
+                    framebuffer.kill("SIGTERM");
                     return;
                   }
                   registry.set(displayBinding, requestedDisplay);
@@ -429,7 +434,7 @@ export const acquireIosStream = (
                   !Effect.runSync(integrity.accept(generation, packet.value))
                 ) {
                   childFailed(integrity.failure() ?? "invalid-packet");
-                  child.kill("SIGTERM");
+                  framebuffer.kill("SIGTERM");
                   return;
                 }
                 // A frame proves startup even if stderr's `ready` is still in flight.
@@ -437,7 +442,7 @@ export const acquireIosStream = (
                 clearTimeout(silence);
                 silence = setTimeout(() => {
                   childFailed("stream-silence");
-                  child.kill("SIGTERM");
+                  framebuffer.kill("SIGTERM");
                 }, 10_000);
                 silence.unref();
                 if (requestedDisplay !== null) {
@@ -462,7 +467,7 @@ export const acquireIosStream = (
                 Effect.gen(function* checkBoundDisplay() {
                   yield* Effect.sleep("1 second");
                   if (
-                    worker !== child ||
+                    worker !== framebuffer ||
                     revoked ||
                     registry.get(transport) !== "live"
                   ) {
@@ -478,7 +483,7 @@ export const acquireIosStream = (
                   );
                   // Enumeration can finish after recovery has retired this helper.
                   if (
-                    worker !== child ||
+                    worker !== framebuffer ||
                     revoked ||
                     registry.get(transport) !== "live"
                   ) {
@@ -497,7 +502,7 @@ export const acquireIosStream = (
                       : null;
                   if (!active || !currentOrientation) {
                     childFailed("display-unavailable");
-                    child.kill("SIGTERM");
+                    framebuffer.kill("SIGTERM");
                   } else if (active !== registry.get(displayBinding)) {
                     requestedDisplay = active;
                     ready = Deferred.makeUnsafe<
@@ -518,7 +523,7 @@ export const acquireIosStream = (
               step: () => {
                 // No accumulator: each iteration observes the session atoms.
               },
-              while: () => worker === child && !revoked,
+              while: () => worker === framebuffer && !revoked,
             }).pipe(Effect.forkIn(scope));
           }
           // A hang guard for a helper stuck in startup, not a tuned estimate:
@@ -619,8 +624,7 @@ export const acquireIosStream = (
               registry.set(transport, "restarting");
               if (worker) {
                 const owned = worker;
-                owned.kill("SIGTERM");
-                yield* Effect.promise(() => awaitExit(owned));
+                yield* owned.stop();
                 worker = undefined;
               }
               ready = Deferred.makeUnsafe<

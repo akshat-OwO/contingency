@@ -1,4 +1,3 @@
-import { execFile } from "node:child_process";
 import { createWriteStream } from "node:fs";
 import {
   mkdir,
@@ -12,7 +11,6 @@ import {
 import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
-import { promisify } from "node:util";
 
 import {
   AndroidDiscoveredApp,
@@ -22,7 +20,7 @@ import {
   isAndroidSupportedApi,
 } from "@contingency/protocol";
 import type { AndroidDiscoveredAppsEvent } from "@contingency/protocol";
-import { Effect, Option, Schema, Stream } from "effect";
+import { Cause, Effect, Option, Schema, Stream } from "effect";
 import { yazl } from "playwright-core/lib/utilsBundle";
 
 import {
@@ -30,6 +28,13 @@ import {
   requireAndroidDeviceIdentity,
 } from "./android-device-identity.ts";
 import type { AndroidDeviceSelection } from "./android-runtime-contract.ts";
+import { runChild, runChildText } from "./child-process.ts";
+import type {
+  ChildOutput,
+  ChildProcessFailure,
+  Recognized,
+} from "./child-process.ts";
+import { recordFailure } from "./failure-reference.ts";
 import { platformRuntimeError } from "./platform-runtime-error.ts";
 
 export interface AndroidDiscoveryError {
@@ -39,6 +44,8 @@ export interface AndroidDiscoveryError {
     | "android_app_metadata_unavailable"
     | "android_build_tools_missing";
   readonly message: string;
+  /** Names the recorded cause of a host command that failed unexplained. */
+  readonly failureReference?: string;
 }
 
 export interface CachedAppMetadata {
@@ -80,83 +87,78 @@ const failure = (
   return { code, message };
 };
 
-const MAX_STDERR_CHARS = 200;
+const MAX_DETAIL_CHARS = 200;
 const HOST_TIMEOUT_MS = 30_000;
 const ENRICHMENT_CONCURRENCY = 1;
 const MAX_CACHE_ENTRIES = 500;
 
-const HostExecErrorSchema = Schema.Struct({
-  code: Schema.optional(Schema.Union([Schema.String, Schema.Number])),
-  killed: Schema.optional(Schema.Boolean),
-  message: Schema.optional(Schema.String),
-  signal: Schema.optional(Schema.NullOr(Schema.String)),
-  stderr: Schema.optional(Schema.Union([Schema.String, Schema.Uint8Array])),
-});
-
 const trimDetail = (text: string): string => {
   const singleLine = text.trim().replaceAll(/\s+/gu, " ");
-  if (singleLine.length <= MAX_STDERR_CHARS) {
+  if (singleLine.length <= MAX_DETAIL_CHARS) {
     return singleLine;
   }
-  return `${singleLine.slice(0, MAX_STDERR_CHARS - 1)}…`;
+  return `${singleLine.slice(0, MAX_DETAIL_CHARS - 1)}…`;
 };
 
 const formatCommand = (file: string, args: readonly string[]): string =>
   `${path.basename(file)} ${args.slice(0, 6).join(" ")}`.trim();
 
-const formatExitText = (
-  code: string | number | undefined,
-  signal: string | null | undefined
-): string => {
-  if (code !== undefined) {
+const formatExitText = (code: number | null, signal: string | null): string => {
+  if (code !== null) {
     return ` (exit ${String(code)})`;
   }
-  if (signal) {
+  if (signal !== null) {
     return ` (signal ${signal})`;
   }
   return "";
 };
 
-/** Formats an actionable host-command error without discarding exit/timeout/stderr. */
-export const describeHostError = (
+const DISCONNECTED =
+  /device offline|device '[^']+' not found|no devices\/emulators found|protocol fault|closed/iu;
+
+/** adb's disconnect, recognized in its stderr; the stderr itself stays local. */
+const recognizeAdb = ({ stderr }: ChildOutput): Recognized =>
+  DISCONNECTED.test(stderr) ? { code: "device_disconnected" } : {};
+
+/**
+ * An actionable host-command failure by its shape: what ran and how it
+ * ended. What the command printed stays behind the Failure Reference.
+ */
+export const describeHostFailure = (
   file: string,
   args: readonly string[],
-  cause: unknown,
+  cause: ChildProcessFailure,
   timeoutMs = HOST_TIMEOUT_MS
 ): string => {
   const command = formatCommand(file, args);
-  const parsed = Schema.decodeUnknownOption(HostExecErrorSchema)(cause);
-  if (Option.isNone(parsed)) {
-    return `${command} failed: ${trimDetail(String(cause))}`;
-  }
-  const { code, killed, message, signal, stderr: rawStderr } = parsed.value;
-  const stderrText =
-    rawStderr instanceof Uint8Array
-      ? Buffer.from(rawStderr).toString("utf-8")
-      : (rawStderr ?? "");
-  const stderr = trimDetail(stderrText);
-  if (code === "ENOENT") {
+  if (cause.errno === "ENOENT") {
     return `Could not run ${path.basename(file)}: command not found.`;
   }
-  if (killed === true || code === "ETIMEDOUT") {
+  if (cause.code === "timed_out") {
     return `${command} timed out after ${Math.round(timeoutMs / 1000)}s.`;
   }
-  if (
-    /device offline|device '[^']+' not found|no devices\/emulators found|protocol fault|closed/iu.test(
-      stderr
-    )
-  ) {
-    return `ADB device disconnected during ${command}: ${stderr}`;
+  if (cause.recognized.code === "device_disconnected") {
+    return `ADB device disconnected during ${command}.`;
   }
-  const exitText = formatExitText(code, signal);
-  if (stderr.length > 0) {
-    return `${command} failed${exitText}: ${stderr}`;
-  }
-  const detail = message ? trimDetail(message) : "";
-  return detail.length > 0
-    ? `${command} failed${exitText}: ${detail}`
-    : `${command} failed${exitText}.`;
+  return `${command} failed${formatExitText(cause.exitCode, cause.signal)}.`;
 };
+
+/**
+ * A failed host command as a discovery failure. One that does not explain
+ * itself names a Failure Reference, which keeps the command's output.
+ */
+const hostFailure = (
+  code: "android_discovery_failed" | "android_app_metadata_unavailable",
+  message: string,
+  cause: ChildProcessFailure
+): Effect.Effect<never, AndroidDiscoveryError> =>
+  cause.errno === "ENOENT" || cause.recognized.code === "device_disconnected"
+    ? Effect.fail({ code, message })
+    : recordFailure(Cause.fail(cause), code).pipe(
+        Effect.flatMap((failureReference) =>
+          Effect.fail({ code, failureReference, message })
+        )
+      );
 
 const serialPattern = /^[A-Za-z0-9._:-]+$/u;
 const componentPattern =
@@ -189,20 +191,25 @@ const appLabel = (metadata: string, packageName: string, component: string) => {
   );
 };
 
-const execute = promisify(execFile);
 const host = (file: string, args: readonly string[]) =>
-  Effect.tryPromise({
-    catch: (cause) =>
-      failure("android_discovery_failed", describeHostError(file, args, cause)),
-    try: async (signal) => {
-      const { stdout } = await execute(file, args, {
-        maxBuffer: 16 * 1024 * 1024,
-        signal,
-        timeout: HOST_TIMEOUT_MS,
-      });
-      return stdout.trim();
-    },
-  });
+  runChildText({
+    args,
+    child: path.basename(file),
+    command: file,
+    recognize: recognizeAdb,
+    timeoutMs: HOST_TIMEOUT_MS,
+  }).pipe(
+    Effect.catchTag("ChildProcessFailure", (cause) =>
+      hostFailure(
+        "android_discovery_failed",
+        failure(
+          "android_discovery_failed",
+          describeHostFailure(file, args, cause)
+        ).message,
+        cause
+      )
+    )
+  );
 
 const AndroidAppMetadataCacheEntrySchema = Schema.Struct({
   label: Schema.String,
@@ -407,41 +414,41 @@ const readApk = (serial: string, apk: string) =>
       const local = path.join(directory, "base.apk");
       // Only the manifest and resource table are needed for labels and versions.
       // Stream them out without extracting anything onto the device.
-      yield* Effect.tryPromise({
-        catch: (cause) => ({
+      const extract = (entry: string) =>
+        runChild({
+          args: ["-s", serial, "exec-out", "unzip", "-p", apk, entry],
+          child: "adb",
+          command: "adb",
+          maxOutputBytes: 128 * 1024 * 1024,
+          recognize: recognizeAdb,
+          timeoutMs: HOST_TIMEOUT_MS,
+        }).pipe(
+          Effect.catchTag("ChildProcessFailure", (cause) =>
+            hostFailure(
+              "android_app_metadata_unavailable",
+              describeHostFailure(
+                "adb",
+                ["-s", serial, "exec-out", "unzip", "-p", apk],
+                cause
+              ),
+              cause
+            )
+          )
+        );
+      const manifestBuffer = yield* extract("AndroidManifest.xml");
+      if (manifestBuffer.length === 0) {
+        return yield* Effect.fail({
           code: "android_app_metadata_unavailable" as const,
-          message:
-            cause instanceof Error && cause.name === "TruncatedApkStreamError"
-              ? cause.message
-              : describeHostError(
-                  "adb",
-                  ["-s", serial, "exec-out", "unzip", "-p", apk],
-                  cause
-                ),
+          message: `adb exec-out returned empty AndroidManifest.xml for ${apk} (possible ADB transport drop).`,
+        });
+      }
+      const resourcesBuffer = yield* extract("resources.arsc");
+      yield* Effect.tryPromise({
+        catch: () => ({
+          code: "android_app_metadata_unavailable" as const,
+          message: "Could not write the APK metadata for reading.",
         }),
         try: async (signal) => {
-          const extract = async (entry: string) => {
-            const { stdout } = await execute(
-              "adb",
-              ["-s", serial, "exec-out", "unzip", "-p", apk, entry],
-              {
-                encoding: "buffer",
-                maxBuffer: 128 * 1024 * 1024,
-                signal,
-                timeout: HOST_TIMEOUT_MS,
-              }
-            );
-            return stdout;
-          };
-          const manifestBuffer = await extract("AndroidManifest.xml");
-          if (manifestBuffer.length === 0) {
-            const truncated = new Error(
-              `adb exec-out returned empty AndroidManifest.xml for ${apk} (possible ADB transport drop).`
-            );
-            truncated.name = "TruncatedApkStreamError";
-            throw truncated;
-          }
-          const resourcesBuffer = await extract("resources.arsc");
           const archive = new yazl.ZipFile();
           archive.addBuffer(manifestBuffer, "AndroidManifest.xml");
           if (resourcesBuffer.length > 0) {

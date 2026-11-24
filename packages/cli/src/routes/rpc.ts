@@ -388,7 +388,7 @@ const HandlersLive = ContingencyRpcs.toLayer(
           .devices()
           .pipe(
             Effect.mapError((cause) =>
-              makeBrowserRpcError("agent_session_unavailable", cause.message)
+              rpcFailure("agent_session_unavailable", cause)
             )
           ),
       "android.device.boot": ({ avd }) =>
@@ -412,7 +412,7 @@ const HandlersLive = ContingencyRpcs.toLayer(
           .appsStream(device)
           .pipe(
             Stream.mapError((cause) =>
-              makeBrowserRpcError("agent_session_unavailable", cause.message)
+              rpcFailure("agent_session_unavailable", cause)
             )
           ),
       "android.workspace.command": (command) =>

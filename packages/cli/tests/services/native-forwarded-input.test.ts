@@ -863,7 +863,7 @@ const fakeHidProcess = (options: { readonly exitOnSigterm?: boolean } = {}) => {
     get signalCode() {
       return signalCode;
     },
-    stderr: { resume: () => {} },
+    stderr: { on: () => {} },
     stdin: {
       end: () => {},
       on: () => {},
