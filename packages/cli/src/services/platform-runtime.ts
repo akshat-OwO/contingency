@@ -41,6 +41,11 @@ export interface PlatformObservation {
     readonly role: string;
     readonly name: string;
   }[];
+  /** Pixel dimensions of the observed screen when known without decoding a PNG. */
+  readonly frame?: {
+    readonly width: number;
+    readonly height: number;
+  };
   readonly screenshot: Omit<AgentScreenshot, "url">;
 }
 

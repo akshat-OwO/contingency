@@ -96,6 +96,14 @@ export const makeNativeAppTeachingCapture = <
     actionId: string | null
   ) =>
     Effect.gen(function* retainKeyframe() {
+      if (observation.screenshot.image.length === 0) {
+        return yield* Effect.fail(
+          input.error(
+            "capture_incomplete",
+            "Observation has no screenshot for Teaching keyframe."
+          )
+        );
+      }
       const bytes = Buffer.from(observation.screenshot.image, "base64");
       const current = input.state(session);
       if (current.bytes + bytes.length > 64 * 1024 * 1024) {

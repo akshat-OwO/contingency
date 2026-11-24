@@ -351,6 +351,9 @@ const semanticSignature = (nodes: AndroidObservation["nodes"]) =>
   );
 
 const observationSize = (observation: AndroidObservation) => {
+  if (observation.frame !== undefined) {
+    return observation.frame;
+  }
   const pixels = Buffer.from(observation.screenshot.image, "base64");
   return { height: pixels.readUInt32BE(20), width: pixels.readUInt32BE(16) };
 };
@@ -696,7 +699,10 @@ export const makeAndroidWorkspaceLayer = (options: {
                     capturedAt: captured.screenshot.capturedAt,
                     ...observationSize(captured),
                     id: captured.id,
-                    image: image ? captured.screenshot.image : null,
+                    image:
+                      image && captured.screenshot.image.length > 0
+                        ? captured.screenshot.image
+                        : null,
                     nodes: captured.nodes,
                   },
             pendingDecision: session.boundary.pending()?.decision ?? null,
@@ -1562,7 +1568,7 @@ export const makeAndroidWorkspaceLayer = (options: {
           const actionId = `android-action-${randomUUID()}`;
           const described = describeGesture(gesture, target);
           if (current.recording) {
-            if (before !== null) {
+            if (before !== null && before.screenshot.image.length > 0) {
               yield* keyframe(session, before, actionId);
             }
             yield* emit(session, {
@@ -1643,6 +1649,11 @@ export const makeAndroidWorkspaceLayer = (options: {
             yield* persist(session).pipe(Effect.ignore);
           }
         });
+      /** Whether a mirror observation can become a Teaching or Run keyframe. */
+      const needsScreenshot = (session: Session) => {
+        const current = state(session);
+        return current.recording || current.summary.kind !== "teaching";
+      };
       /**
        * Observes the result of the user's quiet input and records it. An
        * observation that later input overtook is stale and is discarded, so
@@ -1672,7 +1683,9 @@ export const makeAndroidWorkspaceLayer = (options: {
               return true;
             }
             const started = session.lane.observing();
-            const observed = yield* session.run.mirror();
+            const observed = yield* session.run.mirror({
+              image: needsScreenshot(session),
+            });
             if (!session.lane.current(started)) {
               return false;
             }
@@ -1755,6 +1768,8 @@ export const makeAndroidWorkspaceLayer = (options: {
               );
             }
             yield* restartForRecording(session);
+            // Setup gestures made before Start never belong to the recording.
+            session.lane.discard();
             // The device's Emulation at Start is the Flow's starting one.
             const read = yield* readEmulation(session);
             const starting = Option.getOrUndefined(read);
@@ -1791,8 +1806,12 @@ export const makeAndroidWorkspaceLayer = (options: {
               observation: state(session).startingObservation ?? undefined,
               url: "",
             });
+            const started = session.lane.observing();
             const observed = yield* session.run.observe();
-            acceptObservation(session, observed);
+            // Discard any setup or in-flight gestures that began before the
+            // recording's starting observation was accepted.
+            session.lane.discard();
+            acceptObservation(session, observed, { started });
             yield* keyframe(session, observed, null);
           } else {
             const started = session.lane.observing();
@@ -2449,6 +2468,31 @@ export const makeAndroidWorkspaceLayer = (options: {
             // Keep the exact private field observation alive while the user supplies
             // its Variable. The helper rechecks that binding before resolving a value.
             if (source === "user" && current.field?.password === true) {
+              if (
+                command.image &&
+                (current.observation?.screenshot.image.length ?? 0) === 0
+              ) {
+                const boundField = current.field;
+                const mirrored = yield* session.run.mirror({ image: true });
+                acceptObservation(session, mirrored);
+                const matching = mirrored.nodes.find(
+                  (node) =>
+                    node.password &&
+                    node.editable &&
+                    node.role === boundField.role &&
+                    node.name === boundField.name
+                );
+                if (matching !== undefined) {
+                  update(session, (value) => ({
+                    ...value,
+                    field: {
+                      ...boundField,
+                      observationId: mirrored.id,
+                      target: matching.target,
+                    },
+                  }));
+                }
+              }
               return yield* snapshot(session, command.image);
             }
             if (source === "agent") {
@@ -2456,7 +2500,9 @@ export const makeAndroidWorkspaceLayer = (options: {
             } else if (summary.controller === "user") {
               // Forwarded Input that overtakes this observation makes it stale.
               const started = session.lane.observing();
-              const mirrored = yield* session.run.mirror();
+              const mirrored = yield* session.run.mirror({
+                image: command.image || needsScreenshot(session),
+              });
               if (session.lane.current(started)) {
                 const gestures = session.lane.take();
                 acceptObservation(session, mirrored);

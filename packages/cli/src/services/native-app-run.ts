@@ -238,20 +238,20 @@ export const createNativeAppRun = <
         const captured = registry.get(latest);
         return captured === null ? null : structuredClone(captured);
       },
-      mirror: () =>
+      mirror: (options) =>
         lock.withPermits(1)(
           guarded(
             requireRuntime().pipe(
-              Effect.flatMap((active) => active.observe()),
+              Effect.flatMap((active) => active.observe(options)),
               Effect.flatMap((observation) => observed(observation, false))
             )
           )
         ),
-      observe: () =>
+      observe: (options) =>
         lock.withPermits(1)(
           guarded(
             requireRuntime().pipe(
-              Effect.flatMap((active) => active.observe()),
+              Effect.flatMap((active) => active.observe(options)),
               Effect.flatMap((observation) => observed(observation))
             )
           )

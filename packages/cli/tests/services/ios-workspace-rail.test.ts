@@ -98,18 +98,27 @@ it.effect(
       // When set, the observer cannot name the app in front.
       let unknown = false;
       let recoveries = 0;
-      const capture = () =>
+      const captureImages: boolean[] = [];
+      let hidWarms = 0;
+      const capture = (options?: { readonly image?: boolean }) =>
         Effect.suspend(() =>
           unknown
             ? Effect.fail(iosRuntimeError("foreground_app_unknown"))
             : Effect.void
         ).pipe(
           Effect.map((): IosObservation => {
+            const includeImage = options?.image !== false;
+            captureImages.push(includeImage);
             generation += 1;
+            const dimensions =
+              device.orientation === "landscape"
+                ? { height: 1206, width: 2622 }
+                : { height: 2622, width: 1206 };
             return {
               appId: device.app,
               backendSessionId: "fixture-session",
               device: simulator,
+              frame: dimensions,
               generation,
               id: `observation-${generation}`,
               nodes: [
@@ -131,7 +140,7 @@ it.effect(
                 capturedAt: "2026-11-15T00:00:00.000Z",
                 encoding: "base64",
                 format: "png",
-                image: screenshot(device.orientation),
+                image: includeImage ? screenshot(device.orientation) : "",
               },
             };
           })
@@ -188,7 +197,14 @@ it.effect(
         acquireStream: () => Effect.succeed(fakeStream()),
         booted: () => Effect.succeed(true),
         createRun,
-        makeHid: () => Effect.succeed({ forward: () => Effect.void }),
+        makeHid: () =>
+          Effect.succeed({
+            forward: () => Effect.void,
+            warm: () =>
+              Effect.sync(() => {
+                hidWarms += 1;
+              }),
+          }),
         root: () => root,
         simctl: (args) =>
           Effect.sync(() => {
@@ -238,7 +254,21 @@ it.effect(
           );
         };
         yield* run((fields) => ({ _tag: "prepare", ...fields }));
+        // Preparing the simulator pre-warms the HID helper and skips screenshots on non-recording observations.
+        expect(hidWarms).toBe(1);
+        const setupObserved = yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId: started.id },
+          "user"
+        );
+        expect(setupObserved.observation?.image).toBeNull();
+        expect(captureImages.at(-1)).toBe(false);
         yield* run((fields) => ({ _tag: "record", ...fields, start: true }));
+        const recordingObserved = yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId: started.id },
+          "user"
+        );
+        expect(recordingObserved.observation?.image).toBeNull();
+        expect(captureImages.at(-1)).toBe(true);
         if (started.recordingId === null) {
           return yield* Effect.die("Teaching must own a recording");
         }

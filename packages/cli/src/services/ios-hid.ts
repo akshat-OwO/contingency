@@ -1,5 +1,4 @@
 import { spawn } from "node:child_process";
-import type { ChildProcessWithoutNullStreams } from "node:child_process";
 
 import type { NativeInput } from "@contingency/protocol";
 import { Clock, Effect, Fiber, Scope, Semaphore } from "effect";
@@ -216,15 +215,38 @@ export interface IosHid {
   readonly forward: (
     inputs: readonly NativeInput[]
   ) => Effect.Effect<void, Error>;
+  /** Starts the helper in the background so the first user input has no cold start. */
+  readonly warm?: () => Effect.Effect<void>;
+}
+
+export interface IosHidProcess {
+  readonly exitCode: number | null;
+  readonly signalCode: NodeJS.Signals | null;
+  readonly kill: (signal: NodeJS.Signals) => boolean;
+  readonly once: (
+    event: "close" | "error",
+    listener: (...args: readonly unknown[]) => void
+  ) => void;
+  readonly stderr: { readonly resume: () => void };
+  readonly stdin: {
+    readonly end: () => void;
+    readonly on: (event: "error", listener: () => void) => void;
+    readonly write: (
+      chunk: string,
+      done: (error?: Error | null) => void
+    ) => void;
+  };
+  readonly stdout: {
+    readonly off: (event: "data", listener: (chunk: Buffer) => void) => void;
+    readonly on: (event: "data", listener: (chunk: Buffer) => void) => void;
+    readonly resume: () => void;
+  };
 }
 
 export interface IosHidHost {
   readonly command: typeof iosCommand;
   readonly helper: typeof verifyIosHidRelease;
-  readonly spawn: (
-    helper: string,
-    args: readonly string[]
-  ) => ChildProcessWithoutNullStreams;
+  readonly spawn: (helper: string, args: readonly string[]) => IosHidProcess;
 }
 const iosHidHost: IosHidHost = {
   command: iosCommand,
@@ -235,66 +257,90 @@ const iosHidHost: IosHidHost = {
 const unavailable = () =>
   new Error("The simulator input helper is unavailable. Nothing was sent.");
 
+const stopProcess = async (owned: IosHidProcess) => {
+  if (owned.exitCode === null) {
+    owned.stdin.end();
+    owned.kill("SIGTERM");
+    await awaitExit(owned);
+  }
+};
+
 /** One session's input helper, owned by its scope. */
 export const makeIosHid = (
   udid: () => string | null,
   scope: Scope.Scope,
   host: IosHidHost = iosHidHost
-) =>
+): Effect.Effect<IosHid> =>
   Effect.gen(function* acquireIosHid() {
-    let child: ChildProcessWithoutNullStreams | undefined;
+    let child: IosHidProcess | undefined;
+    const liveProcesses = new Set<IosHidProcess>();
     let closed = false;
+    const startLock = Semaphore.makeUnsafe(1);
     yield* Scope.addFinalizer(
       scope,
       Effect.promise(async () => {
         closed = true;
-        const owned = child;
         child = undefined;
-        if (owned !== undefined && owned.exitCode === null) {
-          owned.stdin.end();
-          owned.kill("SIGTERM");
-          await awaitExit(owned);
-        }
+        // Keep ownership of every spawned helper (including one interrupted
+        // during warm-up) until its process actually exits.
+        await Promise.all(Array.from(liveProcesses, stopProcess));
       })
     );
-    const start = Effect.gen(function* startHelper() {
-      if (child !== undefined && child.exitCode === null) {
-        return child;
-      }
-      const selected = udid();
-      if (closed || selected === null) {
-        return yield* Effect.fail(unavailable());
-      }
-      const helper = yield* host.helper().pipe(Effect.mapError(unavailable));
-      const developer = yield* host
-        .command("xcode-select", ["-p"])
-        .pipe(Effect.mapError(unavailable));
-      const started = host.spawn(helper, [developer.trim(), selected]);
-      started.stdin.on("error", () => {
-        // A helper that exits mid-write fails that forward through its callback.
-      });
-      started.stderr.resume();
-      const ready = yield* Effect.callback<boolean>((resume) => {
-        let output = "";
-        const onData = (chunk: Buffer) => {
-          output += chunk.toString("utf-8");
-          if (output.includes("\n")) {
+    const start = startLock.withPermits(1)(
+      Effect.gen(function* startHelper() {
+        if (child !== undefined && child.exitCode === null) {
+          return child;
+        }
+        const selected = udid();
+        if (closed || selected === null) {
+          return yield* Effect.fail(unavailable());
+        }
+        const helper = yield* host.helper().pipe(Effect.mapError(unavailable));
+        const developer = yield* host
+          .command("xcode-select", ["-p"])
+          .pipe(Effect.mapError(unavailable));
+        if (closed) {
+          return yield* Effect.fail(unavailable());
+        }
+        const started = host.spawn(helper, [developer.trim(), selected]);
+        liveProcesses.add(started);
+        started.once("close", () => {
+          liveProcesses.delete(started);
+        });
+        started.stdin.on("error", () => {
+          // A helper that exits mid-write fails that forward through its callback.
+        });
+        started.stderr.resume();
+        const ready = yield* Effect.callback<boolean>((resume) => {
+          let output = "";
+          const onData = (chunk: Buffer) => {
+            output += chunk.toString("utf-8");
+            if (output.includes("\n")) {
+              started.stdout.off("data", onData);
+              resume(Effect.succeed(output.startsWith("ready ")));
+            }
+          };
+          started.stdout.on("data", onData);
+          started.once("close", () => resume(Effect.succeed(false)));
+          started.once("error", () => resume(Effect.succeed(false)));
+          return Effect.sync(() => {
             started.stdout.off("data", onData);
-            resume(Effect.succeed(output.startsWith("ready ")));
+            if (started.exitCode === null) {
+              started.kill("SIGTERM");
+            }
+          });
+        });
+        if (!ready || closed) {
+          if (started.exitCode === null) {
+            started.kill("SIGTERM");
           }
-        };
-        started.stdout.on("data", onData);
-        started.once("close", () => resume(Effect.succeed(false)));
-        started.once("error", () => resume(Effect.succeed(false)));
-      });
-      if (!ready) {
-        started.kill("SIGTERM");
-        return yield* Effect.fail(unavailable());
-      }
-      started.stdout.resume();
-      child = started;
-      return started;
-    });
+          return yield* Effect.fail(unavailable());
+        }
+        started.stdout.resume();
+        child = started;
+        return started;
+      })
+    );
     const writer = makeIosHidWriter(
       (lines) =>
         Effect.gen(function* writeToSimulator() {
@@ -309,5 +355,12 @@ export const makeIosHid = (
     );
     return {
       forward: writer.forward,
+      warm: () =>
+        start.pipe(
+          Effect.asVoid,
+          Effect.ignore,
+          Effect.forkIn(scope),
+          Effect.asVoid
+        ),
     } satisfies IosHid;
   });

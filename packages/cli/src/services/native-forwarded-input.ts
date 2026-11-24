@@ -221,6 +221,12 @@ export const makeGestureRecognizer = () => {
     flush: (): RecognizedGesture[] => [...settleTyping(), ...settleScroll()],
     /** Whether a touch is still held. */
     holding: () => touch !== undefined,
+    /** Drops every in-progress gesture, including a held touch. */
+    reset: () => {
+      touch = undefined;
+      scroll = undefined;
+      typed = undefined;
+    },
   };
 };
 export type GestureRecognizer = ReturnType<typeof makeGestureRecognizer>;

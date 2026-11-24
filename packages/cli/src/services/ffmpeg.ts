@@ -1,6 +1,11 @@
-import type { ChildProcess } from "node:child_process";
-
 import { registry as playwrightRegistry } from "playwright-core/lib/coreBundle";
+
+export interface ExitProcess {
+  readonly exitCode: number | null;
+  readonly signalCode: NodeJS.Signals | null;
+  readonly kill: (signal: NodeJS.Signals) => boolean;
+  readonly once: (event: "close" | "error", listener: () => void) => void;
+}
 
 /**
  * How long a finalizing encoder may take to flush and exit before it is
@@ -24,7 +29,7 @@ export const findFfmpeg = (): string => {
 };
 
 /** Wait for ffmpeg to flush and exit, killing it if it overstays. */
-export const awaitExit = (process: ChildProcess): Promise<void> =>
+export const awaitExit = (process: ExitProcess): Promise<void> =>
   // oxlint-disable-next-line promise/avoid-new -- ChildProcess has no exit Promise.
   new Promise((resolve) => {
     if (process.exitCode !== null || process.signalCode !== null) {

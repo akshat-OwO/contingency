@@ -64,6 +64,7 @@ export const makeForwardedLane = <
 }) => {
   const recognizer = makeGestureRecognizer();
   const order = Semaphore.makeUnsafe(1);
+  let epoch = 0;
   let sequence = 0;
   /** The sequence when the latest accepted observation began. */
   let observedSequence = -1;
@@ -104,24 +105,30 @@ export const makeForwardedLane = <
     current: (started: number) => sequence === started,
     /** Forgets gestures nobody will record, such as setup before Start. */
     discard: () => {
-      recognizer.flush();
+      epoch += 1;
+      recognizer.reset();
       pending = [];
     },
     /** Sends input to the device, then records the gestures it completed. */
     forward: (inputs: readonly NativeInput[]) =>
-      order.withPermits(1)(
-        Effect.gen(function* forwardInput() {
-          yield* input.send(inputs);
-          lastInputAt = yield* Clock.currentTimeMillis;
-          dirty = true;
-          for (const value of inputs) {
-            sequence += 1;
-            for (const recognized of recognizer.feed(value, sequence)) {
-              attribute(recognized);
+      Effect.suspend(() => {
+        const startedEpoch = epoch;
+        return order.withPermits(1)(
+          Effect.gen(function* forwardInput() {
+            yield* input.send(inputs);
+            lastInputAt = yield* Clock.currentTimeMillis;
+            dirty = true;
+            for (const value of inputs) {
+              sequence += 1;
+              if (startedEpoch === epoch) {
+                for (const recognized of recognizer.feed(value, sequence)) {
+                  attribute(recognized);
+                }
+              }
             }
-          }
-        })
-      ),
+          })
+        );
+      }),
     /**
      * Marks an observation that began at `started` as the latest one. Take
      * the gestures waiting on it first, so typing and scrolling in progress

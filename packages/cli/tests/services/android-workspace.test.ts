@@ -129,6 +129,8 @@ const fixture = (
   test: (input: {
     readonly root: string;
     readonly calls: string[];
+    /** Whether each backend capture requested a screenshot PNG (default true). */
+    readonly captureImages: boolean[];
     readonly resolved: string[];
     readonly secure: () => void;
     readonly disconnect: () => void;
@@ -188,6 +190,7 @@ const fixture = (
         prefix: "android-workspace-test-",
       });
       const calls: string[] = [];
+      const captureImages: boolean[] = [];
       const resolved: string[] = [];
       const forwarded: NativeInput[][] = [];
       const touches: TouchRecord[] = [];
@@ -260,7 +263,7 @@ const fixture = (
           Effect.sync(() => {
             calls.push("activate");
           }),
-        capture: () =>
+        capture: (captureOptions) =>
           Effect.suspend(() => {
             if (incompleteUntilRecover || incompleteCaptures > 0) {
               incompleteCaptures = Math.max(0, incompleteCaptures - 1);
@@ -280,6 +283,8 @@ const fixture = (
                 );
           }).pipe(
             Effect.map((): AndroidObservation => {
+              const includeImage = captureOptions?.image !== false;
+              captureImages.push(includeImage);
               generation += 1;
               boundNodes = customNodes;
               return {
@@ -291,6 +296,7 @@ const fixture = (
                   windowCount: 1,
                 },
                 device: selection.device,
+                frame: { height: 1, width: 1 },
                 generation,
                 id: `observation-${generation}`,
                 nodes: customNodes ?? [
@@ -326,7 +332,7 @@ const fixture = (
                   capturedAt: "2026-10-13T00:00:00.000Z",
                   encoding: "base64",
                   format: "png",
-                  image,
+                  image: includeImage ? image : "",
                 },
               };
             })
@@ -483,6 +489,7 @@ const fixture = (
         adbCalls,
         builds,
         calls,
+        captureImages,
         device,
         disconnect: () => {
           connected = false;
@@ -4469,6 +4476,162 @@ it.effect(
           nightMode: "yes",
           skinTurns: 3,
         });
+      })
+    )
+);
+
+it.effect(
+  "skips screenshots during non-recording Teaching observations and keeps them while recording or in Runs",
+  () =>
+    fixture(({ captureImages }) =>
+      Effect.gen(function* skipScreenshotsOutsideRecording() {
+        const workspace = yield* AndroidWorkspace;
+        const started = yield* workspace.execute(
+          {
+            _tag: "start",
+            flowName,
+            kind: "teaching",
+            operationId: op("shot-start"),
+            prepareAndOpen: true,
+            recordingId: null,
+            selection,
+          },
+          "user"
+        );
+        // Initial preparation capture takes a screenshot to establish screen size.
+        expect(captureImages).toEqual([true]);
+        // Setup idle observation with image: false skips the screenshot.
+        const setupObs = yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId: started.id },
+          "user"
+        );
+        expect(setupObs.observation?.image).toBeNull();
+        expect(setupObs.observation?.width).toBe(1);
+        expect(captureImages).toEqual([true, false]);
+        // Explicit image: true still captures a screenshot.
+        const explicitObs = yield* workspace.execute(
+          { _tag: "observe", image: true, sessionId: started.id },
+          "user"
+        );
+        expect(explicitObs.observation?.image).toBe(image);
+        expect(captureImages).toEqual([true, false, true]);
+        // Forwarded input settling outside recording skips the screenshot.
+        yield* workspace.forward(
+          {
+            inputs: [
+              { _tag: "touch", action: "down", at: 0, x: 0.5, y: 0.5 },
+              { _tag: "touch", action: "up", at: 10, x: 0.5, y: 0.5 },
+            ],
+            sessionId: started.id,
+          },
+          "user"
+        );
+        yield* TestClock.adjust(SETTLE_MILLIS * 2);
+        expect(captureImages).toEqual([true, false, true, false]);
+        // An unsettled setup gesture AND a held setup touch right before Start
+        // are discarded so neither leaks into the recording or fails keyframing.
+        yield* workspace.forward(
+          {
+            inputs: [
+              { _tag: "touch", action: "down", at: 20, x: 0.5, y: 0.5 },
+              { _tag: "touch", action: "up", at: 30, x: 0.5, y: 0.5 },
+              { _tag: "touch", action: "down", at: 40, x: 0.5, y: 0.5 },
+            ],
+            sessionId: started.id,
+          },
+          "user"
+        );
+        // Start recording takes a fresh screenshot and keeps screenshots on idle/settle observations for keyframes.
+        yield* workspace.execute(
+          {
+            _tag: "record",
+            operationId: op("shot-rec-start"),
+            sessionId: started.id,
+            start: true,
+          },
+          "user"
+        );
+        expect(captureImages).toEqual([true, false, true, false, true]);
+        // Releasing the pre-Start held touch after Start must not record an action.
+        yield* workspace.forward(
+          {
+            inputs: [{ _tag: "touch", action: "up", at: 50, x: 0.5, y: 0.5 }],
+            sessionId: started.id,
+          },
+          "user"
+        );
+        const recordingObs = yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId: started.id },
+          "user"
+        );
+        expect(recordingObs.observation?.image).toBeNull();
+        expect(captureImages).toEqual([true, false, true, false, true, true]);
+        // Stop recording takes the final screenshot; post-stop idle observations skip screenshots again.
+        const stopped = yield* workspace.execute(
+          {
+            _tag: "record",
+            operationId: op("shot-rec-stop"),
+            sessionId: started.id,
+            start: false,
+          },
+          "user"
+        );
+        expect(captureImages.at(-1)).toBe(true);
+        // Verify the emitted Timeline recorded zero leaked setup gestures.
+        if (stopped.recordingId === null) {
+          return yield* Effect.die("Recording missing.");
+        }
+        const store = yield* TeachingRecordingStore;
+        const learning = yield* TeachingRecordingLearning;
+        yield* store.startLearning({
+          operationId: op("shot-claim"),
+          recordingId: stopped.recordingId,
+        });
+        const timeline = yield* learning.timeline({
+          claimOperationId: op("shot-claim"),
+          cursor: 0,
+          recordingId: stopped.recordingId,
+        });
+        expect(
+          timeline.entries.filter((event) => event._tag === "action")
+        ).toEqual([]);
+        yield* learning.save({
+          claimOperationId: op("shot-claim"),
+          files: [{ content: flow, path: "flow.md" }],
+          operationId: op("shot-save"),
+          recordingId: stopped.recordingId,
+        });
+        const postStopCount = captureImages.length;
+        yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId: started.id },
+          "user"
+        );
+        expect(captureImages.slice(postStopCount)).toEqual([false]);
+        yield* workspace.execute(
+          {
+            _tag: "close",
+            operationId: op("shot-close"),
+            sessionId: started.id,
+          },
+          "user"
+        );
+        // A Dry Run keeps screenshots on user observe(image: false) for Run Summary keyframes.
+        const dry = yield* dryRun(stopped.recordingId);
+        yield* workspace.execute(
+          {
+            _tag: "control",
+            controller: "user",
+            operationId: op("shot-dry-takeover"),
+            sessionId: dry.id,
+          },
+          "user"
+        );
+        const beforeDryObserve = captureImages.length;
+        yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId: dry.id },
+          "user"
+        );
+        expect(captureImages.slice(beforeDryObserve)).toEqual([true]);
       })
     )
 );

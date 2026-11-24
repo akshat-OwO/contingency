@@ -4,6 +4,7 @@ import type { nativeAppRuntimeError } from "./native-app-error.ts";
 import type {
   NativeAppRuntime,
   NativeAppRuntimeStartInput,
+  NativeCaptureOptions,
 } from "./native-app-runtime-contract.ts";
 import type { NativeScreenRecorder } from "./native-screen-recorder.ts";
 import type {
@@ -74,7 +75,9 @@ export interface NativeAppRunState<
 }
 
 export interface NativeAppRun<Observation extends PlatformObservation, State> {
-  readonly mirror: () => Effect.Effect<Observation, PlatformRuntimeError>;
+  readonly mirror: (
+    options?: NativeCaptureOptions
+  ) => Effect.Effect<Observation, PlatformRuntimeError>;
   /**
    * The runtime's latest capture: the only observation input may name. A
    * mirror that later input overtook is still the latest here.

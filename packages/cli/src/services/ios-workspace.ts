@@ -322,6 +322,9 @@ const semanticSignature = (nodes: IosObservation["nodes"]) =>
   );
 
 const observationSize = (observation: IosObservation) => {
+  if (observation.frame !== undefined) {
+    return observation.frame;
+  }
   const pixels = Buffer.from(observation.screenshot.image, "base64");
   return { height: pixels.readUInt32BE(20), width: pixels.readUInt32BE(16) };
 };
@@ -670,7 +673,10 @@ export const makeIosWorkspaceLayer = (options: {
                     capturedAt: captured.screenshot.capturedAt,
                     ...observationSize(captured),
                     id: captured.id,
-                    image: image ? captured.screenshot.image : null,
+                    image:
+                      image && captured.screenshot.image.length > 0
+                        ? captured.screenshot.image
+                        : null,
                     nodes: captured.nodes,
                   },
             pendingDecision: session.boundary.pending()?.decision ?? null,
@@ -1488,7 +1494,7 @@ export const makeIosWorkspaceLayer = (options: {
           const actionId = `ios-action-${randomUUID()}`;
           const described = describeGesture(gesture, target);
           if (current.recording) {
-            if (before !== null) {
+            if (before !== null && before.screenshot.image.length > 0) {
               yield* keyframe(session, before, actionId);
             }
             yield* emit(session, {
@@ -1573,6 +1579,11 @@ export const makeIosWorkspaceLayer = (options: {
             yield* persist(session).pipe(Effect.ignore);
           }
         });
+      /** Whether a mirror observation can become a Teaching or Run keyframe. */
+      const needsScreenshot = (session: Session) => {
+        const current = state(session);
+        return current.recording || current.summary.kind !== "teaching";
+      };
       /**
        * Observes the result of the user's quiet input and records it. An
        * observation that later input overtook is stale and is discarded, so
@@ -1602,7 +1613,9 @@ export const makeIosWorkspaceLayer = (options: {
               return true;
             }
             const started = session.lane.observing();
-            const observed = yield* session.run.mirror();
+            const observed = yield* session.run.mirror({
+              image: needsScreenshot(session),
+            });
             if (!session.lane.current(started)) {
               return false;
             }
@@ -1729,6 +1742,7 @@ export const makeIosWorkspaceLayer = (options: {
           );
           acceptObservation(session, prepared);
           yield* readEmulation(session);
+          yield* session.hid.warm?.() ?? Effect.void;
           return prepared;
         });
       const recordWorkspace = (
@@ -1758,6 +1772,8 @@ export const makeIosWorkspaceLayer = (options: {
               );
             }
             yield* restartForRecording(session);
+            // Setup gestures made before Start never belong to the recording.
+            session.lane.discard();
             if (!(yield* session.stream.begin())) {
               return yield* denied("The iOS mirror is not ready for capture.");
             }
@@ -1798,8 +1814,12 @@ export const makeIosWorkspaceLayer = (options: {
               observation: state(session).startingObservation ?? undefined,
               url: "",
             });
+            const started = session.lane.observing();
             const observed = yield* session.run.observe();
-            acceptObservation(session, observed);
+            // Discard any setup or in-flight gestures that began before the
+            // recording's starting observation was accepted.
+            session.lane.discard();
+            acceptObservation(session, observed, { started });
             yield* keyframe(session, observed, null);
           } else {
             const started = session.lane.observing();
@@ -2477,6 +2497,7 @@ export const makeIosWorkspaceLayer = (options: {
             if (!home) {
               yield* session.stream.recover();
             }
+            yield* session.hid.warm?.() ?? Effect.void;
           } else if (command._tag === "observe") {
             if (
               summary.phase === "paused" &&
@@ -2491,6 +2512,31 @@ export const makeIosWorkspaceLayer = (options: {
             }
             // Retain the selected field while the user supplies its Variable.
             if (source === "user" && current.field?.password === true) {
+              if (
+                command.image &&
+                (current.observation?.screenshot.image.length ?? 0) === 0
+              ) {
+                const boundField = current.field;
+                const mirrored = yield* session.run.mirror({ image: true });
+                acceptObservation(session, mirrored);
+                const matching = mirrored.nodes.find(
+                  (node) =>
+                    node.password &&
+                    node.editable &&
+                    node.role === boundField.role &&
+                    node.name === boundField.name
+                );
+                if (matching !== undefined) {
+                  update(session, (value) => ({
+                    ...value,
+                    field: {
+                      ...boundField,
+                      observationId: mirrored.id,
+                      target: matching.target,
+                    },
+                  }));
+                }
+              }
               return yield* snapshot(session, command.image);
             }
             if (source === "agent") {
@@ -2498,7 +2544,9 @@ export const makeIosWorkspaceLayer = (options: {
             } else if (summary.controller === "user") {
               // Forwarded Input that overtakes this observation makes it stale.
               const started = session.lane.observing();
-              const mirrored = yield* session.run.mirror();
+              const mirrored = yield* session.run.mirror({
+                image: command.image || needsScreenshot(session),
+              });
               if (session.lane.current(started)) {
                 const gestures = session.lane.take();
                 acceptObservation(session, mirrored);

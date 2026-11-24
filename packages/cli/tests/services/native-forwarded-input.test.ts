@@ -1,6 +1,6 @@
 import type { NativeInput } from "@contingency/protocol";
 import { expect, it } from "@effect/vitest";
-import { Clock, Deferred, Effect, Fiber } from "effect";
+import { Clock, Deferred, Effect, Exit, Fiber, Scope } from "effect";
 import { TestClock } from "effect/testing";
 
 import {
@@ -10,9 +10,11 @@ import {
 import {
   iosHidCommands,
   iosKeyUsage,
+  makeIosHid,
   makeIosHidWriter,
   MOVE_SPACING_MILLIS,
 } from "../../src/services/ios-hid.ts";
+import type { IosHidHost, IosHidProcess } from "../../src/services/ios-hid.ts";
 import {
   iosCapabilities,
   iosRuntimeError,
@@ -695,4 +697,269 @@ it.effect(
         expect(validations).toBe(3);
       })
     )
+);
+
+it.effect(
+  "forwards screenshot options to backend capture while keeping default screenshots on observe and recover",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* screenshotOptions() {
+        const scope = yield* Effect.scope;
+        const requested: (boolean | undefined)[] = [];
+        let generation = 0;
+        const runtime = yield* adaptNativeAppRuntime({
+          backend: {
+            activate: () => Effect.void,
+            capture: (options) =>
+              Effect.sync(() => {
+                requested.push(options?.image);
+                generation += 1;
+                return {
+                  frame: { height: 2424, width: 1080 },
+                  id: `obs-${generation}`,
+                  nodes: [],
+                  platform: "android" as const,
+                  screenshot: {
+                    capturedAt: "now",
+                    encoding: "base64" as const,
+                    format: "png" as const,
+                    image: options?.image === false ? "" : "pixels",
+                  },
+                };
+              }),
+            close: () => Effect.void,
+            fill: () =>
+              Effect.succeed({
+                confirmation: "confirmed" as const,
+                outcome: "entered" as const,
+              }),
+            recover: () => Effect.void,
+            sessionId: "screenshot-options",
+            validate: () => Effect.void,
+          },
+          capabilities: iosCapabilities,
+          error: iosRuntimeError,
+          policy: nativeAppActionPolicy(iosRuntimeError, []),
+          startup: {
+            device: { kind: "simulator" },
+            platform: "ios",
+            requiredCapabilities: [],
+            scope,
+            targetApp: "dev.fixture",
+          },
+        });
+        const initial = yield* runtime.observe();
+        expect(initial.screenshot.image).toBe("pixels");
+        const skipped = yield* runtime.observe({ image: false });
+        expect(skipped.screenshot.image).toBe("");
+        expect(skipped.frame).toEqual({ height: 2424, width: 1080 });
+        const explicit = yield* runtime.observe({ image: true });
+        expect(explicit.screenshot.image).toBe("pixels");
+        // Pause and recover to prove recover() captures with default screenshots.
+        yield* Effect.flip(
+          runtime.dispatch("stale-observation", {
+            target: "missing",
+            type: "activate",
+          })
+        );
+        const recovered = yield* runtime.recover();
+        expect(recovered.screenshot.image).toBe("pixels");
+        expect(requested).toEqual([undefined, false, true, undefined]);
+      })
+    )
+);
+
+it.effect(
+  "discards in-flight blocked sends and held touches across discard()",
+  () =>
+    Effect.gen(function* discardRaces() {
+      const sendEntered = yield* Deferred.make<true>();
+      const releaseSend = yield* Deferred.make<true>();
+      let blockNext = false;
+      const lane = makeForwardedLane<LaneObservation, typeof laneNode, never>({
+        focus: () => {},
+        frame: () => ({ height: 10, nodes: [laneNode], width: 10 }),
+        latest: () => ({ id: "one" }),
+        send: () =>
+          Effect.gen(function* send() {
+            if (blockNext) {
+              blockNext = false;
+              yield* Deferred.succeed(sendEntered, true);
+              yield* Deferred.await(releaseSend);
+            }
+          }),
+      });
+      // 1. A held touch before discard() must not complete as a tap after discard().
+      yield* lane.forward([touch("down", 0.5, 0.5)]);
+      lane.discard();
+      yield* lane.forward([touch("up", 0.5, 0.5)]);
+      expect(lane.take()).toEqual([]);
+
+      // 2. A forward() blocked in send() when discard() runs must not enqueue a gesture once send() finishes.
+      blockNext = true;
+      const inFlight = yield* lane
+        .forward([touch("down", 0.5, 0.5), touch("up", 0.5, 0.5)])
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(sendEntered);
+      const beforeRelease = lane.observing();
+      lane.discard();
+      yield* Deferred.succeed(releaseSend, true);
+      yield* Fiber.join(inFlight);
+      // Stale-observation tracking still notices the physical input reached the device.
+      expect(lane.current(beforeRelease)).toBe(false);
+      expect(lane.take()).toEqual([]);
+    })
+);
+
+const fakeHidProcess = (options: { readonly exitOnSigterm?: boolean } = {}) => {
+  const exitOnSigterm = options.exitOnSigterm ?? true;
+  const written: string[] = [];
+  const dataListeners = new Set<(chunk: Buffer) => void>();
+  const closeListeners = new Set<() => void>();
+  const buffered: Buffer[] = [];
+  const signals: NodeJS.Signals[] = [];
+  let exitCode: number | null = null;
+  const finishExit = () => {
+    if (exitCode === null) {
+      exitCode = 0;
+      for (const listener of closeListeners) {
+        closeListeners.delete(listener);
+        listener();
+      }
+    }
+  };
+  const child: IosHidProcess = {
+    get exitCode() {
+      return exitCode;
+    },
+    kill: (signal) => {
+      signals.push(signal);
+      if (exitOnSigterm || signal === "SIGKILL") {
+        finishExit();
+      }
+      return true;
+    },
+    once: (event, listener) => {
+      if (event === "close") {
+        closeListeners.add(() => listener(0, "SIGTERM"));
+      }
+    },
+    signalCode: null,
+    stderr: { resume: () => {} },
+    stdin: {
+      end: () => {},
+      on: () => {},
+      write: (chunk, done) => {
+        written.push(chunk);
+        done(null);
+      },
+    },
+    stdout: {
+      off: (_event, listener) => {
+        dataListeners.delete(listener);
+      },
+      on: (_event, listener) => {
+        dataListeners.add(listener);
+        while (buffered.length > 0) {
+          const chunk = buffered.shift();
+          if (chunk !== undefined) {
+            listener(chunk);
+          }
+        }
+      },
+      resume: () => {},
+    },
+  };
+  return {
+    child,
+    finishExit,
+    isKilled: () => signals.length > 0,
+    ready: () => {
+      const chunk = Buffer.from("ready 402 874\n");
+      if (dataListeners.size === 0) {
+        buffered.push(chunk);
+        return;
+      }
+      for (const listener of dataListeners) {
+        listener(chunk);
+      }
+    },
+    signals,
+    written,
+  };
+};
+
+it.effect(
+  "pre-warms the iOS HID helper once across concurrent warm and forward calls and cleans up on scope close",
+  () =>
+    Effect.gen(function* warmIosHid() {
+      const scope = yield* Scope.make();
+      const spawned = yield* Deferred.make<ReturnType<typeof fakeHidProcess>>();
+      const processes: ReturnType<typeof fakeHidProcess>[] = [];
+      const host: IosHidHost = {
+        command: () =>
+          Effect.succeed("/Applications/Xcode.app/Contents/Developer"),
+        helper: () => Effect.succeed("/tmp/hid"),
+        spawn: () => {
+          const fake = fakeHidProcess();
+          processes.push(fake);
+          Effect.runSync(Deferred.succeed(spawned, fake));
+          return fake.child;
+        },
+      };
+      const hid = yield* makeIosHid(() => "SIM-UDID", scope, host);
+      yield* hid.warm?.() ?? Effect.void;
+      const first = yield* Deferred.await(spawned);
+      // Forward arriving while warm() is still awaiting "ready" shares the same startup.
+      const forwarded = yield* hid
+        .forward([touch("down", 0.5, 0.5)])
+        .pipe(Effect.forkChild);
+      first.ready();
+      yield* Fiber.join(forwarded);
+      expect(processes).toHaveLength(1);
+      expect(first.written).toEqual(["touch down 0.5 0.5\n"]);
+      // Subsequent input reuses the running helper without spawning again.
+      yield* hid.forward([touch("up", 0.5, 0.5)]);
+      expect(processes).toHaveLength(1);
+      expect(first.written).toEqual([
+        "touch down 0.5 0.5\n",
+        "touch up 0.5 0.5\n",
+      ]);
+      yield* Scope.close(scope, Exit.void);
+      expect(first.isKilled()).toBe(true);
+    })
+);
+
+it.effect(
+  "keeps ownership of an in-flight warmed iOS HID helper until it actually exits on scope close",
+  () =>
+    Effect.gen(function* cleanupWarmingHelper() {
+      const scope = yield* Scope.make();
+      const spawned = yield* Deferred.make<ReturnType<typeof fakeHidProcess>>();
+      const host: IosHidHost = {
+        command: () =>
+          Effect.succeed("/Applications/Xcode.app/Contents/Developer"),
+        helper: () => Effect.succeed("/tmp/hid"),
+        spawn: () => {
+          const fake = fakeHidProcess({ exitOnSigterm: false });
+          Effect.runSync(Deferred.succeed(spawned, fake));
+          return fake.child;
+        },
+      };
+      const hid = yield* makeIosHid(() => "SIM-UDID", scope, host);
+      yield* hid.warm?.() ?? Effect.void;
+      const pending = yield* Deferred.await(spawned);
+      // Close runs while the helper ignores SIGTERM; scope close must wait for exit.
+      let closed = false;
+      const closing = yield* Scope.close(scope, Exit.void).pipe(
+        Effect.tap(() => Effect.sync(() => (closed = true))),
+        Effect.forkChild
+      );
+      yield* Effect.yieldNow;
+      expect(pending.signals).toContain("SIGTERM");
+      expect(closed).toBe(false);
+      pending.finishExit();
+      yield* Fiber.join(closing);
+      expect(closed).toBe(true);
+    })
 );
