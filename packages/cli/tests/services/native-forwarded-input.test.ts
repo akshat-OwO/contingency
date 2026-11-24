@@ -8,6 +8,7 @@ import {
   androidControlPackets,
 } from "../../src/services/android-control.ts";
 import {
+  IOS_HID_READY_TIMEOUT_MILLIS,
   iosHidCommands,
   iosKeyUsage,
   makeIosHid,
@@ -819,12 +820,27 @@ const fakeHidProcess = (options: { readonly exitOnSigterm?: boolean } = {}) => {
   const buffered: Buffer[] = [];
   const signals: NodeJS.Signals[] = [];
   let exitCode: number | null = null;
+  let signalCode: NodeJS.Signals | null = null;
+  const emitClose = () => {
+    for (const listener of closeListeners) {
+      closeListeners.delete(listener);
+      listener();
+    }
+  };
   const finishExit = () => {
-    if (exitCode === null) {
+    if (exitCode === null && signalCode === null) {
       exitCode = 0;
-      for (const listener of closeListeners) {
-        closeListeners.delete(listener);
-        listener();
+      emitClose();
+    }
+  };
+  const killBySignal = (
+    signal: NodeJS.Signals,
+    { close = true }: { readonly close?: boolean } = {}
+  ) => {
+    if (exitCode === null && signalCode === null) {
+      signalCode = signal;
+      if (close) {
+        emitClose();
       }
     }
   };
@@ -841,15 +857,21 @@ const fakeHidProcess = (options: { readonly exitOnSigterm?: boolean } = {}) => {
     },
     once: (event, listener) => {
       if (event === "close") {
-        closeListeners.add(() => listener(0, "SIGTERM"));
+        closeListeners.add(() => listener(exitCode, signalCode));
       }
     },
-    signalCode: null,
+    get signalCode() {
+      return signalCode;
+    },
     stderr: { resume: () => {} },
     stdin: {
       end: () => {},
       on: () => {},
       write: (chunk, done) => {
+        if (exitCode !== null || signalCode !== null) {
+          done(new Error("EPIPE"));
+          return;
+        }
         written.push(chunk);
         done(null);
       },
@@ -874,6 +896,7 @@ const fakeHidProcess = (options: { readonly exitOnSigterm?: boolean } = {}) => {
     child,
     finishExit,
     isKilled: () => signals.length > 0,
+    killBySignal,
     ready: () => {
       const chunk = Buffer.from("ready 402 874\n");
       if (dataListeners.size === 0) {
@@ -961,5 +984,100 @@ it.effect(
       pending.finishExit();
       yield* Fiber.join(closing);
       expect(closed).toBe(true);
+    })
+);
+
+it.effect(
+  "replaces a pre-warmed iOS HID helper killed by a signal instead of reusing it",
+  () =>
+    Effect.gen(function* replaceSignalKilledHelper() {
+      const scope = yield* Scope.make();
+      const spawned: ReturnType<typeof fakeHidProcess>[] = [];
+      const firstSpawned =
+        yield* Deferred.make<ReturnType<typeof fakeHidProcess>>();
+      const secondSpawned =
+        yield* Deferred.make<ReturnType<typeof fakeHidProcess>>();
+      const host: IosHidHost = {
+        command: () =>
+          Effect.succeed("/Applications/Xcode.app/Contents/Developer"),
+        helper: () => Effect.succeed("/tmp/hid"),
+        spawn: () => {
+          const fake = fakeHidProcess();
+          spawned.push(fake);
+          if (spawned.length === 1) {
+            Effect.runSync(Deferred.succeed(firstSpawned, fake));
+          } else if (spawned.length === 2) {
+            Effect.runSync(Deferred.succeed(secondSpawned, fake));
+          }
+          return fake.child;
+        },
+      };
+      const hid = yield* makeIosHid(() => "SIM-UDID", scope, host);
+      yield* hid.warm?.() ?? Effect.void;
+      const first = yield* Deferred.await(firstSpawned);
+      first.ready();
+      yield* Effect.yieldNow;
+      // Helper dies from a signal (exitCode === null, signalCode === "SIGKILL").
+      first.killBySignal("SIGKILL", { close: false });
+      const forwarded = yield* hid
+        .forward([touch("down", 0.5, 0.5)])
+        .pipe(Effect.forkChild);
+      const second = yield* Deferred.await(secondSpawned);
+      second.ready();
+      yield* Fiber.join(forwarded);
+      expect(spawned).toHaveLength(2);
+      expect(first.written).toEqual([]);
+      expect(second.written).toEqual(["touch down 0.5 0.5\n"]);
+      yield* Scope.close(scope, Exit.void);
+    })
+);
+
+it.effect(
+  "times out a stalled pre-warm iOS HID helper, retires it, and lets later input retry",
+  () =>
+    Effect.gen(function* timeoutStalledWarmHelper() {
+      const scope = yield* Scope.make();
+      const spawned: ReturnType<typeof fakeHidProcess>[] = [];
+      const firstSpawned =
+        yield* Deferred.make<ReturnType<typeof fakeHidProcess>>();
+      const secondSpawned =
+        yield* Deferred.make<ReturnType<typeof fakeHidProcess>>();
+      const host: IosHidHost = {
+        command: () =>
+          Effect.succeed("/Applications/Xcode.app/Contents/Developer"),
+        helper: () => Effect.succeed("/tmp/hid"),
+        spawn: () => {
+          const fake = fakeHidProcess();
+          spawned.push(fake);
+          if (spawned.length === 1) {
+            Effect.runSync(Deferred.succeed(firstSpawned, fake));
+          } else if (spawned.length === 2) {
+            Effect.runSync(Deferred.succeed(secondSpawned, fake));
+          }
+          return fake.child;
+        },
+      };
+      const hid = yield* makeIosHid(() => "SIM-UDID", scope, host);
+      yield* hid.warm?.() ?? Effect.void;
+      const stalled = yield* Deferred.await(firstSpawned);
+      // A caller interrupts its own forward while warm-up is stalled on ready.
+      const canceled = yield* hid
+        .forward([touch("down", 0.1, 0.1)])
+        .pipe(Effect.forkChild);
+      yield* Effect.yieldNow;
+      yield* Fiber.interrupt(canceled);
+      // Advancing past the ready timeout retires the stalled helper and frees startLock.
+      yield* TestClock.adjust(IOS_HID_READY_TIMEOUT_MILLIS);
+      expect(stalled.signals).toContain("SIGTERM");
+      // A subsequent forward spawns a fresh helper and succeeds.
+      const retry = yield* hid
+        .forward([touch("down", 0.5, 0.5)])
+        .pipe(Effect.forkChild);
+      const replacement = yield* Deferred.await(secondSpawned);
+      replacement.ready();
+      yield* Fiber.join(retry);
+      expect(spawned).toHaveLength(2);
+      expect(replacement.written).toEqual(["touch down 0.5 0.5\n"]);
+      yield* Scope.close(scope, Exit.void);
     })
 );

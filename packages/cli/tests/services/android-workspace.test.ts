@@ -4635,3 +4635,161 @@ it.effect(
       })
     )
 );
+
+it.effect(
+  "preserves the exact bound password field across observe({ image: true }) and clears on ambiguity or screen change",
+  () =>
+    fixture(({ setNodes }) =>
+      Effect.gen(function* preserveBoundPasswordField() {
+        const workspace = yield* AndroidWorkspace;
+        const prepared = yield* workspace.execute(
+          {
+            _tag: "start",
+            flowName,
+            kind: "teaching",
+            operationId: op("pw-refresh-start"),
+            prepareAndOpen: true,
+            recordingId: null,
+            selection: privateSelection,
+          },
+          "user"
+        );
+        setNodes([
+          pickNode({
+            bounds: { height: 0.4, width: 1, x: 0, y: 0 },
+            editable: true,
+            name: "Password",
+            password: true,
+            role: "textbox",
+            target: "@first",
+          }),
+          pickNode({
+            bounds: { height: 0.4, width: 1, x: 0, y: 0.5 },
+            editable: true,
+            name: "Password",
+            password: true,
+            role: "textbox",
+            target: "@second",
+          }),
+        ]);
+        // Image-free setup observation, then tap the second Password field.
+        const initial = yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId: prepared.id },
+          "user"
+        );
+        expect(initial.observation?.image).toBeNull();
+        const tapped = yield* forward(prepared.id, tap(0.5, 0.7));
+        expect(tapped.field).toEqual({
+          name: "Password",
+          observationId: initial.observation?.id,
+          password: true,
+          role: "textbox",
+          target: "@second",
+        });
+        // Explicit image: true refreshes the screenshot and stays bound to @second, never @first.
+        const refreshed = yield* workspace.execute(
+          { _tag: "observe", image: true, sessionId: prepared.id },
+          "user"
+        );
+        expect(refreshed.observation?.image).toBe(image);
+        expect(refreshed.field).toEqual({
+          name: "Password",
+          observationId: refreshed.observation?.id,
+          password: true,
+          role: "textbox",
+          target: "@second",
+        });
+        // Submitting a variable against @first is rejected because the binding stayed on @second.
+        const wrongTarget = yield* workspace
+          .execute(
+            {
+              _tag: "input",
+              action: {
+                _tag: "variable",
+                name: "PASSWORD",
+                target: "@first",
+              },
+              observationId: refreshed.observation?.id ?? "",
+              operationId: op("pw-wrong-target"),
+              sessionId: prepared.id,
+            },
+            "user"
+          )
+          .pipe(Effect.result);
+        expect(wrongTarget._tag).toBe("Failure");
+
+        // If the screen changes before image refresh, the old password binding is cleared.
+        yield* workspace.execute(
+          {
+            _tag: "field-dismiss",
+            operationId: op("pw-dismiss"),
+            sessionId: prepared.id,
+          },
+          "user"
+        );
+        const beforeMove = yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId: prepared.id },
+          "user"
+        );
+        expect(beforeMove.observation?.image).toBeNull();
+        yield* forward(prepared.id, tap(0.5, 0.7));
+        setNodes([
+          pickNode({
+            bounds: { height: 0.4, width: 1, x: 0, y: 0 },
+            editable: true,
+            name: "Password",
+            password: true,
+            role: "textbox",
+            target: "@first",
+          }),
+          pickNode({
+            bounds: { height: 0.4, width: 1, x: 0, y: 0.55 },
+            editable: true,
+            name: "Password",
+            password: true,
+            role: "textbox",
+            target: "@second",
+          }),
+        ]);
+        const movedRefresh = yield* workspace.execute(
+          { _tag: "observe", image: true, sessionId: prepared.id },
+          "user"
+        );
+        expect(movedRefresh.observation?.image).toBe(image);
+        expect(movedRefresh.field).toBeNull();
+
+        // When two Password fields share identical bounds (ambiguous), image refresh clears the binding.
+        setNodes([
+          pickNode({
+            bounds: { height: 0.4, width: 1, x: 0, y: 0 },
+            editable: true,
+            name: "Password",
+            password: true,
+            role: "textbox",
+            target: "@amb-a",
+          }),
+          pickNode({
+            bounds: { height: 0.4, width: 1, x: 0, y: 0 },
+            editable: true,
+            name: "Password",
+            password: true,
+            role: "textbox",
+            target: "@amb-b",
+          }),
+        ]);
+        const ambiguousObs = yield* workspace.execute(
+          { _tag: "observe", image: false, sessionId: prepared.id },
+          "user"
+        );
+        expect(ambiguousObs.observation?.image).toBeNull();
+        const ambiguousTap = yield* forward(prepared.id, tap(0.5, 0.2));
+        expect(ambiguousTap.field?.password).toBe(true);
+        const ambiguousRefresh = yield* workspace.execute(
+          { _tag: "observe", image: true, sessionId: prepared.id },
+          "user"
+        );
+        expect(ambiguousRefresh.observation?.image).toBe(image);
+        expect(ambiguousRefresh.field).toBeNull();
+      })
+    )
+);

@@ -254,11 +254,20 @@ const iosHidHost: IosHidHost = {
   spawn: (helper, args) => spawn(helper, [...args], { stdio: "pipe" }),
 };
 
+/**
+ * How long the HID helper may take to print its ready line before startup
+ * gives up, retires the process, and releases the startup permit for retry.
+ */
+export const IOS_HID_READY_TIMEOUT_MILLIS = 15_000;
+
 const unavailable = () =>
   new Error("The simulator input helper is unavailable. Nothing was sent.");
 
+const isProcessAlive = (owned: IosHidProcess) =>
+  owned.exitCode === null && owned.signalCode === null;
+
 const stopProcess = async (owned: IosHidProcess) => {
-  if (owned.exitCode === null) {
+  if (isProcessAlive(owned)) {
     owned.stdin.end();
     owned.kill("SIGTERM");
     await awaitExit(owned);
@@ -288,17 +297,22 @@ export const makeIosHid = (
     );
     const start = startLock.withPermits(1)(
       Effect.gen(function* startHelper() {
-        if (child !== undefined && child.exitCode === null) {
+        if (child !== undefined && isProcessAlive(child)) {
           return child;
         }
+        child = undefined;
         const selected = udid();
         if (closed || selected === null) {
           return yield* Effect.fail(unavailable());
         }
         const helper = yield* host.helper().pipe(Effect.mapError(unavailable));
-        const developer = yield* host
-          .command("xcode-select", ["-p"])
-          .pipe(Effect.mapError(unavailable));
+        const developer = yield* host.command("xcode-select", ["-p"]).pipe(
+          Effect.mapError(unavailable),
+          Effect.timeoutOrElse({
+            duration: IOS_HID_READY_TIMEOUT_MILLIS,
+            orElse: () => Effect.fail(unavailable()),
+          })
+        );
         if (closed) {
           return yield* Effect.fail(unavailable());
         }
@@ -306,11 +320,22 @@ export const makeIosHid = (
         liveProcesses.add(started);
         started.once("close", () => {
           liveProcesses.delete(started);
+          if (child === started) {
+            child = undefined;
+          }
         });
         started.stdin.on("error", () => {
           // A helper that exits mid-write fails that forward through its callback.
         });
         started.stderr.resume();
+        let retired = false;
+        const signalTerminate = () => {
+          if (!retired && isProcessAlive(started)) {
+            retired = true;
+            started.stdin.end();
+            started.kill("SIGTERM");
+          }
+        };
         const ready = yield* Effect.callback<boolean>((resume) => {
           let output = "";
           const onData = (chunk: Buffer) => {
@@ -325,14 +350,21 @@ export const makeIosHid = (
           started.once("error", () => resume(Effect.succeed(false)));
           return Effect.sync(() => {
             started.stdout.off("data", onData);
-            if (started.exitCode === null) {
-              started.kill("SIGTERM");
-            }
+            signalTerminate();
           });
-        });
-        if (!ready || closed) {
-          if (started.exitCode === null) {
-            started.kill("SIGTERM");
+        }).pipe(
+          Effect.timeoutOrElse({
+            duration: IOS_HID_READY_TIMEOUT_MILLIS,
+            orElse: () => Effect.succeed(false),
+          })
+        );
+        if (!ready || closed || !isProcessAlive(started)) {
+          signalTerminate();
+          if (isProcessAlive(started)) {
+            yield* Effect.promise(() => awaitExit(started)).pipe(
+              Effect.ignore,
+              Effect.forkIn(scope)
+            );
           }
           return yield* Effect.fail(unavailable());
         }
@@ -349,7 +381,17 @@ export const makeIosHid = (
             helper.stdin.write(lines, (cause) =>
               resume(cause ? Effect.fail(unavailable()) : Effect.succeed(true))
             );
-          });
+          }).pipe(
+            Effect.tapError(() => {
+              if (child === helper) {
+                child = undefined;
+              }
+              return Effect.promise(() => stopProcess(helper)).pipe(
+                Effect.ignore,
+                Effect.forkIn(scope)
+              );
+            })
+          );
         }),
       scope
     );

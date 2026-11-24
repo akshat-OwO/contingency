@@ -2473,16 +2473,35 @@ export const makeAndroidWorkspaceLayer = (options: {
                 (current.observation?.screenshot.image.length ?? 0) === 0
               ) {
                 const boundField = current.field;
+                const boundObservation = current.observations.find(
+                  (obs) => obs.id === boundField.observationId
+                );
+                const boundTarget = boundObservation?.nodes.find(
+                  (node) => node.target === boundField.target
+                );
                 const mirrored = yield* session.run.mirror({ image: true });
                 acceptObservation(session, mirrored);
-                const matching = mirrored.nodes.find(
-                  (node) =>
-                    node.password &&
-                    node.editable &&
-                    node.role === boundField.role &&
-                    node.name === boundField.name
-                );
-                if (matching !== undefined) {
+                const matches =
+                  boundObservation !== undefined &&
+                  boundTarget !== undefined &&
+                  boundTarget.editable &&
+                  !boundTarget.covered &&
+                  semanticSignature(mirrored.nodes) ===
+                    semanticSignature(boundObservation.nodes)
+                    ? mirrored.nodes.filter(
+                        (node) =>
+                          node.role === boundTarget.role &&
+                          node.name === boundTarget.name &&
+                          node.editable &&
+                          node.password === boundTarget.password &&
+                          !node.covered &&
+                          node.packageName === boundTarget.packageName &&
+                          JSON.stringify(node.bounds) ===
+                            JSON.stringify(boundTarget.bounds)
+                      )
+                    : [];
+                const [matching] = matches;
+                if (matches.length === 1 && matching !== undefined) {
                   update(session, (value) => ({
                     ...value,
                     field: {
