@@ -360,6 +360,7 @@ describe("the Diagnostic Log file", () => {
             "notes.txt",
           ]
         );
+        yield* TestClock.setTime(NOW.getTime());
         yield* write(["first"]);
         yield* write(["second"]);
         yield* write(["third"]);
@@ -378,6 +379,44 @@ describe("the Diagnostic Log file", () => {
           );
         expect(yield* read(0)).toBe("first\nsecond\n");
         expect(yield* read(1)).toBe("third\n");
+      })
+    )
+  );
+
+  it.effect("a long-running process never evicts newer processes' logs", () =>
+    inDirectory(({ directory, fileSystem }) =>
+      Effect.gen(function* olderProcessRotates() {
+        const write = yield* makeDiagnosticLogWriter({
+          directory,
+          maxBytes: 13,
+          maxFiles: 3,
+          now: NOW,
+          pid: 42,
+        });
+        yield* write(["first"]);
+        // Three newer processes start while this one runs; the first of them
+        // pruned this process's first part to make room.
+        yield* fileSystem.remove(
+          path.join(directory, diagnosticLogFileName(NOW, 42))
+        );
+        const hour = 60 * 60 * 1000;
+        const at = (hours: number) => new Date(NOW.getTime() + hours * hour);
+        const newer = [1, 2, 3].map((hours) =>
+          diagnosticLogFileName(at(hours), 7 + hours)
+        );
+        for (const file of newer) {
+          yield* fileSystem.writeFileString(
+            path.join(directory, file),
+            "newer\n"
+          );
+        }
+        yield* TestClock.setTime(at(4).getTime());
+        yield* write(["second", "third"]);
+        // The new part is the newest file, so only the oldest is pruned, and
+        // the next process to start prunes the oldest again, never this part.
+        expect((yield* fileSystem.readDirectory(directory)).toSorted()).toEqual(
+          [newer[1], newer[2], diagnosticLogFileName(at(4), 42, 1)]
+        );
       })
     )
   );

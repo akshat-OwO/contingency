@@ -68,6 +68,9 @@ const LEVEL_BY_NAME: Readonly<Record<LogLevelName, LogLevel.LogLevel>> = {
 export const toLogLevel = (name: LogLevelName): LogLevel.LogLevel =>
   LEVEL_BY_NAME[name];
 
+/** The Diagnostic Log's level, whatever the terminal shows. */
+const FILE_LEVEL: LogLevel.LogLevel = "Debug";
+
 /** The terminal's level when nothing chooses one. */
 export const DEFAULT_TERMINAL_LEVEL: LogLevel.LogLevel = "Warn";
 
@@ -234,7 +237,7 @@ export const makeObservabilityLayer = (options: ObservabilityOptions) =>
         );
       });
       const logDirectory = diagnosticLogDirectory(options.home);
-      const file = options.logFile
+      const batchedFile = options.logFile
         ? yield* makeDiagnosticLogFile({
             directory: logDirectory,
             format: (record) =>
@@ -246,10 +249,24 @@ export const makeObservabilityLayer = (options: ObservabilityOptions) =>
             pid: options.pid,
           })
         : undefined;
+      // The file records Debug and above; Trace reaches only a terminal that
+      // asks for it.
+      const file =
+        batchedFile === undefined
+          ? undefined
+          : Logger.make((record) => {
+              if (passes(record.logLevel, FILE_LEVEL)) {
+                batchedFile.log(record);
+              }
+            });
       // Logs inside a span become its events, through the same allowlist.
       const spanEvents = Logger.make((record) => {
         const { span } = record.fiber.cache;
-        if (span === undefined || span._tag !== "Span") {
+        if (
+          span === undefined ||
+          span._tag !== "Span" ||
+          !passes(record.logLevel, FILE_LEVEL)
+        ) {
           return;
         }
         const safe = toSafeRecord(record, options.home);
@@ -311,8 +328,8 @@ export const makeObservabilityLayer = (options: ObservabilityOptions) =>
               : [terminal, file, spanEvents]
           )
         ),
-        // Every record reaches the file; each sink applies its own level.
-        Context.add(References.MinimumLogLevel, "Debug")
+        // Every record reaches the sinks; each applies its own level.
+        Context.add(References.MinimumLogLevel, "Trace")
       );
     })
   );

@@ -10,13 +10,19 @@ import {
   Logger,
   References,
   Scope,
+  Tracer,
 } from "effect";
 import { HttpRouter, HttpServer, HttpServerResponse } from "effect/http";
 
+import { toSafeRecord } from "../../src/services/diagnostic-log.ts";
+import type { SafeRecord } from "../../src/services/diagnostic-log.ts";
 import {
   makeNodeServerLayer,
   serveWithAccessLog,
 } from "../../src/services/http-server.ts";
+import { makeShareSafeTracer } from "../../src/services/share-safe-tracer.ts";
+
+const SECRET = "hunter2";
 
 it.live.each(["websocket", "long-poll"] as const)(
   "closes a connected %s without logging shutdown as an HTTP failure",
@@ -80,7 +86,8 @@ it.live.each(["websocket", "long-poll"] as const)(
               const annotations = event.fiber.getRef(
                 References.CurrentLogAnnotations
               );
-              if (annotations["http.path"] === "/pending") {
+              // Every request in this test goes to /pending.
+              if (annotations["http.status"] !== undefined) {
                 statuses.push(annotations["http.status"]);
               }
             }),
@@ -95,21 +102,31 @@ it.live.each(["websocket", "long-poll"] as const)(
   35_000
 );
 
-it.live("logs a response at Debug and a real failure at Error", () =>
+it.live("logs by route template, at Error only for a 5xx", () =>
   Effect.gen(function* retainHttpLogs() {
-    const statuses: unknown[] = [];
+    const records: unknown[] = [];
+    const rendered: SafeRecord[] = [];
     const logger = Logger.make((event) => {
-      const status = event.fiber.getRef(References.CurrentLogAnnotations)[
-        "http.status"
-      ];
-      if (status !== undefined) {
-        statuses.push([status, event.logLevel]);
+      const annotations = event.fiber.getRef(References.CurrentLogAnnotations);
+      if (annotations["http.status"] !== undefined) {
+        records.push([
+          annotations["http.route"],
+          annotations["http.status"],
+          event.logLevel,
+        ]);
+        rendered.push(toSafeRecord(event, ""));
       }
     });
     yield* Effect.gen(function* serveResponses() {
       const routes = Layer.mergeAll(
         HttpRouter.add("GET", "/ok", HttpServerResponse.empty()),
-        HttpRouter.add("GET", "/failure", Effect.die("request failed"))
+        HttpRouter.add("GET", "/failure", Effect.die("request failed")),
+        HttpRouter.add(
+          "GET",
+          "/explicit-error",
+          HttpServerResponse.empty({ status: 500 })
+        ),
+        HttpRouter.add("GET", "/users/:id", HttpServerResponse.empty())
       );
       const context = yield* Layer.build(
         serveWithAccessLog(routes).pipe(
@@ -122,28 +139,32 @@ it.live("logs a response at Debug and a real failure at Error", () =>
       if (address._tag === "UnixPathAddress") {
         return yield* Effect.die("Expected a TCP server.");
       }
-      const success = yield* Effect.promise(() =>
-        fetch(`http://127.0.0.1:${address.port}/ok`)
+      const statuses = yield* Effect.forEach(
+        ["/ok", "/failure", "/explicit-error", `/users/${SECRET}`, "/missing"],
+        (path) =>
+          Effect.promise(() =>
+            fetch(`http://127.0.0.1:${address.port}${path}`)
+          ).pipe(Effect.map((response) => response.status))
       );
-      const failure = yield* Effect.promise(() =>
-        fetch(`http://127.0.0.1:${address.port}/failure`)
-      );
-      const missing = yield* Effect.promise(() =>
-        fetch(`http://127.0.0.1:${address.port}/missing`)
-      );
-      expect(success.status).toBe(204);
-      expect(failure.status).toBe(500);
-      expect(missing.status).toBe(404);
+      expect(statuses).toEqual([204, 500, 500, 204, 404]);
     }).pipe(
       Effect.provide(Logger.layer([logger])),
-      // Production records Debug for the Diagnostic Log.
+      // Production records Debug for the Diagnostic Log, and every command's
+      // share-safe tracer lets the router record the matched route.
       Effect.provideService(References.MinimumLogLevel, "Debug"),
+      Effect.provideService(
+        Tracer.Tracer,
+        makeShareSafeTracer(Tracer.nativeTracer, "")
+      ),
       Effect.timeout("30 seconds")
     );
-    expect(statuses).toEqual([
-      [204, "Debug"],
-      [500, "Error"],
-      [404, "Debug"],
+    expect(records).toEqual([
+      ["/ok", 204, "Debug"],
+      ["/failure", 500, "Error"],
+      ["/explicit-error", 500, "Error"],
+      ["/users/:id", 204, "Debug"],
+      [undefined, 404, "Debug"],
     ]);
+    expect(JSON.stringify(rendered)).not.toContain(SECRET);
   })
 );

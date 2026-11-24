@@ -74,6 +74,17 @@ describe("the terminal", () => {
     }).pipe(Effect.provide(layer));
   });
 
+  it.effect("shows Trace records when asked for trace", () => {
+    const { layer, lines } = terminal();
+    return Effect.gen(function* traceShown() {
+      const observability = yield* Observability;
+      yield* observability.applyFlags(Option.some("Trace"));
+      yield* Effect.logTrace("Polled the device");
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain(" TRACE ");
+    }).pipe(Effect.provide(layer));
+  });
+
   it.effect("a flag's level outranks every Setting", () => {
     const { layer } = terminal();
     return Effect.gen(function* flagPins() {
@@ -160,14 +171,17 @@ describe("choosing a level", () => {
 });
 
 describe("the Diagnostic Log", () => {
-  it.effect("records Debug while the terminal shows Warn", () =>
+  it.effect("records Debug, never Trace, while the terminal shows Warn", () =>
     Effect.gen(function* fileAtDebug() {
       const fileSystem = yield* FileSystem.FileSystem;
       const home = yield* fileSystem.makeTempDirectoryScoped({
         prefix: "contingency-observability-",
       });
       const lines: string[] = [];
-      yield* Effect.logDebug("Response sent", { "http.status": 204 }).pipe(
+      yield* Effect.logTrace("Polled the device").pipe(
+        Effect.andThen(
+          Effect.logDebug("Response sent", { "http.status": 204 })
+        ),
         Effect.provide(
           makeObservabilityLayer({
             colors: false,
@@ -258,6 +272,7 @@ describe("telemetry", () => {
                   "http.response.status_code": 500,
                   typed: SECRET,
                   "url.full": `https://shop.test/cart?password=${SECRET}`,
+                  "url.path": `/users/${SECRET}/cart`,
                 },
               }),
               Effect.exit,

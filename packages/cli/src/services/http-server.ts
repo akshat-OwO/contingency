@@ -4,7 +4,7 @@ import type { Socket } from "node:net";
 import path from "node:path";
 
 import { NodeHttpServer } from "@effect/platform-node";
-import { Cause, Effect, Exit, Layer, Option } from "effect";
+import { Cause, Effect, Exit, Layer, Option, Predicate } from "effect";
 import type { FileSystem } from "effect";
 import {
   HttpMiddleware,
@@ -33,45 +33,67 @@ import type { RunVideoRendererService } from "./run-video-renderer.ts";
 import type { TeachingRecordingStoreService } from "./teaching-recording-store.ts";
 
 /**
+ * The route template the router matched, such as `/api/runs/:id`, never the
+ * requested path, which may carry private segments. The router records it on
+ * the request's span whenever the tracer is not Effect's native one; the
+ * share-safe tracer every command installs is not.
+ */
+const matchedRoute = Effect.currentSpan.pipe(
+  Effect.map((span) => span.attributes.get("http.route")),
+  Effect.option,
+  Effect.map(Option.filter(Predicate.isString))
+);
+
+/**
  * One record per response, in place of Effect's HTTP logger, which logs
- * every response at Info. A response, or a client's mistake such as a missing
- * route, is Debug, so a production terminal shows none. A server failure is
- * Error. Cancellation, such as Ctrl-C closing a long poll or a WebSocket, is
- * not logged.
+ * every response at Info. A response below 500, including a client's mistake
+ * such as a missing route, is Debug, so a production terminal shows none. A
+ * 5xx is Error, whether a route returned it or a failure produced it.
+ * Cancellation, such as Ctrl-C closing a long poll or a WebSocket, is not
+ * logged.
  */
 export const httpAccessLog = HttpMiddleware.make((httpApp) =>
   Effect.gen(function* logHttpResponse() {
     const request = yield* HttpServerRequest.HttpServerRequest;
     const exit = yield* Effect.exit(httpApp);
-    const fields = {
-      "http.method": request.method,
-      "http.path": request.url,
-    };
+    const route = yield* matchedRoute;
+    const annotate =
+      (status: number) =>
+      <A, E, R>(effect: Effect.Effect<A, E, R>) => {
+        const annotated = Effect.annotateLogs(effect, {
+          "http.method": request.method,
+          "http.status": status,
+        });
+        // An unmatched request has no route, and its path is never logged.
+        return Option.isSome(route)
+          ? Effect.annotateLogs(annotated, "http.route", route.value)
+          : annotated;
+      };
     if (Exit.isSuccess(exit)) {
-      yield* Effect.logDebug("HTTP response sent").pipe(
-        Effect.annotateLogs({ ...fields, "http.status": exit.value.status })
-      );
+      yield* Effect.logWithLevel(exit.value.status >= 500 ? "Error" : "Debug")(
+        "HTTP response sent"
+      ).pipe(annotate(exit.value.status));
       return yield* exit;
     }
     // The router carries the response it chose as a defect beside the cause.
     const [response, failure] = HttpServerError.causeResponseStripped(
       exit.cause
     );
-    const status = { ...fields, "http.status": response.status };
+    const annotated = annotate(response.status);
     if (Option.isNone(failure)) {
-      yield* Effect.logDebug("HTTP response sent").pipe(
-        Effect.annotateLogs(status)
-      );
+      yield* Effect.logWithLevel(response.status >= 500 ? "Error" : "Debug")(
+        "HTTP response sent"
+      ).pipe(annotated);
     } else if (Cause.hasInterruptsOnly(failure.value)) {
       // Cancellation, such as Ctrl-C closing a long poll: nothing failed.
     } else if (response.status < 500) {
       // The client asked for something wrong, such as a missing route.
       yield* Effect.logDebug("HTTP request refused", failure.value).pipe(
-        Effect.annotateLogs(status)
+        annotated
       );
     } else {
       yield* Effect.logError("HTTP request failed", failure.value).pipe(
-        Effect.annotateLogs(status)
+        annotated
       );
     }
     return yield* exit;

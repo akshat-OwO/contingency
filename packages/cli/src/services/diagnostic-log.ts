@@ -3,6 +3,7 @@ import path from "node:path";
 
 import {
   Cause,
+  Clock,
   Effect,
   FileSystem,
   Layer,
@@ -206,7 +207,6 @@ const FIELD_KINDS = new Map<string, Render>([
   ["helperFailure", code],
   ["host", host],
   ["http.method", code],
-  ["http.path", filePath],
   ["http.status", count],
   ["kind", code],
   ["label", code],
@@ -244,11 +244,12 @@ const FIELD_KINDS = new Map<string, Render>([
   ["effect.logLevel", code],
   ["http.request.method", code],
   ["http.response.status_code", count],
+  // A route template, such as `/api/runs/:id`. Requested paths are never
+  // logged: a path segment may carry private data.
   ["http.route", filePath],
   ["server.address", host],
   ["server.port", count],
   ["url.full", host],
-  ["url.path", filePath],
   ["url.scheme", code],
 ]);
 
@@ -544,8 +545,8 @@ export const DIAGNOSTIC_LOG_MAX_FILES = 20;
 export const DIAGNOSTIC_LOG_MAX_BYTES = 10 * 1024 * 1024;
 
 /**
- * `2026-11-24T12-03-04-512Z-4242-0000.log`: the start time, the process, and
- * the part, padded so names sort oldest first.
+ * `2026-11-24T12-03-04-512Z-4242-0000.log`: when the part started, the
+ * process, and the part, padded so names sort oldest first.
  */
 export const diagnosticLogFileName = (date: Date, pid: number, part = 0) =>
   `${date.toISOString().replaceAll(":", "-").replace(".", "-")}-${pid}-${String(part).padStart(4, "0")}.log`;
@@ -596,12 +597,16 @@ export const makeDiagnosticLogWriter = (options: DiagnosticLogFileOptions) =>
         // process cannot write leaves it without a file, never without a run.
         Effect.orElseSucceed(() => false)
       );
+    // A part is named for when it starts, so a long-running process's new
+    // part sorts after other processes' newer files, and pruning, which
+    // leaves room for it, removes only files older than it.
     const rotate = Effect.gen(function* rotateEffect() {
       part += 1;
       written = 0;
+      const startedAt = new Date(yield* Clock.currentTimeMillis);
       file = path.join(
         options.directory,
-        diagnosticLogFileName(options.now, options.pid, part)
+        diagnosticLogFileName(startedAt, options.pid, part)
       );
       yield* pruneLogs(options.directory, maxFiles - 1);
     });

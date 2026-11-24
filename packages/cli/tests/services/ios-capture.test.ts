@@ -438,7 +438,6 @@ it.effect(
           {
             attempt: 7,
             code: "runtime_failed",
-            detail: failure.message,
             durationMs: 0,
             operation: "screenshot",
             steps: [
