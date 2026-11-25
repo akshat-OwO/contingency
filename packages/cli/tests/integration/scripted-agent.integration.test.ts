@@ -107,6 +107,14 @@ it("binds each supplied value to its own token and restores it literally", () =>
       value,
     });
   }
+  // A later step that repeats a supplied value is redacted too.
+  recorder.user({
+    _tag: "type",
+    sessionId: "agent-session",
+    text: "first$$value",
+  });
+  const program = recorder.tokenize({ text: "second $& value" });
+  expect(program).toEqual({ text: "{{supplied2}}" });
   const { bindings, steps } = recorder.transcript("supplied");
   const supplied = steps.flatMap((step) =>
     step._tag === "user" && step.action._tag === "supply-variable"
@@ -114,6 +122,12 @@ it("binds each supplied value to its own token and restores it literally", () =>
       : []
   );
   expect(supplied).toEqual(["{{supplied1}}", "{{supplied2}}"]);
+  const typed = steps.flatMap((step) =>
+    step._tag === "user" && step.action._tag === "type"
+      ? [step.action.text]
+      : []
+  );
+  expect(typed).toEqual(["{{supplied1}}"]);
   expect(JSON.stringify(steps)).not.toContain("first");
   expect(JSON.stringify(steps)).not.toContain("second");
   expect(bindings.map(({ token }) => token)).toEqual([
@@ -128,6 +142,16 @@ it("binds each supplied value to its own token and restores it literally", () =>
     "first$$value",
     "second $& value",
   ]);
+  // A replay that supplies other values sends them in every step.
+  const replayed = new Map([
+    ["{{supplied1}}", "Bandra"],
+    ["{{supplied2}}", "Juhu"],
+  ]);
+  expect(
+    [...supplied, ...typed, String(program["text"])].map((token) =>
+      substitute(token, replayed)
+    )
+  ).toEqual(["Bandra", "Juhu", "Bandra", "Juhu"]);
 });
 
 it.live("records a journey's programs and replays them over HTTP", () =>

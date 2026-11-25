@@ -281,6 +281,8 @@ export const makeRecorder = () => {
     const token = `{{${name}}}`;
     bindings.push({ from: { _tag: "environment", name }, token });
     live.set(token, value);
+    // A later step that repeats the value sends the token too.
+    environment.set(name, value);
     return token;
   };
 
