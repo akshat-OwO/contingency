@@ -278,6 +278,63 @@ export const substitute = (
   return resolved;
 };
 
+/** The value at `segments` in an earlier step's answered values. */
+const valueAt = (
+  value: Schema.Json | undefined,
+  segments: readonly Segment[]
+) => {
+  let node = value;
+  for (const key of segments) {
+    if (Array.isArray(node)) {
+      node = Predicate.isNumber(key) ? node[key] : undefined;
+    } else {
+      node =
+        node !== undefined && isJsonObject(node) && Predicate.isString(key)
+          ? node[key]
+          : undefined;
+    }
+  }
+  return node;
+};
+
+/**
+ * Each token's value for the step at `index`: taken from the earlier step it
+ * is bound to, whose answered values are in `values`, or from `environment`.
+ * A token bound to a later step is left out.
+ */
+export const resolveTokens = (
+  transcript: Transcript,
+  options: {
+    readonly environment: Readonly<Record<string, string>>;
+    readonly index: number;
+    readonly values: ReadonlyMap<number, Schema.Json>;
+  }
+) =>
+  Effect.gen(function* resolveTranscriptTokens() {
+    const tokens = new Map<string, string>();
+    for (const { from, token } of transcript.bindings) {
+      if (from._tag === "environment") {
+        const value = options.environment[from.name];
+        if (value === undefined) {
+          return yield* Effect.die(`The replay supplies no ${from.name}.`);
+        }
+        tokens.set(token, value);
+        continue;
+      }
+      if (from.step >= options.index) {
+        continue;
+      }
+      const value = valueAt(options.values.get(from.step), from.path);
+      if (!Predicate.isString(value)) {
+        return yield* Effect.die(
+          `Step ${from.step} has no ${from.path.join(".")} for ${token}.`
+        );
+      }
+      tokens.set(token, value);
+    }
+    return tokens;
+  });
+
 /**
  * Records one journey as it runs. A value a program sends that came from an
  * earlier program, or from the environment, is written as a token, so the

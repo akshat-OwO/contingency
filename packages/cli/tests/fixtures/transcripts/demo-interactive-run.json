@@ -1,0 +1,123 @@
+{
+  "bindings": [
+    {
+      "from": {
+        "_tag": "step",
+        "path": [
+          "value",
+          "id"
+        ],
+        "step": 2
+      },
+      "token": "{{b1}}"
+    },
+    {
+      "from": {
+        "_tag": "step",
+        "path": [
+          "value",
+          "snapshotId"
+        ],
+        "step": 8
+      },
+      "token": "{{b2}}"
+    }
+  ],
+  "journey": "demo-interactive-run",
+  "schemaVersion": 1,
+  "steps": [
+    {
+      "_tag": "process"
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {};\nreturn await tools.agent_catalog_get(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"example\":\"example-delivery-cart\",\"inputs\":[{\"name\":\"product\",\"value\":\"Cedar Pull Saw\"},{\"name\":\"city\",\"value\":\"Denver\"},{\"name\":\"area\",\"value\":\"Highlands\"}],\"operationId\":\"scripted-1\",\"view\":\"full\"};\nreturn await tools.agent_example_run_start(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"type\":\"select\",\"values\":[\"Denver\"]},\"sessionId\":\"{{b1}}\",\"operationId\":\"scripted-2\",\"format\":\"structured\"};\nconst role = \"combobox\";\nconst name = \"City\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"action\"][\"ref\"] = control.ref;\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"type\":\"select\",\"values\":[\"Highlands\"]},\"sessionId\":\"{{b1}}\",\"operationId\":\"scripted-3\",\"format\":\"structured\"};\nconst role = \"combobox\";\nconst name = \"Area\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"action\"][\"ref\"] = control.ref;\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"type\":\"click\"},\"sessionId\":\"{{b1}}\",\"operationId\":\"scripted-4\",\"format\":\"structured\"};\nconst role = \"button\";\nconst name = \"Save location\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"action\"][\"ref\"] = control.ref;\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"type\":\"click\"},\"sessionId\":\"{{b1}}\",\"operationId\":\"scripted-5\",\"format\":\"structured\"};\nconst role = \"button\";\nconst name = \"Add Cedar Pull Saw to cart\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"action\"][\"ref\"] = control.ref;\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"type\":\"click\"},\"sessionId\":\"{{b1}}\",\"operationId\":\"scripted-6\",\"format\":\"structured\"};\nconst role = \"link\";\nconst name = \"Cart\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"action\"][\"ref\"] = control.ref;\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b1}}\",\"format\":\"structured\"};\nreturn await tools.agent_browser_snapshot(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"evidence\":[{\"id\":\"{{b2}}\",\"kind\":\"snapshot\"}],\"explanation\":\"The cart lists Cedar Pull Saw for delivery to Highlands, Denver.\",\"outcome\":\"working\",\"outcomeComplete\":true,\"sessionId\":\"{{b1}}\",\"operationId\":\"scripted-7\",\"view\":\"full\"};\nreturn await tools.agent_run_assess(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b1}}\",\"operationId\":\"scripted-8\"};\nreturn await tools.agent_run_complete(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    }
+  ]
+}

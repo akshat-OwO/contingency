@@ -45,7 +45,7 @@ A journey is an Effect. Each step names an operation and its input, and the driv
 - **In-process**, the default, runs the operation through the agent's toolkits and reads the answer as MCP encodes and compacts it.
 - **HTTP** renders the step as one `agent_code_execute` program, sent to an MCP server over the same process. A step aimed at a control carries its role and name, and the program finds the ref in its own Browser Snapshot.
 
-Register a journey with `journey(name, { singleTool, timeout, transcript }, effect)`. Every journey runs in-process. A `singleTool: true` journey also runs over HTTP and is tagged `@single-tool`, so `vitest -t @single-tool` selects the journeys that prove the single tool. Build its process with `scriptedProcess(root)`, and build it again to restart the process.
+Register a journey with `journey(name, { demo, singleTool, timeout, transcript }, effect)`. Every journey runs in-process. A `singleTool: true` journey also runs over HTTP and is tagged `@single-tool`, so `vitest -t @single-tool` selects the journeys that prove the single tool. Build its process with `scriptedProcess(root)`, and build it again to restart the process. A `demo: true` journey calls the demo store's operations, such as `agent_example_run_start`, so it runs only over HTTP, on a process built with `scriptedProcess(root, { demo: true })`.
 
 | Step | What it does |
 | --- | --- |
@@ -81,6 +81,16 @@ A transcript is JSON that the `Transcript` schema in `tests/integration/transcri
 | `bindings` | Each `{{token}}` in the programs and actions, and where a replay takes its value: `step` names an earlier step's `value` or `intervention` path, the earliest step that held the value; `environment` names a value the replaying test supplies, such as the fixture origin. |
 
 Values a process mints, such as session, Flow, and Run ids and cursors, are written as tokens. Operation ids are the agent's own, so they are written as sent. A value the user supplies for a Variable is the user's, so each supply is written as its own environment token, `{{supplied1}}`, `{{supplied2}}` and so on in order, and the replaying test supplies the values. A later program or action that repeats a supplied value sends its token too. Redaction leaves only the fields in `EXEMPT_PATHS` in `transcript.ts` as written: identifiers the server validates and no answer mints, such as `_tag`, a Variable or Flow `name`, `inputs[].name`, and `action.type`, and the operation ids the agent mints. A value an earlier answer minted, such as a Snapshot continuation cursor, is bound to that answer first. Every other field is payload and is redacted, so a new free-text field needs no listing. An id or cursor is bound whole or kept as sent. A transcript holds only what the agent sent and the outcome it read: programs, failure codes, and receipts. It never holds a failure's cause.
+
+### Emulated model
+
+`tests/integration/claude-code-emulated.integration.test.ts` runs a real Claude Code against the AI service of `emulate`, pinned in `packages/cli` ([ADR 0090](../adr/0090-verification-may-emulate-the-model-behind-a-real-agent-harness.md)). It skips when `claude` is not on PATH and needs the built CLI. Run it through verify-contingency's `emulated-claude-code.mjs`, which builds first.
+
+The emulated model plays `demo-interactive-run.json`, recorded by `demo-interactive-run.integration.test.ts`. Claude Code's base URL is a gate in the test that records every request. Before it forwards a main-loop request to the emulator, it replaces the emulator's rules with the next reply: read getting-started, then the next program with its tokens resolved by `resolveTokens` from the answers Claude Code sent back, then a final message. Emulate replies only as written, so the gate binds the tokens. Re-record the transcript with:
+
+```sh
+RECORD_TRANSCRIPTS=1 vp exec vitest run --config vitest.integration.config.ts tests/integration/demo-interactive-run.integration.test.ts
+```
 
 ## Coverage corpora
 
