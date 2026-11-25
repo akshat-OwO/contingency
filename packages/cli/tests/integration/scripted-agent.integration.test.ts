@@ -154,6 +154,53 @@ it("binds each supplied value to its own token and restores it literally", () =>
   ).toEqual(["Bandra", "Juhu", "Bandra", "Juhu"]);
 });
 
+it("redacts supplied values in payload fields and never in structural ones", () => {
+  const recorder = makeRecorder();
+  recorder.process();
+  recorder.user({
+    _tag: "supply-variable",
+    name: "type",
+    sessionId: "agent-session",
+    value: "type",
+  });
+  recorder.user({
+    _tag: "supply-variable",
+    name: "AREA",
+    sessionId: "agent-session",
+    value: "agent",
+  });
+  recorder.user({ _tag: "type", sessionId: "agent-session", text: "type" });
+  const program = recorder.tokenize({
+    action: { text: "agent", type: "type" },
+    operationId: "agent-type",
+    sessionId: "agent-session",
+  });
+  const { steps } = recorder.transcript("structural");
+  const actions = steps.flatMap((step) =>
+    step._tag === "user" ? [step.action] : []
+  );
+  expect(actions).toEqual([
+    {
+      _tag: "supply-variable",
+      name: "type",
+      sessionId: "agent-session",
+      value: "{{supplied1}}",
+    },
+    {
+      _tag: "supply-variable",
+      name: "AREA",
+      sessionId: "agent-session",
+      value: "{{supplied2}}",
+    },
+    { _tag: "type", sessionId: "agent-session", text: "{{supplied1}}" },
+  ]);
+  expect(program).toEqual({
+    action: { text: "{{supplied2}}", type: "type" },
+    operationId: "agent-type",
+    sessionId: "agent-session",
+  });
+});
+
 it.live("records a journey's programs and replays them over HTTP", () =>
   Effect.gen(function* recordThenReplay() {
     const script = makeScript("http");

@@ -163,6 +163,23 @@ const isBindable = (key: string) =>
   !/(?:^o|O)perationId$/u.test(key) &&
   (key === "id" || /(?:Id|Cursor)$/u.test(key));
 
+/**
+ * Keys whose value says what a step is, not what it carries: a tag, a kind,
+ * a name, or a format. Redaction never rewrites them.
+ */
+const STRUCTURAL_KEYS = new Set([
+  "_tag",
+  "button",
+  "eventType",
+  "format",
+  "name",
+  "operation",
+  "operationId",
+  "role",
+  "type",
+  "view",
+]);
+
 /** Every bindable value in a program's value, first occurrence first. */
 const bindableValues = (value: Schema.Json) => {
   const found = new Map<string, readonly Segment[]>();
@@ -215,7 +232,10 @@ export const makeRecorder = () => {
   const live = new Map<string, string>();
   let supplied = 0;
 
-  const tokenFor = (value: string) => {
+  const tokenFor = (value: string, key: string | undefined) => {
+    if (key !== undefined && STRUCTURAL_KEYS.has(key)) {
+      return value;
+    }
     // The earliest answer that holds the value is the one that minted it.
     for (const [step, values] of sources.entries()) {
       const at = values.get(value);
@@ -236,6 +256,10 @@ export const makeRecorder = () => {
       live.set(token, value);
       return token;
     }
+    // An id or cursor is bound whole or kept; only payload text is redacted.
+    if (key !== undefined && isBindable(key)) {
+      return value;
+    }
     let written = value;
     for (const [name, environmentValue] of environment) {
       if (!written.includes(environmentValue)) {
@@ -251,16 +275,20 @@ export const makeRecorder = () => {
     return written;
   };
 
-  const tokenize = (value: Schema.Json): Schema.Json => {
+  /** `key` is the field the value sits in; an array's items share it. */
+  const tokenize = (value: Schema.Json, key?: string): Schema.Json => {
     if (Predicate.isString(value)) {
-      return tokenFor(value);
+      return tokenFor(value, key);
     }
     if (Array.isArray(value)) {
-      return value.map(tokenize);
+      return value.map((item) => tokenize(item, key));
     }
     if (isJsonObject(value)) {
       return Object.fromEntries(
-        Object.entries(value).map(([key, child]) => [key, tokenize(child)])
+        Object.entries(value).map(([field, child]) => [
+          field,
+          tokenize(child, field),
+        ])
       );
     }
     return value;
@@ -268,7 +296,10 @@ export const makeRecorder = () => {
 
   const tokenizeObject = (input: Schema.JsonObject): Schema.JsonObject =>
     Object.fromEntries(
-      Object.entries(input).map(([key, child]) => [key, tokenize(child)])
+      Object.entries(input).map(([field, child]) => [
+        field,
+        tokenize(child, field),
+      ])
     );
 
   /**
