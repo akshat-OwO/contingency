@@ -1,6 +1,8 @@
 import type { Cause } from "effect";
 import { Context, Effect, Option, Random } from "effect";
 
+import { recordFailureReference } from "./metrics.ts";
+
 /**
  * A Failure Reference names one failure whose cause the code does not fully
  * state: a defect, or a runtime or child-process failure. The agent and the
@@ -80,6 +82,7 @@ export const recordFailure = (
     const store = yield* FailureReferences;
     const reference = yield* newReference;
     store.keep(reference, cause);
+    yield* recordFailureReference(code);
     yield* Effect.logError("Failure recorded", cause).pipe(
       Effect.annotateLogs({ code, failureReference: reference })
     );

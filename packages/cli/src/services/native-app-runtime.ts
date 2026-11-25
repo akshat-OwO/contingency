@@ -3,6 +3,7 @@ import type { Effect as EffectType } from "effect";
 import { Clock, Effect, Redacted, Schedule, Scope, Semaphore } from "effect";
 import { Atom, AtomRegistry } from "effect/reactivity";
 
+import { recordActionDuration } from "./metrics.ts";
 import { nativeAppRuntimeError } from "./native-app-error.ts";
 import type {
   NativeAppRuntimeStartInput,
@@ -179,51 +180,61 @@ export const adaptNativeAppRuntime = <
       id: string,
       action: PlatformAction | { readonly type: NativeSystemKey }
     ) =>
-      lock.withPermits(1)(
-        guarded(
-          Effect.gen(function* dispatchAndroid() {
-            yield* requireReady;
-            const captured = registry.get(observation);
-            if (captured === null || captured.id !== id) {
-              return yield* Effect.fail(error("observation_stale"));
-            }
-            // Consume before validation or dispatch, including unsupported requests.
-            yield* invalidate;
-            if (action.type === "coordinate" || action.type === "press") {
-              return yield* Effect.fail(error("capability_missing"));
-            }
-            yield* input.policy.publicAction(captured, action);
-            yield* input.backend.validate();
-            registry.update(status, (current) => ({
-              ...current,
-              outcome: "uncertain" as const,
-            }));
-            if (isSystemKey(action)) {
-              if (input.backend.systemKey === undefined) {
+      lock
+        .withPermits(1)(
+          guarded(
+            Effect.gen(function* dispatchAndroid() {
+              yield* requireReady;
+              const captured = registry.get(observation);
+              if (captured === null || captured.id !== id) {
+                return yield* Effect.fail(error("observation_stale"));
+              }
+              // Consume before validation or dispatch, including unsupported requests.
+              yield* invalidate;
+              if (action.type === "coordinate" || action.type === "press") {
                 return yield* Effect.fail(error("capability_missing"));
               }
-              yield* input.backend.systemKey(action.type);
-            } else if (action.type === "activate") {
-              yield* input.backend.activate(action.target);
-            } else {
-              const result = yield* input.backend.fill(
-                action.target,
-                action.text
-              );
+              yield* input.policy.publicAction(captured, action);
               yield* input.backend.validate();
-              // agent-device accepts masked text by length alone, which proves nothing.
-              const masked =
-                input.policy.unconfirmedFill?.(captured, action.target) ??
-                false;
-              return masked
-                ? { ...result, confirmation: "unconfirmed" as const }
-                : result;
-            }
-            yield* input.backend.validate();
-            // A successful dispatch is still uncertain until independently observed.
-          })
+              registry.update(status, (current) => ({
+                ...current,
+                outcome: "uncertain" as const,
+              }));
+              if (isSystemKey(action)) {
+                if (input.backend.systemKey === undefined) {
+                  return yield* Effect.fail(error("capability_missing"));
+                }
+                yield* input.backend.systemKey(action.type);
+              } else if (action.type === "activate") {
+                yield* input.backend.activate(action.target);
+              } else {
+                const result = yield* input.backend.fill(
+                  action.target,
+                  action.text
+                );
+                yield* input.backend.validate();
+                // agent-device accepts masked text by length alone, which proves nothing.
+                const masked =
+                  input.policy.unconfirmedFill?.(captured, action.target) ??
+                  false;
+                return masked
+                  ? { ...result, confirmation: "unconfirmed" as const }
+                  : result;
+              }
+              yield* input.backend.validate();
+              // A successful dispatch is still uncertain until independently observed.
+            })
+          )
         )
-      );
+        .pipe(
+          recordActionDuration(input.startup.platform),
+          Effect.withSpan("runtime.act", {
+            attributes: {
+              action: action.type,
+              platform: input.startup.platform,
+            },
+          })
+        );
     const enterVariable = (id: string, request: NativeAppVariableFillRequest) =>
       Effect.gen(function* fillVariable() {
         const text = Redacted.value(yield* request.value);
@@ -265,9 +276,15 @@ export const adaptNativeAppRuntime = <
       enterVariable,
       invalidate: () => lock.withPermits(1)(invalidate),
       observe: (options) =>
-        lock.withPermits(1)(
-          guarded(requireReady.pipe(Effect.andThen(capture(options))))
-        ),
+        lock
+          .withPermits(1)(
+            guarded(requireReady.pipe(Effect.andThen(capture(options))))
+          )
+          .pipe(
+            Effect.withSpan("runtime.observe", {
+              attributes: { platform: input.startup.platform },
+            })
+          ),
       platform: input.startup.platform,
       recover: () =>
         lock.withPermits(1)(
