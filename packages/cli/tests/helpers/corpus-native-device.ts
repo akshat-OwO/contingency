@@ -4,6 +4,7 @@ import { deflateSync } from "node:zlib";
 
 import type {
   AndroidWorkspaceSelection,
+  IosWorkspaceSelection,
   NativeInput,
 } from "@contingency/protocol";
 import { Effect, Layer, Schema, Stream } from "effect";
@@ -27,14 +28,23 @@ import {
   iosNodeInteraction,
   iosNodeName,
 } from "../../src/services/ios-observation.ts";
-import { iosRuntimeError } from "../../src/services/ios-runtime.ts";
+import {
+  iosCapabilities,
+  iosRuntimeError,
+  iosSystemKeys,
+  iosWindowViewport,
+} from "../../src/services/ios-runtime.ts";
 import type { IosObservation } from "../../src/services/ios-runtime.ts";
+import type { IosDeviceStream } from "../../src/services/ios-stream.ts";
+import { makeIosWorkspaceLayer } from "../../src/services/ios-workspace.ts";
+import { nativeAppActionPolicy } from "../../src/services/native-app-action-policy.ts";
 import { nativeHitTest } from "../../src/services/native-app-hit-test.ts";
 import type {
   NativeAppPlatform,
   NativeAppRuntimeBackend,
   NativeCaptureOptions,
 } from "../../src/services/native-app-runtime-contract.ts";
+import { adaptNativeAppRuntime } from "../../src/services/native-app-runtime.ts";
 import { makeGestureRecognizer } from "../../src/services/native-forwarded-input.ts";
 import { platformRuntimeError } from "../../src/services/platform-runtime-error.ts";
 import { PlatformRuntimeFactory } from "../../src/services/platform-runtime.ts";
@@ -349,6 +359,9 @@ const validateScript = (platform: NativeAppPlatform, script: CorpusScript) => {
 };
 
 interface CorpusAndroidBackendOptions {
+  readonly beforeActivate?: (
+    target: string
+  ) => Effect.Effect<void, PlatformRuntimeError>;
   readonly device: AndroidDeviceSelection;
   readonly platform: "android";
   readonly script: CorpusScript;
@@ -356,6 +369,9 @@ interface CorpusAndroidBackendOptions {
 }
 
 interface CorpusIosBackendOptions {
+  readonly beforeActivate?: (
+    target: string
+  ) => Effect.Effect<void, PlatformRuntimeError>;
   readonly device: IosDevice;
   readonly platform: "ios";
   readonly script: CorpusScript;
@@ -381,6 +397,8 @@ export function makeCorpusNativeBackend(
   let recoveryCount = 0;
   let failRemaining = 0;
   let failUntilRecover = false;
+  let cachedWindow: { readonly height: number; readonly width: number } | null =
+    null;
   let activeNodes = new Map<string, MappedNode>();
   const recognizer = makeGestureRecognizer();
   let forwardedSequence = 0;
@@ -455,7 +473,17 @@ export function makeCorpusNativeBackend(
           node.target === "" ? [] : [[node.target, node]]
         )
       );
-      const { height, width } = screen.viewport;
+      const viewport =
+        options.platform === "ios"
+          ? iosWindowViewport(
+              { nodes: screen.nodes, viewport: screen.viewport },
+              cachedWindow
+            )
+          : screen.viewport;
+      if (options.platform === "ios") {
+        cachedWindow = viewport;
+      }
+      const { height, width } = viewport;
       const screenshot = {
         capturedAt: screen.capturedAt,
         encoding: "base64" as const,
@@ -505,6 +533,7 @@ export function makeCorpusNativeBackend(
 
   const activate = (target: string) =>
     resolveTarget(target, "activate").pipe(
+      Effect.tap(() => options.beforeActivate?.(target) ?? Effect.void),
       Effect.tap((node) =>
         Effect.sync(() => {
           const next = transitionFor("activate", node);
@@ -536,6 +565,7 @@ export function makeCorpusNativeBackend(
     Effect.sync(() => {
       recoveryCount += 1;
       failUntilRecover = false;
+      cachedWindow = null;
     });
 
   const baseBackend = {
@@ -594,10 +624,17 @@ export function makeCorpusNativeBackend(
           }
           const screen = currentCapture();
           const nodes = mapNodes(options.platform, screen, generation || 1);
+          const viewport =
+            options.platform === "ios"
+              ? iosWindowViewport(
+                  { nodes: screen.nodes, viewport: screen.viewport },
+                  cachedWindow
+                )
+              : screen.viewport;
           const hit = nativeHitTest(
             nodes,
-            gesture.x * screen.viewport.width,
-            gesture.y * screen.viewport.height
+            gesture.x * viewport.width,
+            gesture.y * viewport.height
           );
           if (hit === undefined || hit.covered) {
             continue;
@@ -612,6 +649,7 @@ export function makeCorpusNativeBackend(
     recoveries: () => recoveryCount,
     reset: () => {
       currentId = options.script.start;
+      cachedWindow = null;
       recognizer.reset();
     },
   };
@@ -737,3 +775,144 @@ export const makeCorpusAndroidWorkspaceLayer = (options: {
     root: options.root,
   }).pipe(Layer.provide(runtimeFactory));
 };
+
+export const IOS_WIDGET_APP = "dev.contingency.ioswidgets";
+
+export const IOS_WIDGET_SCRIPT: CorpusScript = {
+  start: "controls",
+  transitions: [
+    {
+      from: "controls",
+      on: { action: "activate", name: "Show alert", role: "button" },
+      to: "alert",
+    },
+    {
+      from: "alert",
+      on: { action: "activate", name: "Cancel", role: "button" },
+      to: "controls",
+    },
+    {
+      from: "controls",
+      on: { action: "activate", name: "Show action sheet", role: "button" },
+      to: "action-sheet",
+    },
+    {
+      from: "action-sheet",
+      on: { action: "activate", name: "Cancel", role: "button" },
+      to: "controls",
+    },
+    {
+      from: "controls",
+      on: { action: "activate", name: "Continue", role: "button" },
+      to: "system-permission-alert",
+    },
+    {
+      from: "system-permission-alert",
+      on: { action: "activate", name: "Allow Once", role: "button" },
+      to: "controls",
+    },
+    {
+      from: "system-permission-alert",
+      on: {
+        action: "activate",
+        name: "Allow While Using App",
+        role: "button",
+      },
+      to: "controls",
+    },
+    {
+      from: "system-permission-alert",
+      on: { action: "activate", name: "Don’t Allow", role: "button" },
+      to: "controls",
+    },
+  ],
+};
+
+export const corpusIosSimulator: IosDevice = {
+  deviceType: "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
+  kind: "simulator",
+  name: "iPhone 17",
+  runtime: "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
+  runtimeVersion: "26.5",
+  udid: "11111111-2222-3333-4444-555555555555",
+};
+
+export const corpusIosSelection = (
+  overrides: {
+    readonly conditions?: IosWorkspaceSelection["setup"]["conditions"];
+    readonly outcomes?: IosWorkspaceSelection["outcomes"];
+  } = {}
+): IosWorkspaceSelection => ({
+  device: corpusIosSimulator,
+  environment: {
+    build: "1",
+    bundleId: IOS_WIDGET_APP,
+    deviceType: corpusIosSimulator.deviceType,
+    runtimeVersion: corpusIosSimulator.runtimeVersion,
+  },
+  outcomes: overrides.outcomes ?? [{ name: "Continue", role: "button" }],
+  setup: {
+    conditions: overrides.conditions ?? [{ name: "Continue", role: "button" }],
+    kind: "restart-app",
+  },
+});
+
+const makeCorpusIosStream = (): IosDeviceStream => ({
+  access: { path: "/ios/stream/corpus", token: "corpus" },
+  authorized: () => false,
+  begin: () => Effect.succeed(true),
+  close: () => Effect.void,
+  end: () => Effect.succeed(null),
+  frames: Stream.empty,
+  integrity: () => null,
+  recover: () => Effect.sync((): undefined => undefined),
+  start: () => Effect.sync((): undefined => undefined),
+});
+
+/**
+ * Builds an `IosWorkspace` layer backed by a corpus fake device through the
+ * real `createIosRun` dependencies. Shares `FlowCatalog`,
+ * `TeachingRecordingStore`, and `FileSystem` with MCP tools.
+ */
+export const makeCorpusIosWorkspaceLayer = (options: {
+  readonly device: CorpusNativeDevice<NativeAppRuntimeBackend<IosObservation>>;
+  readonly installedBuild?: string;
+  readonly root: () => string;
+}) =>
+  makeIosWorkspaceLayer({
+    acquireStream: () => Effect.succeed(makeCorpusIosStream()),
+    booted: () => Effect.succeed(true),
+    makeHid: () =>
+      Effect.succeed({
+        forward: (inputs) =>
+          Effect.sync(() => {
+            options.device.forwardInputs(inputs);
+          }),
+      }),
+    root: options.root,
+    runDeps: {
+      installedBuild: () => Effect.succeed(options.installedBuild ?? "1"),
+      preflight: () => Effect.void,
+      restart: () =>
+        Effect.sync(() => {
+          options.device.reset();
+        }),
+      start: (startup) =>
+        Effect.sync(() => {
+          options.device.reset();
+        }).pipe(
+          Effect.andThen(
+            adaptNativeAppRuntime({
+              backend: options.device.backend,
+              capabilities: iosCapabilities,
+              error: iosRuntimeError,
+              foreground: (observation) => observation.appId ?? undefined,
+              policy: nativeAppActionPolicy(iosRuntimeError, iosSystemKeys),
+              startup,
+            })
+          )
+        ),
+    },
+    simctl: (args) =>
+      Effect.succeed(args.at(0) === "ui" && args.length < 4 ? "light" : ""),
+  });

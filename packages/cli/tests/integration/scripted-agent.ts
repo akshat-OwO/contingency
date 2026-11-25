@@ -24,10 +24,8 @@ import type { Tool } from "effect/ai";
 import { HttpRouter, HttpServer } from "effect/http";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
-import { AndroidWorkspace } from "../../src/services/android-workspace.ts";
 import type { AndroidWorkspaceService } from "../../src/services/android-workspace.ts";
 import { makeDemoSiteLayer } from "../../src/services/demo-site-server.ts";
-import { IosWorkspace } from "../../src/services/ios-workspace.ts";
 import type { IosWorkspaceService } from "../../src/services/ios-workspace.ts";
 import { AgentRunTools } from "../../src/services/mcp-agent-run.ts";
 import { AgentSessionTools } from "../../src/services/mcp-agent-session.ts";
@@ -425,8 +423,6 @@ const inProcessAgent = Layer.effect(
   Effect.gen(function* makeInProcessAgent() {
     const handlers = yield* ProcessTools;
     const sessions = yield* AgentSession;
-    const android = yield* Effect.serviceOption(AndroidWorkspace);
-    const ios = yield* Effect.serviceOption(IosWorkspace);
     /** The tool's answer as the agent reads it: encoded, then compacted. */
     const handle = (
       operation: OperationName,
@@ -471,21 +467,15 @@ const inProcessAgent = Layer.effect(
             const deviceSessionId = Predicate.isString(command?.["sessionId"])
               ? command["sessionId"]
               : undefined;
-            const selected =
-              input["platform"] === "ios"
-                ? Option.getOrUndefined(ios)
-                : Option.getOrUndefined(android);
-            const before = yield* Effect.gen(function* readBefore() {
-              if (deviceSessionId === undefined || selected === undefined) {
-                return Option.none();
-              }
-              const summaries = yield* selected.list();
-              return Option.fromNullishOr(
-                summaries.find(({ id }) => id === deviceSessionId)
-              );
-            }).pipe(Effect.orElseSucceed(() => Option.none()));
+            if (deviceSessionId !== undefined) {
+              return yield* handle(operation, input);
+            }
             const value = yield* handle(operation, input);
-            const intervention = androidIntervention(input, value, before);
+            const intervention = androidIntervention(
+              input,
+              value,
+              Option.none()
+            );
             return intervention === undefined
               ? value
               : yield* Effect.fail(

@@ -4,19 +4,14 @@ import { Effect } from "effect";
 import {
   ANDROID_WIDGET_APP,
   ANDROID_WIDGET_SCRIPT,
+  IOS_WIDGET_SCRIPT,
   corpusAndroidSelection,
+  corpusIosSimulator,
   makeCorpusNativeBackend,
 } from "../helpers/corpus-native-device.ts";
 
 const androidDevice = corpusAndroidSelection().device;
-const iosDevice = {
-  deviceType: "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
-  kind: "simulator" as const,
-  name: "iPhone 17",
-  runtime: "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
-  runtimeVersion: "26.5",
-  udid: "11111111-2222-3333-4444-555555555555",
-};
+const iosDevice = corpusIosSimulator;
 
 describe("corpus-backed fake native device", () => {
   it("fails at load with capture id and control name when a transition names an absent control", () => {
@@ -171,6 +166,38 @@ describe("corpus-backed fake native device", () => {
         expect(
           alert.nodes.some(
             (node) => node.role === "button" && node.name === "Remove"
+          )
+        ).toBe(true);
+      })
+  );
+
+  it.effect(
+    "preserves the outer iOS window viewport when a system permission alert is presented",
+    () =>
+      Effect.gen(function* verifyIosSystemAlertViewport() {
+        const fake = makeCorpusNativeBackend({
+          device: iosDevice,
+          platform: "ios",
+          script: IOS_WIDGET_SCRIPT,
+        });
+        const controls = yield* fake.backend.capture({ image: false });
+        expect(controls.frame).toEqual({ height: 874, width: 402 });
+
+        const continueButton = controls.nodes.find(
+          (node) => node.role === "button" && node.name === "Continue"
+        );
+        yield* fake.backend.activate(continueButton?.target ?? "");
+
+        const permissionAlert = yield* fake.backend.capture();
+        // system-permission-alert.json has a 320x326 alert frame inside the
+        // 402x874 window; iosWindowViewport keeps the outer window geometry.
+        expect(permissionAlert.frame).toEqual({ height: 874, width: 402 });
+        const png = Buffer.from(permissionAlert.screenshot.image, "base64");
+        expect(png.readUInt32BE(16)).toBe(402);
+        expect(png.readUInt32BE(20)).toBe(874);
+        expect(
+          permissionAlert.nodes.some(
+            (node) => node.role === "button" && node.name === "Allow Once"
           )
         ).toBe(true);
       })

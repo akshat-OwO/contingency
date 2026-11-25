@@ -675,6 +675,26 @@ export const makeIosWorkspaceLayer = (options: {
                 cleanup: manifest.cleanup,
               }))
             );
+      const preparationOf = (session: Session) => {
+        const current = state(session);
+        const pending = session.boundary.pending();
+        const runState = session.run.state();
+        return {
+          ...runState,
+          pending: [
+            ...runState.pending,
+            ...(pending === undefined
+              ? []
+              : [
+                  {
+                    id: pending.decision.pendingDecisionId,
+                    kind: "confirmation" as const,
+                    targetApp: current.summary.selection.environment.bundleId,
+                  },
+                ]),
+          ],
+        };
+      };
       const snapshot = (
         session: Session,
         image = false
@@ -687,7 +707,7 @@ export const makeIosWorkspaceLayer = (options: {
           return {
             ...current.summary,
             ...recording,
-            boundary: session.boundary.pending()?.boundary ?? null,
+            boundary: pending?.boundary ?? null,
             field: current.field,
             instructions:
               withoutPurgedInstructions(current.summary, recording.cleanup)
@@ -705,23 +725,8 @@ export const makeIosWorkspaceLayer = (options: {
                         : null,
                     nodes: captured.nodes,
                   },
-            pendingDecision: session.boundary.pending()?.decision ?? null,
-            preparation: {
-              ...session.run.state(),
-              pending: [
-                ...session.run.state().pending,
-                ...(pending === undefined
-                  ? []
-                  : [
-                      {
-                        id: pending.decision.pendingDecisionId,
-                        kind: "confirmation" as const,
-                        targetApp:
-                          current.summary.selection.environment.bundleId,
-                      },
-                    ]),
-              ],
-            },
+            pendingDecision: pending?.decision ?? null,
+            preparation: preparationOf(session),
             revision: current.revision,
             variables: registry
               .get(session.variables)
@@ -2982,7 +2987,7 @@ export const makeIosWorkspaceLayer = (options: {
               return summary.phase === "pending" ||
                 summary.phase === "running" ||
                 summary.phase === "paused"
-                ? [summary]
+                ? [{ ...summary, preparation: preparationOf(session) }]
                 : [];
             })
           ),
