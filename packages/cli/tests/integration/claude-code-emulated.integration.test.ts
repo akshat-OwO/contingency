@@ -3,13 +3,13 @@ import { accessSync, constants, existsSync } from "node:fs";
 import { createServer, request } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
-import { homedir } from "node:os";
 import path from "node:path";
 
 import { NodeServices } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Predicate, Schema } from "effect";
 import { createEmulator } from "emulate";
+import { chromium } from "playwright-core";
 
 import { CodeExecution } from "./scripted-agent.ts";
 import {
@@ -341,33 +341,21 @@ const run = (
   });
 
 /**
- * Where Playwright keeps its browsers for this user. Tests share that cache,
- * so the private home below does not download Chromium again.
+ * The directory of browsers Playwright uses in this process, as Playwright
+ * itself resolves it: the parent of the `chromium-<revision>` directory that
+ * holds its Chromium. The private home below gets it as
+ * `PLAYWRIGHT_BROWSERS_PATH`, so its processes launch the same Chromium.
  */
 const browserCache = () => {
-  const configured = [
-    "PLAYWRIGHT_BROWSERS_PATH",
-    "npm_config_playwright_browsers_path",
-    "npm_package_config_playwright_browsers_path",
-  ]
-    .map((name) => process.env[name])
-    .find((value) => value !== undefined && value.length > 0);
-  if (configured !== undefined) {
-    return configured;
+  let directory = path.dirname(chromium.executablePath());
+  while (!path.basename(directory).startsWith("chromium")) {
+    const parent = path.dirname(directory);
+    if (parent === directory) {
+      throw new Error("Playwright's Chromium is not in a chromium directory.");
+    }
+    directory = parent;
   }
-  if (process.platform === "darwin") {
-    return path.join(homedir(), "Library/Caches/ms-playwright");
-  }
-  if (process.platform === "win32") {
-    return path.join(
-      process.env["LOCALAPPDATA"] || path.join(homedir(), "AppData/Local"),
-      "ms-playwright"
-    );
-  }
-  return path.join(
-    process.env["XDG_CACHE_HOME"] || path.join(homedir(), ".cache"),
-    "ms-playwright"
-  );
+  return path.dirname(directory);
 };
 
 /**
@@ -407,6 +395,14 @@ const CallRecord = Schema.Struct({
   matched: Schema.NullOr(Schema.Struct({ id: Schema.optional(Schema.String) })),
   path: Schema.String,
   status: Schema.Number,
+});
+
+it("gives the private home the browser cache Playwright uses here", () => {
+  const cache = browserCache();
+  expect(path.isAbsolute(cache)).toBe(true);
+  expect(chromium.executablePath().startsWith(`${cache}${path.sep}`)).toBe(
+    true
+  );
 });
 
 describe.skipIf(CLAUDE === undefined)(
