@@ -507,6 +507,17 @@ journey(
       );
       expect(completed.assessment?.outcome).toBe("working");
       expect(completed.phase).toBe("completed");
+
+      const listed = yield* call("agent_teaching_recordings_list", {
+        recordingId,
+      });
+      expect(listed.recordings[0]?.lifecycle).toBe("dry-run-passed");
+
+      const verified = yield* call("agent_flow_decide", {
+        decision: "verify",
+        recordingId,
+      });
+      expect(verified.lifecycle).toBe("verified");
     }).pipe(
       Effect.provide(
         scriptedProcess(root, {

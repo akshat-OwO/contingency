@@ -408,25 +408,26 @@ export function makeCorpusNativeBackend(
   const resolveTarget = (
     target: string,
     operation: "activate" | "fill"
-  ): Effect.Effect<MappedNode, PlatformRuntimeError> => {
-    const match = generationPattern.exec(target)?.groups?.["generation"];
-    if (match !== undefined && Number(match) !== generation) {
-      return Effect.fail({
-        ...runtimeErrorFor(options.platform, "runtime_failed"),
-        backendReason: "ref_generation_mismatch",
-        operation,
-      });
-    }
-    const node = activeNodes.get(target);
-    if (node === undefined) {
-      return Effect.fail({
-        ...runtimeErrorFor(options.platform, "runtime_failed"),
-        backendReason: "stale_ref",
-        operation,
-      });
-    }
-    return Effect.succeed(node);
-  };
+  ): Effect.Effect<MappedNode, PlatformRuntimeError> =>
+    Effect.suspend<MappedNode, PlatformRuntimeError, never>(() => {
+      const match = generationPattern.exec(target)?.groups?.["generation"];
+      if (match !== undefined && Number(match) !== generation) {
+        return Effect.fail({
+          ...runtimeErrorFor(options.platform, "runtime_failed"),
+          backendReason: "ref_generation_mismatch",
+          operation,
+        });
+      }
+      const node = activeNodes.get(target);
+      if (node === undefined) {
+        return Effect.fail({
+          ...runtimeErrorFor(options.platform, "runtime_failed"),
+          backendReason: "stale_ref",
+          operation,
+        });
+      }
+      return Effect.succeed(node);
+    });
 
   const capture = (
     captureOptions?: NativeCaptureOptions

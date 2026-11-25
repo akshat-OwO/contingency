@@ -79,27 +79,32 @@ describe("corpus-backed fake native device", () => {
         expect(showBottomSheet?.target).toMatch(/^@e\d+~s1$/u);
         expect(showBottomSheet?.hittable).toBe(true);
 
+        const oldEmail = first.nodes.find(
+          (node) => node.role === "text-field" && node.name === "Email"
+        );
+        // Effects constructed before a newer capture still check generation at run time.
+        const deferredActivate = fake.backend.activate(
+          showBottomSheet?.target ?? ""
+        );
+        const deferredFill = fake.backend.fill(
+          oldEmail?.target ?? "",
+          "ada@example.com"
+        );
+
         const withoutImage = yield* fake.backend.capture({ image: false });
         expect(withoutImage.generation).toBe(2);
         expect(withoutImage.screenshot.image).toBe("");
         expect(withoutImage.frame).toEqual({ height: 2424, width: 1080 });
 
-        // Activating a target from an older generation fails with ref_generation_mismatch.
-        const staleActivate = yield* Effect.flip(
-          fake.backend.activate(showBottomSheet?.target ?? "")
-        );
+        // Running an effect constructed from an older generation fails with ref_generation_mismatch.
+        const staleActivate = yield* Effect.flip(deferredActivate);
         expect(staleActivate).toMatchObject({
           backendReason: "ref_generation_mismatch",
           code: "runtime_failed",
           operation: "activate",
         });
 
-        const oldEmail = first.nodes.find(
-          (node) => node.role === "text-field" && node.name === "Email"
-        );
-        const staleFill = yield* Effect.flip(
-          fake.backend.fill(oldEmail?.target ?? "", "ada@example.com")
-        );
+        const staleFill = yield* Effect.flip(deferredFill);
         expect(staleFill).toMatchObject({
           backendReason: "ref_generation_mismatch",
           code: "runtime_failed",
