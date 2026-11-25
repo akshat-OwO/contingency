@@ -6,27 +6,47 @@ import { HttpRouter, HttpServer } from "effect/http";
 
 import { makeAgentRunStoreLayer } from "../../src/services/agent-run-store.ts";
 import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
+import type { AndroidWorkspaceService } from "../../src/services/android-workspace.ts";
 import { CreateBrowserLive } from "../../src/services/create-browser.ts";
 import { makeDemoSiteLayer } from "../../src/services/demo-site-server.ts";
+import type { FlowCatalogService } from "../../src/services/flow-catalog.ts";
 import { makeFlowCatalogLayer } from "../../src/services/flow-catalog.ts";
+import type { IosWorkspaceService } from "../../src/services/ios-workspace.ts";
 import {
   MCP_HTTP_PATH,
   makeMcpHttpLayer,
 } from "../../src/services/mcp-http.ts";
 import type { SystemOneConfig } from "../../src/services/system-one.ts";
+import type { TeachingRecordingStoreService } from "../../src/services/teaching-recording-store.ts";
 import { makeTeachingRecordingStoreLayer } from "../../src/services/teaching-recording-store.ts";
 
 const BASE_URL = "http://127.0.0.1:7783";
 
+type NativeWorkspaceDeps =
+  | FlowCatalogService
+  | TeachingRecordingStoreService
+  | FileSystem.FileSystem;
+
 /**
  * Serves the production MCP HTTP layer on an ephemeral loopback port, with
  * the demo store only when `demo` is true, as `contingency mcp --demo` does.
+ * Optional native Workspace layers share the server's catalog and stores.
  */
 export const servingMcpHttp = Effect.fn("servingMcpHttp")(
   function* servingMcpHttp(
     options: {
+      readonly androidWorkspace?: Layer.Layer<
+        AndroidWorkspaceService,
+        never,
+        NativeWorkspaceDeps
+      >;
       readonly demo?: boolean;
       readonly catalogRoot?: string;
+      readonly iosWorkspace?: Layer.Layer<
+        IosWorkspaceService,
+        never,
+        NativeWorkspaceDeps
+      >;
       readonly workspaceUrl?: string;
       readonly launchContext?: string;
       readonly systemOne?: SystemOneConfig;
@@ -36,6 +56,24 @@ export const servingMcpHttp = Effect.fn("servingMcpHttp")(
     const catalogRoot =
       options.catalogRoot ?? (yield* fileSystem.makeTempDirectoryScoped());
     const allowedOrigins = new Set([BASE_URL]);
+    const baseServices = makeAgentSessionLayer({
+      allowedActivity: "any",
+      baseUrl: options.workspaceUrl ?? BASE_URL,
+    }).pipe(
+      Layer.provideMerge(
+        Layer.mergeAll(
+          makeFlowCatalogLayer({ root: catalogRoot }),
+          makeAgentRunStoreLayer({ root: () => catalogRoot }),
+          makeTeachingRecordingStoreLayer({ root: () => catalogRoot })
+        )
+      ),
+      Layer.provideMerge(CreateBrowserLive),
+      Layer.provideMerge(NodeServices.layer)
+    );
+    const services = Layer.mergeAll(
+      options.androidWorkspace ?? Layer.empty,
+      options.iosWorkspace ?? Layer.empty
+    ).pipe(Layer.provideMerge(baseServices));
     const context = yield* Layer.build(
       HttpRouter.serve(
         makeMcpHttpLayer(allowedOrigins, {
@@ -44,22 +82,7 @@ export const servingMcpHttp = Effect.fn("servingMcpHttp")(
           systemOne: options.systemOne,
         })
       ).pipe(
-        Layer.provide(
-          makeAgentSessionLayer({
-            allowedActivity: "any",
-            baseUrl: options.workspaceUrl ?? BASE_URL,
-          }).pipe(
-            Layer.provideMerge(
-              Layer.mergeAll(
-                makeFlowCatalogLayer({ root: catalogRoot }),
-                makeAgentRunStoreLayer({ root: () => catalogRoot }),
-                makeTeachingRecordingStoreLayer({ root: () => catalogRoot })
-              )
-            ),
-            Layer.provideMerge(CreateBrowserLive),
-            Layer.provideMerge(NodeServices.layer)
-          )
-        ),
+        Layer.provide(services),
         Layer.provideMerge(
           NodeHttpServer.layer(createServer, { host: "127.0.0.1", port: 0 })
         )

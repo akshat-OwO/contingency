@@ -48,6 +48,12 @@ const findExecutable = (name: string) =>
     });
 
 const CLAUDE = findExecutable("claude");
+
+/**
+ * CI installs Claude Code for this test, so there a missing `claude` is a
+ * broken install and fails the test rather than skipping it.
+ */
+const IN_CI = !["", "0", "false"].includes(process.env["CI"] ?? "");
 const CLI_ENTRY = path.resolve(import.meta.dirname, "../../dist/index.js");
 const EXECUTE_TOOL = "mcp__contingency__agent_code_execute";
 const RESOURCE_TOOL = "ReadMcpResourceTool";
@@ -418,7 +424,7 @@ it("gives the private home the browser cache Playwright uses here", () => {
   ).toBe(false);
 });
 
-describe.skipIf(CLAUDE === undefined)(
+describe.skipIf(CLAUDE === undefined && !IN_CI)(
   "Claude Code with an emulated model",
   () => {
     it.live(
@@ -426,7 +432,9 @@ describe.skipIf(CLAUDE === undefined)(
       () =>
         Effect.gen(function* emulatedClaudeCode() {
           if (CLAUDE === undefined) {
-            return;
+            return yield* Effect.die(
+              "CI runs this test against a real Claude Code, but `claude` is not on PATH."
+            );
           }
           if (!existsSync(CLI_ENTRY)) {
             return yield* Effect.die(
@@ -449,6 +457,30 @@ describe.skipIf(CLAUDE === undefined)(
             Effect.promise(() => createEmulator({ port: 0, service: "ai" })),
             (opened) => Effect.promise(() => opened.close())
           );
+          // Claude Code must never fall through to a hosted model: start it
+          // only once emulate answers on loopback.
+          if (
+            !["127.0.0.1", "localhost", "[::1]"].includes(
+              new URL(emulator.url).hostname
+            )
+          ) {
+            return yield* Effect.die(
+              `Emulate advertises ${emulator.url}, which is not loopback, so Claude Code is not started.`
+            );
+          }
+          const emulatorStatus = yield* Effect.promise(() =>
+            fetch(new URL("/_ai/calls", emulator.url), {
+              redirect: "error",
+            }).then(
+              (answer) => answer.status,
+              () => 0
+            )
+          );
+          if (emulatorStatus !== 200) {
+            return yield* Effect.die(
+              `Emulate is not answering at ${emulator.url} (status ${emulatorStatus}), so Claude Code is not started.`
+            );
+          }
           const gate = yield* modelGate(emulator.url, script);
           const env = isolatedEnvironment(home, gate.url);
 

@@ -84,13 +84,19 @@ Values a process mints, such as session, Flow, and Run ids and cursors, are writ
 
 ### Emulated model
 
-`tests/integration/claude-code-emulated.integration.test.ts` runs a real Claude Code against the AI service of `emulate`, pinned in `packages/cli` ([ADR 0090](../adr/0090-verification-may-emulate-the-model-behind-a-real-agent-harness.md)). It skips when `claude` is not on PATH and needs the built CLI. Run it through verify-contingency's `emulated-claude-code.mjs`, which builds first.
+`tests/integration/claude-code-emulated.integration.test.ts` runs a real Claude Code against the AI service of `emulate`, pinned in `packages/cli` ([ADR 0090](../adr/0090-verification-may-emulate-the-model-behind-a-real-agent-harness.md)). It skips when `claude` is not on PATH and needs the built CLI. In CI (`CI` set) a missing `claude` fails it instead, and it refuses to start Claude Code unless emulate answers on loopback. CI's integration shard 2 installs the pinned Claude Code with `.github/actions/install-claude-code`, which also points Anthropic's hosts at an unroutable address, and runs this file on its own; the sharded run excludes it. Run it through verify-contingency's `emulated-claude-code.mjs`, which builds first.
 
 The emulated model plays `demo-interactive-run.json`, recorded by `demo-interactive-run.integration.test.ts`. Claude Code's base URL is a gate in the test that records every request. Before it forwards a main-loop request to the emulator, it replaces the emulator's rules with the next reply: read getting-started, then the next program with its tokens resolved by `resolveTokens` from the answers Claude Code sent back, then a final message. Emulate replies only as written, so the gate binds the tokens. Re-record the transcript with:
 
 ```sh
 RECORD_TRANSCRIPTS=1 vp exec vitest run --config vitest.integration.config.ts tests/integration/demo-interactive-run.integration.test.ts
 ```
+
+### Corpus-backed fake native device
+
+`packages/cli/tests/helpers/corpus-native-device.ts` builds a test-only `NativeAppRuntimeBackend` from the committed accessibility trees under `tests/fixtures/native-snapshots/{android,ios}` and a scripted screen graph (`start` capture and `{ from, on: { role, name, action }, to }` transitions). Loading fails by name if a transition's control is absent from its capture. Each capture maps nodes through the real `androidNodeInteraction` / `androidNodeName` (or iOS equivalents), mints `@eN~sGENERATION` targets, refuses stale generations as the real backend does, synthesizes a PNG of the capture's viewport size, and can inject `capture_incomplete` failures to exercise Capture Gap settling and repair ([ADR 0084](../adr/0084-native-runs-repair-transient-capture-gaps.md)). Pass `androidWorkspace` or `iosWorkspace` to `agentProcessLayer`, `scriptedProcess`, or `servingMcpHttp` to drive native sessions through the Scripted Agent and MCP HTTP.
+
+**What it does not prove:** real emulator or simulator behavior, `agent-device` client or daemon transport, ADB, `simctl`, iOS HID input, device display streams or framebuffers, or Run video and keyframe capture (screenshots are synthesized blank PNGs). Changes to any of those still require real-device verification or an explicit evidence gap in the PR.
 
 ## Coverage corpora
 
