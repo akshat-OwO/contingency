@@ -1,0 +1,43 @@
+name: Install Claude Code
+description: Install a pinned Claude Code for the emulated-model test, with Anthropic's hosts unreachable
+inputs:
+  version:
+    description: Claude Code version, the one the emulated-model test was proved against
+    default: "2.1.332"
+runs:
+  using: composite
+  steps:
+    # The npm package's postinstall copies the platform's native binary over
+    # its bin stub. Installing outside the workspace keeps the repository's
+    # pnpm devEngines check out of npm's way. Downloading takes a few seconds,
+    # about what restoring a cache of the 400 MB binary would, so nothing is
+    # cached.
+    - name: Install Claude Code
+      shell: bash
+      working-directory: ${{ runner.temp }}
+      env:
+        VERSION: ${{ inputs.version }}
+      run: |
+        prefix="$RUNNER_TEMP/claude-code"
+        npm install --global --prefix "$prefix" --no-audit --no-fund "@anthropic-ai/claude-code@$VERSION"
+        echo "$prefix/bin" >> "$GITHUB_PATH"
+        installed="$("$prefix/bin/claude" --version)"
+        echo "$installed"
+        case "$installed" in
+          "$VERSION "*) ;;
+          *) echo "::error::Expected Claude Code $VERSION, got: $installed"; exit 1 ;;
+        esac
+
+    # The test answers every model request with emulate on loopback and gives
+    # Claude Code no real key. Resolving Anthropic's hosts to an unroutable
+    # address makes any request that bypasses the emulator fail at once, so a
+    # broken emulator setup cannot reach a hosted model.
+    - name: Make Anthropic's hosts unreachable
+      shell: bash
+      run: |
+        hosts=(api.anthropic.com console.anthropic.com statsig.anthropic.com mcp-proxy.anthropic.com claude.ai platform.claude.com downloads.claude.ai)
+        printf '0.0.0.0 %s\n' "${hosts[@]}" | sudo tee -a /etc/hosts
+        if curl --silent --max-time 5 https://api.anthropic.com/ >/dev/null; then
+          echo "::error::api.anthropic.com is still reachable"
+          exit 1
+        fi

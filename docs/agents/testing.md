@@ -84,7 +84,7 @@ Values a process mints, such as session, Flow, and Run ids and cursors, are writ
 
 ### Emulated model
 
-`tests/integration/claude-code-emulated.integration.test.ts` runs a real Claude Code against the AI service of `emulate`, pinned in `packages/cli` ([ADR 0090](../adr/0090-verification-may-emulate-the-model-behind-a-real-agent-harness.md)). It skips when `claude` is not on PATH and needs the built CLI. Run it through verify-contingency's `emulated-claude-code.mjs`, which builds first.
+`tests/integration/claude-code-emulated.integration.test.ts` runs a real Claude Code against the AI service of `emulate`, pinned in `packages/cli` ([ADR 0090](../adr/0090-verification-may-emulate-the-model-behind-a-real-agent-harness.md)). It skips when `claude` is not on PATH and needs the built CLI. In CI (`CI` set) a missing `claude` fails it instead, and it refuses to start Claude Code unless emulate answers on loopback. CI's integration shard 2 installs the pinned Claude Code with `.github/actions/install-claude-code`, which also points Anthropic's hosts at an unroutable address, and runs this file on its own; the sharded run excludes it. Run it through verify-contingency's `emulated-claude-code.mjs`, which builds first.
 
 The emulated model plays `demo-interactive-run.json`, recorded by `demo-interactive-run.integration.test.ts`. Claude Code's base URL is a gate in the test that records every request. Before it forwards a main-loop request to the emulator, it replaces the emulator's rules with the next reply: read getting-started, then the next program with its tokens resolved by `resolveTokens` from the answers Claude Code sent back, then a final message. Emulate replies only as written, so the gate binds the tokens. Re-record the transcript with:
 
