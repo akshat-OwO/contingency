@@ -345,8 +345,14 @@ const run = (
  * so the private home below does not download Chromium again.
  */
 const browserCache = () => {
-  const configured = process.env["PLAYWRIGHT_BROWSERS_PATH"];
-  if (configured !== undefined && configured.length > 0) {
+  const configured = [
+    "PLAYWRIGHT_BROWSERS_PATH",
+    "npm_config_playwright_browsers_path",
+    "npm_package_config_playwright_browsers_path",
+  ]
+    .map((name) => process.env[name])
+    .find((value) => value !== undefined && value.length > 0);
+  if (configured !== undefined) {
     return configured;
   }
   if (process.platform === "darwin") {
@@ -354,12 +360,12 @@ const browserCache = () => {
   }
   if (process.platform === "win32") {
     return path.join(
-      process.env["LOCALAPPDATA"] ?? path.join(homedir(), "AppData/Local"),
+      process.env["LOCALAPPDATA"] || path.join(homedir(), "AppData/Local"),
       "ms-playwright"
     );
   }
   return path.join(
-    process.env["XDG_CACHE_HOME"] ?? path.join(homedir(), ".cache"),
+    process.env["XDG_CACHE_HOME"] || path.join(homedir(), ".cache"),
     "ms-playwright"
   );
 };
