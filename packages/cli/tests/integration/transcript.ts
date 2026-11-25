@@ -176,9 +176,9 @@ const CHECK_IDENTIFIERS = [
 
 /**
  * The only fields redaction leaves as written: identifiers the server
- * validates and nobody mints, such as a Flow, Group, input, or Variable name
- * and a declared kind, so a supplied value that happens to equal one never
- * renames it. Paths start at the action or input; `[]` is any item of an
+ * validates and no answer mints, such as a Flow, Group, input, or Variable
+ * name and a declared kind, and the operation ids the agent itself mints, so
+ * a supplied value that happens to equal one never renames it. Paths start at the action or input; `[]` is any item of an
  * array. Every other field is payload and is redacted, so a new free-text
  * field is safe without being listed. A value an earlier answer minted, such
  * as a cursor, is bound to that answer before this list is consulted.
@@ -194,8 +194,10 @@ const EXEMPT_PATHS = new Set([
   "actions[].checkIds[].flowName",
   "actions[].intent.checkIds[].flowName",
   "actions[].intent.objectiveKind",
+  "actions[].operationId",
   "activity",
   "checkIds[].flowName",
+  "claimOperationId",
   "decision",
   "emulation.colorScheme",
   "emulation.locale",
@@ -215,6 +217,7 @@ const EXEMPT_PATHS = new Set([
   "name",
   "nativeConditions.outcomes[].role",
   "nativeConditions.starting[].role",
+  "operationId",
   "outcome",
   "platform",
   "prerequisiteInputs[].flowName",

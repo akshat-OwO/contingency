@@ -172,7 +172,7 @@ it("redacts supplied values in payload fields and never in structural ones", () 
   recorder.user({ _tag: "type", sessionId: "agent-session", text: "type" });
   const program = recorder.tokenize({
     action: { text: "agent", type: "type" },
-    operationId: "scripted-1",
+    operationId: "agent-type",
     sessionId: "agent-session",
   });
   // An observed label is payload, even in a field called `name`.
@@ -203,7 +203,7 @@ it("redacts supplied values in payload fields and never in structural ones", () 
   ]);
   expect(program).toEqual({
     action: { text: "{{supplied2}}", type: "type" },
-    operationId: "scripted-1",
+    operationId: "agent-type",
     sessionId: "agent-session",
   });
   expect(saved).toEqual({
