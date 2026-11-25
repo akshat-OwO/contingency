@@ -57,7 +57,7 @@ import {
   agentProcessLayer,
   makeCall,
   runTool,
-} from "../tests/integration/agent-harness.ts";
+} from "../tests/integration/agent-process.ts";
 import {
   catalogScenario,
   cuesFor,

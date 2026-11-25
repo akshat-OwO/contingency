@@ -1,0 +1,1092 @@
+{
+  "bindings": [
+    {
+      "from": {
+        "_tag": "environment",
+        "name": "fixtureOrigin"
+      },
+      "token": "{{fixtureOrigin}}"
+    },
+    {
+      "from": {
+        "_tag": "step",
+        "path": [
+          "value",
+          "id"
+        ],
+        "step": 1
+      },
+      "token": "{{b1}}"
+    },
+    {
+      "from": {
+        "_tag": "step",
+        "path": [
+          "value",
+          "recordingId"
+        ],
+        "step": 1
+      },
+      "token": "{{b2}}"
+    },
+    {
+      "from": {
+        "_tag": "step",
+        "path": [
+          "value",
+          "session",
+          "id"
+        ],
+        "step": 22
+      },
+      "token": "{{b3}}"
+    },
+    {
+      "from": {
+        "_tag": "step",
+        "path": [
+          "value",
+          "snapshotId"
+        ],
+        "step": 30
+      },
+      "token": "{{b4}}"
+    },
+    {
+      "from": {
+        "_tag": "step",
+        "path": [
+          "value",
+          "snapshotId"
+        ],
+        "step": 33
+      },
+      "token": "{{b5}}"
+    },
+    {
+      "from": {
+        "_tag": "step",
+        "path": [
+          "value",
+          "session",
+          "id"
+        ],
+        "step": 41
+      },
+      "token": "{{b6}}"
+    },
+    {
+      "from": {
+        "_tag": "step",
+        "path": [
+          "value",
+          "session",
+          "id"
+        ],
+        "step": 43
+      },
+      "token": "{{b7}}"
+    },
+    {
+      "from": {
+        "_tag": "step",
+        "path": [
+          "value",
+          "snapshotId"
+        ],
+        "step": 44
+      },
+      "token": "{{b8}}"
+    },
+    {
+      "from": {
+        "_tag": "step",
+        "path": [
+          "intervention",
+          "sessionId"
+        ],
+        "step": 49
+      },
+      "token": "{{b9}}"
+    },
+    {
+      "from": {
+        "_tag": "environment",
+        "name": "variableDELIVERYAREA"
+      },
+      "token": "{{variableDELIVERYAREA}}"
+    },
+    {
+      "from": {
+        "_tag": "step",
+        "path": [
+          "value",
+          "snapshotId"
+        ],
+        "step": 62
+      },
+      "token": "{{b10}}"
+    },
+    {
+      "from": {
+        "_tag": "step",
+        "path": [
+          "value",
+          "session",
+          "id"
+        ],
+        "step": 67
+      },
+      "token": "{{b11}}"
+    },
+    {
+      "from": {
+        "_tag": "step",
+        "path": [
+          "value",
+          "snapshotId"
+        ],
+        "step": 70
+      },
+      "token": "{{b12}}"
+    },
+    {
+      "from": {
+        "_tag": "step",
+        "path": [
+          "value",
+          "session",
+          "id"
+        ],
+        "step": 74
+      },
+      "token": "{{b13}}"
+    },
+    {
+      "from": {
+        "_tag": "step",
+        "path": [
+          "value",
+          "session",
+          "id"
+        ],
+        "step": 77
+      },
+      "token": "{{b14}}"
+    },
+    {
+      "from": {
+        "_tag": "step",
+        "path": [
+          "value",
+          "snapshotId"
+        ],
+        "step": 83
+      },
+      "token": "{{b15}}"
+    },
+    {
+      "from": {
+        "_tag": "step",
+        "path": [
+          "value",
+          "id"
+        ],
+        "step": 89
+      },
+      "token": "{{b16}}"
+    }
+  ],
+  "journey": "flow-delivery",
+  "schemaVersion": 1,
+  "steps": [
+    {
+      "_tag": "process"
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"activity\":\"teaching\",\"clientName\":\"integration-recorder\",\"clientVersion\":\"1.0.0\",\"group\":\"\",\"name\":\"set-delivery-area\",\"url\":\"{{fixtureOrigin}}/delivery.html\",\"viewport\":{\"deviceScaleFactor\":1,\"height\":480,\"width\":640},\"operationId\":\"scripted-1\",\"view\":\"full\"};\nreturn await tools.agent_session_start(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b1}}\",\"operationId\":\"scripted-2\",\"view\":\"full\"};\nreturn await tools.agent_teaching_setup_handoff(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "intervention"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b1}}\",\"operationId\":\"scripted-2\",\"view\":\"full\"};\nreturn await tools.agent_teaching_setup_handoff(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "user",
+      "action": {
+        "_tag": "start-recording",
+        "operationId": "scripted-3",
+        "sessionId": "{{b1}}"
+      }
+    },
+    {
+      "_tag": "user",
+      "action": {
+        "_tag": "click",
+        "sessionId": "{{b1}}",
+        "x": 120,
+        "y": 116
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b1}}\",\"format\":\"structured\"};\nreturn await tools.agent_browser_snapshot(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "user",
+      "action": {
+        "_tag": "click",
+        "sessionId": "{{b1}}",
+        "x": 120,
+        "y": 176
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b1}}\",\"format\":\"structured\"};\nreturn await tools.agent_browser_snapshot(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "user",
+      "action": {
+        "_tag": "click",
+        "sessionId": "{{b1}}",
+        "x": 120,
+        "y": 116
+      }
+    },
+    {
+      "_tag": "user",
+      "action": {
+        "_tag": "type",
+        "sessionId": "{{b1}}",
+        "text": "Gurugram"
+      }
+    },
+    {
+      "_tag": "user",
+      "action": {
+        "_tag": "click",
+        "sessionId": "{{b1}}",
+        "x": 120,
+        "y": 196
+      }
+    },
+    {
+      "_tag": "user",
+      "action": {
+        "_tag": "type",
+        "sessionId": "{{b1}}",
+        "text": "Sector 14"
+      }
+    },
+    {
+      "_tag": "user",
+      "action": {
+        "_tag": "click",
+        "sessionId": "{{b1}}",
+        "x": 120,
+        "y": 256
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b1}}\",\"format\":\"structured\"};\nreturn await tools.agent_browser_snapshot(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b1}}\"};\nreturn await tools.agent_browser_screenshot(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "user",
+      "action": {
+        "_tag": "stop-recording",
+        "operationId": "scripted-4",
+        "sessionId": "{{b1}}"
+      }
+    },
+    {
+      "_tag": "process"
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":\"take\",\"operationId\":\"scripted-5\",\"recordingId\":\"{{b2}}\"};\nreturn await tools.agent_teaching_recording_claim(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"claimOperationId\":\"scripted-5\",\"recordingId\":\"{{b2}}\"};\nreturn await tools.agent_teaching_timeline_get(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"claimOperationId\":\"scripted-5\",\"files\":[{\"content\":\"---\\nname: set-delivery-area\\ndescription: Set the shop's delivery city and area and confirm the status names both. Use when an order must reach a named delivery area.\\ninputs:\\n  - city\\n  - delivery_area\\n---\\n\\n# Set the delivery area\\n\\nRead [the accessibility targets](targets.md) when a control is hard to find.\\n\\n1. Choose the button named \\\"Choose delivery area\\\". Done when: a heading named \\\"Delivery area\\\" is on the page.\\n2. Choose the button named \\\"Select manually\\\". Done when: a textbox named \\\"Search for your delivery area\\\" is on the page.\\n3. Fill the textbox named \\\"City\\\" with {{city}}. Done when: the textbox holds {{city}}.\\n4. Fill the textbox named \\\"Search for your delivery area\\\" with {{delivery_area}}. Done when: the textbox holds {{delivery_area}}.\\n5. Choose the button named \\\"Confirm delivery area\\\". Done when: the status reads \\\"Delivering to {{delivery_area}}, {{city}}\\\".\\n\",\"path\":\"flow.md\"},{\"content\":\"# Accessibility targets\\n\\n- role=button name=\\\"Choose delivery area\\\" context=\\\"Delivery\\\"\\n- role=button name=\\\"Select manually\\\" context=\\\"Delivery area\\\"\\n- role=textbox name=\\\"City\\\" context=\\\"Delivery area\\\"\\n- role=textbox name=\\\"Search for your delivery area\\\" context=\\\"Delivery area\\\"\\n- role=button name=\\\"Confirm delivery area\\\" context=\\\"Delivery area\\\"\\n\\n## Why these targets are stable\\n\\nThe delivery section re-renders in place and every control keeps its visible\\nlabel, so the enclosing heading separates one stage of the picker from the\\nnext without relying on position.\\n\",\"path\":\"targets.md\"}],\"recordingId\":\"{{b2}}\",\"operationId\":\"scripted-6\"};\nreturn await tools.agent_flow_save(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"inputs\":[{\"changed\":true,\"name\":\"city\",\"secret\":false,\"value\":\"Pune\"},{\"changed\":true,\"name\":\"delivery_area\",\"secret\":false,\"value\":\"Baner\"}],\"recordingId\":\"{{b2}}\",\"url\":\"http://localhost:1/delivery.html\",\"operationId\":\"scripted-7\",\"view\":\"full\"};\nreturn await tools.agent_flow_dry_run_start(input);",
+      "outcome": {
+        "failureCode": "teaching_recording_invalid",
+        "receipts": [
+          {
+            "operation": "agent_flow_dry_run_start",
+            "outcome": "failed"
+          }
+        ],
+        "status": "program_failed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"inputs\":[{\"changed\":true,\"name\":\"city\",\"secret\":false,\"value\":\"Pune\"},{\"changed\":true,\"name\":\"delivery_area\",\"secret\":false,\"value\":\"Baner\"}],\"operationId\":\"scripted-8\",\"recordingId\":\"{{b2}}\",\"url\":\"{{fixtureOrigin}}/delivery.html\",\"view\":\"full\"};\nreturn await tools.agent_flow_dry_run_start(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b3}}\",\"view\":\"full\"};\nreturn await tools.agent_session_get(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"claimOperationId\":\"scripted-5\",\"files\":[{\"content\":\"Run must not write this\",\"path\":\"flow.md\"}],\"recordingId\":\"{{b2}}\",\"operationId\":\"scripted-9\"};\nreturn await tools.agent_flow_save(input);",
+      "outcome": {
+        "failureCode": "teaching_recording_conflict",
+        "receipts": [
+          {
+            "operation": "agent_flow_save",
+            "outcome": "failed"
+          }
+        ],
+        "status": "program_failed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"claimOperationId\":\"scripted-5\",\"files\":[{\"content\":\"Run must not write this\",\"path\":\"checks.json\"}],\"recordingId\":\"{{b2}}\",\"operationId\":\"scripted-10\"};\nreturn await tools.agent_flow_save(input);",
+      "outcome": {
+        "failureCode": "teaching_recording_conflict",
+        "receipts": [
+          {
+            "operation": "agent_flow_save",
+            "outcome": "failed"
+          }
+        ],
+        "status": "program_failed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"claimOperationId\":\"scripted-5\",\"files\":[{\"content\":\"Run must not write this\",\"path\":\"setup.md\"}],\"recordingId\":\"{{b2}}\",\"operationId\":\"scripted-11\"};\nreturn await tools.agent_flow_save(input);",
+      "outcome": {
+        "failureCode": "teaching_recording_conflict",
+        "receipts": [
+          {
+            "operation": "agent_flow_save",
+            "outcome": "failed"
+          }
+        ],
+        "status": "program_failed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"type\":\"navigate\",\"url\":\"{{fixtureOrigin}}/settle.html\"},\"sessionId\":\"{{b3}}\",\"operationId\":\"scripted-12\",\"format\":\"structured\"};\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"type\":\"click\"},\"sessionId\":\"{{b3}}\",\"operationId\":\"scripted-13\",\"format\":\"structured\"};\nconst role = \"button\";\nconst name = \"Navigate later\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"action\"][\"ref\"] = control.ref;\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b3}}\",\"view\":\"full\"};\nreturn await tools.agent_session_get(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b3}}\",\"format\":\"structured\"};\nreturn await tools.agent_browser_snapshot(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"evidence\":[{\"id\":\"{{b4}}\",\"kind\":\"snapshot\"}],\"explanation\":\"Flow set-delivery-area; setup.md; explain delayed navigation; proposed text: Wait for the delivery page to arrive.\",\"outcome\":\"working\",\"sessionId\":\"{{b3}}\",\"operationId\":\"scripted-14\",\"view\":\"full\"};\nreturn await tools.agent_run_finding(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b3}}\",\"view\":\"full\"};\nreturn await tools.agent_session_get(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b3}}\",\"format\":\"structured\"};\nreturn await tools.agent_browser_snapshot(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"evidence\":[{\"id\":\"{{b5}}\",\"kind\":\"snapshot\"}],\"explanation\":\"The delivery status did not match.\",\"outcome\":\"not-working\",\"outcomeComplete\":true,\"sessionId\":\"{{b3}}\",\"operationId\":\"scripted-15\",\"view\":\"full\"};\nreturn await tools.agent_run_assess(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b3}}\",\"format\":\"structured\"};\nreturn await tools.agent_browser_snapshot(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b3}}\",\"operationId\":\"scripted-16\"};\nreturn await tools.agent_run_complete(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"inputs\":[{\"changed\":true,\"name\":\"city\",\"secret\":false,\"value\":\"Pune\"},{\"changed\":true,\"name\":\"delivery_area\",\"secret\":false,\"value\":\"Baner\"}],\"operationId\":\"scripted-8\",\"recordingId\":\"{{b2}}\",\"url\":\"{{fixtureOrigin}}/delivery.html\",\"view\":\"full\"};\nreturn await tools.agent_flow_dry_run_start(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"view\":\"full\"};\nreturn await tools.agent_sessions_get(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"inputs\":[{\"changed\":true,\"name\":\"city\",\"secret\":false,\"value\":\"Pune\"},{\"changed\":true,\"name\":\"delivery_area\",\"secret\":false,\"value\":\"Kothrud\"}],\"operationId\":\"scripted-8\",\"recordingId\":\"{{b2}}\",\"url\":\"{{fixtureOrigin}}/delivery.html\",\"view\":\"full\"};\nreturn await tools.agent_flow_dry_run_start(input);",
+      "outcome": {
+        "failureCode": "agent_session_conflict",
+        "receipts": [
+          {
+            "operation": "agent_flow_dry_run_start",
+            "outcome": "failed"
+          }
+        ],
+        "status": "program_failed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"view\":\"full\"};\nreturn await tools.agent_sessions_get(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"inputs\":[{\"changed\":true,\"name\":\"city\",\"secret\":false,\"value\":\"Pune\"},{\"changed\":true,\"name\":\"delivery_area\",\"secret\":false,\"value\":\"Baner\"}],\"recordingId\":\"{{b2}}\",\"url\":\"{{fixtureOrigin}}/delivery.html\",\"operationId\":\"scripted-17\",\"view\":\"full\"};\nreturn await tools.agent_flow_dry_run_start(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b6}}\",\"operationId\":\"scripted-18\"};\nreturn await tools.agent_run_complete(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"inputs\":[{\"changed\":true,\"name\":\"city\",\"secret\":false,\"value\":\"Pune\"},{\"changed\":true,\"name\":\"delivery_area\",\"secret\":false,\"value\":\"Kothrud\"}],\"recordingId\":\"{{b2}}\",\"url\":\"{{fixtureOrigin}}/delivery.html\",\"operationId\":\"scripted-19\",\"view\":\"full\"};\nreturn await tools.agent_flow_dry_run_start(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b7}}\",\"format\":\"structured\"};\nreturn await tools.agent_browser_snapshot(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"evidence\":[{\"id\":\"{{b8}}\",\"kind\":\"snapshot\"}],\"explanation\":\"The complete delivery status is visible.\",\"outcome\":\"working\",\"outcomeComplete\":false,\"sessionId\":\"{{b7}}\",\"operationId\":\"scripted-20\",\"view\":\"full\"};\nreturn await tools.agent_run_assess(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b7}}\",\"format\":\"structured\"};\nreturn await tools.agent_browser_snapshot(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b7}}\",\"operationId\":\"scripted-21\"};\nreturn await tools.agent_run_complete(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"claimOperationId\":\"scripted-5\",\"files\":[{\"content\":\"---\\nname: set-delivery-area\\ndescription: Set the shop's delivery city and area and confirm the status names both. Use when an order must reach a named delivery area.\\ninputs:\\n  - city\\n  - delivery_area\\n---\\n\\n# Set the delivery area\\n\\nRead [the accessibility targets](targets.md) when a control is hard to find.\\n\\n1. Choose the button named \\\"Choose delivery area\\\". Done when: a heading named \\\"Delivery area\\\" is on the page.\\n2. Choose the button named \\\"Select manually\\\". Done when: a textbox named \\\"Search for your delivery area\\\" is on the page.\\n3. Fill the textbox named \\\"City\\\" with {{city}}. Done when: the textbox holds {{city}}.\\n4. Fill the textbox named \\\"Search for your delivery area\\\" with {{delivery_area}}. Done when: the textbox holds {{delivery_area}}.\\n5. Choose the button named \\\"Confirm delivery area\\\". Done when: the status reads \\\"Delivering to {{delivery_area}}, {{city}}\\\".\\n\",\"path\":\"flow.md\"},{\"content\":\"# Accessibility targets\\n\\n- role=button name=\\\"Choose delivery area\\\" context=\\\"Delivery\\\"\\n- role=button name=\\\"Select manually\\\" context=\\\"Delivery area\\\"\\n- role=textbox name=\\\"City\\\" context=\\\"Delivery area\\\"\\n- role=textbox name=\\\"Search for your delivery area\\\" context=\\\"Delivery area\\\"\\n- role=button name=\\\"Confirm delivery area\\\" context=\\\"Delivery area\\\"\\n\\n## Why these targets are stable\\n\\nThe delivery section re-renders in place and every control keeps its visible\\nlabel, so the enclosing heading separates one stage of the picker from the\\nnext without relying on position.\\n\",\"path\":\"targets.md\"}],\"recordingId\":\"{{b2}}\",\"operationId\":\"scripted-22\"};\nreturn await tools.agent_flow_save(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"inputs\":[{\"changed\":true,\"name\":\"city\",\"secret\":false,\"value\":\"Mumbai\"},{\"changed\":true,\"name\":\"delivery_area\",\"secret\":true}],\"recordingId\":\"{{b2}}\",\"url\":\"{{fixtureOrigin}}/delivery.html\",\"operationId\":\"scripted-23\",\"view\":\"full\"};\nreturn await tools.agent_flow_dry_run_start(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "intervention"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"inputs\":[{\"changed\":true,\"name\":\"city\",\"secret\":false,\"value\":\"Mumbai\"},{\"changed\":true,\"name\":\"delivery_area\",\"secret\":true}],\"recordingId\":\"{{b2}}\",\"url\":\"{{fixtureOrigin}}/delivery.html\",\"operationId\":\"scripted-23\",\"view\":\"full\"};\nreturn await tools.agent_flow_dry_run_start(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "intervention"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b9}}\",\"view\":\"full\"};\nreturn await tools.agent_session_get(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"name\":\"OTHER\",\"ref\":\"e1\",\"sessionId\":\"{{b9}}\",\"operationId\":\"scripted-24\"};\nreturn await tools.agent_variable_enter(input);",
+      "outcome": {
+        "failureCode": "agent_session_invalid",
+        "receipts": [
+          {
+            "operation": "agent_variable_enter",
+            "outcome": "failed"
+          }
+        ],
+        "status": "program_failed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"name\":\"DELIVERY_AREA\",\"ref\":\"e1\",\"sessionId\":\"{{b9}}\",\"operationId\":\"scripted-25\"};\nreturn await tools.agent_variable_enter(input);",
+      "outcome": {
+        "failureCode": "agent_session_invalid",
+        "receipts": [
+          {
+            "operation": "agent_variable_enter",
+            "outcome": "failed"
+          }
+        ],
+        "status": "program_failed"
+      }
+    },
+    {
+      "_tag": "user",
+      "action": {
+        "_tag": "supply-variable",
+        "name": "DELIVERY_AREA",
+        "sessionId": "{{b9}}",
+        "value": "{{variableDELIVERYAREA}}"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"type\":\"click\"},\"sessionId\":\"{{b9}}\",\"operationId\":\"scripted-26\",\"format\":\"structured\"};\nconst role = \"button\";\nconst name = \"Choose delivery area\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"action\"][\"ref\"] = control.ref;\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"type\":\"click\"},\"sessionId\":\"{{b9}}\",\"operationId\":\"scripted-27\",\"format\":\"structured\"};\nconst role = \"button\";\nconst name = \"Select manually\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"action\"][\"ref\"] = control.ref;\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"text\":\"Mumbai\",\"type\":\"fill\"},\"sessionId\":\"{{b9}}\",\"operationId\":\"scripted-28\",\"format\":\"structured\"};\nconst role = \"textbox\";\nconst name = \"City\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"action\"][\"ref\"] = control.ref;\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"name\":\"DELIVERY_AREA\",\"sessionId\":\"{{b9}}\",\"operationId\":\"scripted-29\"};\nconst role = \"textbox\";\nconst name = \"Search for your delivery area\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"ref\"] = control.ref;\nreturn await tools.agent_variable_enter(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"type\":\"click\"},\"sessionId\":\"{{b9}}\",\"operationId\":\"scripted-30\",\"format\":\"structured\"};\nconst role = \"button\";\nconst name = \"Confirm delivery area\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"action\"][\"ref\"] = control.ref;\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b9}}\",\"format\":\"structured\"};\nreturn await tools.agent_browser_snapshot(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b9}}\",\"view\":\"full\"};\nreturn await tools.agent_session_get(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b9}}\",\"format\":\"structured\"};\nreturn await tools.agent_browser_snapshot(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"evidence\":[{\"id\":\"{{b10}}\",\"kind\":\"snapshot\"}],\"explanation\":\"The complete delivery status is visible.\",\"outcome\":\"working\",\"outcomeComplete\":true,\"sessionId\":\"{{b9}}\",\"operationId\":\"scripted-31\",\"view\":\"full\"};\nreturn await tools.agent_run_assess(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b9}}\",\"format\":\"structured\"};\nreturn await tools.agent_browser_snapshot(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b9}}\",\"operationId\":\"scripted-32\"};\nreturn await tools.agent_run_complete(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"decision\":\"reject\",\"recordingId\":\"{{b2}}\",\"operationId\":\"scripted-33\"};\nreturn await tools.agent_flow_decide(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"inputs\":[{\"changed\":true,\"name\":\"city\",\"secret\":false,\"value\":\"Pune\"},{\"changed\":true,\"name\":\"delivery_area\",\"secret\":false,\"value\":\"Baner\"}],\"recordingId\":\"{{b2}}\",\"url\":\"{{fixtureOrigin}}/delivery.html\",\"operationId\":\"scripted-34\",\"view\":\"full\"};\nreturn await tools.agent_flow_dry_run_start(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "user",
+      "action": {
+        "_tag": "takeover",
+        "reason": "Check the page",
+        "sessionId": "{{b11}}"
+      }
+    },
+    {
+      "_tag": "user",
+      "action": {
+        "_tag": "return-control",
+        "sessionId": "{{b11}}"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b11}}\",\"format\":\"structured\"};\nreturn await tools.agent_browser_snapshot(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"evidence\":[{\"id\":\"{{b12}}\",\"kind\":\"snapshot\"}],\"explanation\":\"The complete delivery status is visible.\",\"outcome\":\"working\",\"outcomeComplete\":true,\"sessionId\":\"{{b11}}\",\"operationId\":\"scripted-35\",\"view\":\"full\"};\nreturn await tools.agent_run_assess(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b11}}\",\"format\":\"structured\"};\nreturn await tools.agent_browser_snapshot(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b11}}\",\"operationId\":\"scripted-36\"};\nreturn await tools.agent_run_complete(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"inputs\":[{\"changed\":true,\"name\":\"city\",\"secret\":false,\"value\":\"Pune\"},{\"changed\":true,\"name\":\"delivery_area\",\"secret\":false,\"value\":\"Baner\"}],\"recordingId\":\"{{b2}}\",\"url\":\"{{fixtureOrigin}}/delivery.html\",\"operationId\":\"scripted-37\",\"view\":\"full\"};\nreturn await tools.agent_flow_dry_run_start(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b13}}\",\"view\":\"full\"};\nreturn await tools.agent_session_get(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b13}}\",\"operationId\":\"scripted-38\"};\nreturn await tools.agent_run_complete(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"inputs\":[{\"changed\":true,\"name\":\"city\",\"secret\":false,\"value\":\"Pune\"},{\"changed\":true,\"name\":\"delivery_area\",\"secret\":false,\"value\":\"Koregaon Park\"}],\"recordingId\":\"{{b2}}\",\"url\":\"{{fixtureOrigin}}/delivery.html\",\"operationId\":\"scripted-39\",\"view\":\"full\"};\nreturn await tools.agent_flow_dry_run_start(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"type\":\"click\"},\"sessionId\":\"{{b14}}\",\"operationId\":\"scripted-40\",\"format\":\"structured\"};\nconst role = \"button\";\nconst name = \"Choose delivery area\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"action\"][\"ref\"] = control.ref;\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"type\":\"click\"},\"sessionId\":\"{{b14}}\",\"operationId\":\"scripted-41\",\"format\":\"structured\"};\nconst role = \"button\";\nconst name = \"Select manually\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"action\"][\"ref\"] = control.ref;\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"text\":\"Pune\",\"type\":\"fill\"},\"sessionId\":\"{{b14}}\",\"operationId\":\"scripted-42\",\"format\":\"structured\"};\nconst role = \"textbox\";\nconst name = \"City\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"action\"][\"ref\"] = control.ref;\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"text\":\"Koregaon Park\",\"type\":\"fill\"},\"sessionId\":\"{{b14}}\",\"operationId\":\"scripted-43\",\"format\":\"structured\"};\nconst role = \"textbox\";\nconst name = \"Search for your delivery area\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"action\"][\"ref\"] = control.ref;\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"type\":\"click\"},\"sessionId\":\"{{b14}}\",\"operationId\":\"scripted-44\",\"format\":\"structured\"};\nconst role = \"button\";\nconst name = \"Confirm delivery area\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"action\"][\"ref\"] = control.ref;\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b14}}\",\"format\":\"structured\"};\nreturn await tools.agent_browser_snapshot(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"evidence\":[{\"id\":\"{{b15}}\",\"kind\":\"snapshot\"}],\"explanation\":\"The complete delivery status is visible.\",\"outcome\":\"working\",\"outcomeComplete\":true,\"sessionId\":\"{{b14}}\",\"operationId\":\"scripted-45\",\"view\":\"full\"};\nreturn await tools.agent_run_assess(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b14}}\",\"format\":\"structured\"};\nreturn await tools.agent_browser_snapshot(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"sessionId\":\"{{b14}}\",\"operationId\":\"scripted-46\"};\nreturn await tools.agent_run_complete(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"decision\":\"verify\",\"recordingId\":\"{{b2}}\",\"operationId\":\"scripted-47\"};\nreturn await tools.agent_flow_decide(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "process"
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"clientName\":\"integration-restart\",\"clientVersion\":\"1.0.0\",\"url\":\"{{fixtureOrigin}}/delivery.html\",\"viewport\":{\"deviceScaleFactor\":1,\"height\":480,\"width\":640},\"operationId\":\"scripted-48\",\"view\":\"full\"};\nreturn await tools.agent_session_start(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"type\":\"click\"},\"sessionId\":\"{{b16}}\",\"operationId\":\"scripted-49\",\"format\":\"structured\"};\nconst role = \"button\";\nconst name = \"Choose delivery area\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"action\"][\"ref\"] = control.ref;\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"type\":\"click\"},\"sessionId\":\"{{b16}}\",\"operationId\":\"scripted-50\",\"format\":\"structured\"};\nconst role = \"button\";\nconst name = \"Select manually\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"action\"][\"ref\"] = control.ref;\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"text\":\"Pune\",\"type\":\"fill\"},\"sessionId\":\"{{b16}}\",\"operationId\":\"scripted-51\",\"format\":\"structured\"};\nconst role = \"textbox\";\nconst name = \"City\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"action\"][\"ref\"] = control.ref;\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"text\":\"Kalyani Nagar\",\"type\":\"fill\"},\"sessionId\":\"{{b16}}\",\"operationId\":\"scripted-52\",\"format\":\"structured\"};\nconst role = \"textbox\";\nconst name = \"Search for your delivery area\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"action\"][\"ref\"] = control.ref;\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"action\":{\"type\":\"click\"},\"sessionId\":\"{{b16}}\",\"operationId\":\"scripted-53\",\"format\":\"structured\"};\nconst role = \"button\";\nconst name = \"Confirm delivery area\";\nconst page = await tools.agent_browser_snapshot({ format: \"structured\", sessionId: input.sessionId });\nconst nodes = page.nodes ?? [];\nconst control = nodes.find((node) => node.role === role && node.name === name) ?? nodes.find((node) => node.role === role && node.name.includes(name));\nif (control === undefined) {\n  throw new Error(\"The Browser Snapshot had no \" + role + \" named \" + name + \".\");\n}\ninput[\"action\"][\"ref\"] = control.ref;\nreturn await tools.agent_browser_act(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"clientName\":\"integration-restart\",\"clientVersion\":\"1.0.0\",\"flowName\":\"set-delivery-area\",\"inputs\":[{\"name\":\"city\",\"value\":\"Pune\"},{\"name\":\"delivery_area\",\"value\":\"Baner\"}],\"url\":\"http://localhost:1/delivery.html\",\"operationId\":\"scripted-54\",\"view\":\"full\"};\nreturn await tools.agent_flow_run_start(input);",
+      "outcome": {
+        "failureCode": "flow_invalid",
+        "receipts": [
+          {
+            "operation": "agent_flow_run_start",
+            "outcome": "failed"
+          }
+        ],
+        "status": "program_failed"
+      }
+    },
+    {
+      "_tag": "program",
+      "code": "const input = {\"clientName\":\"integration-restart\",\"clientVersion\":\"1.0.0\",\"flowName\":\"set-delivery-area\",\"inputs\":[{\"name\":\"city\",\"value\":\"Pune\"},{\"name\":\"delivery_area\",\"value\":\"Baner\"}],\"url\":\"{{fixtureOrigin}}/delivery.html\",\"operationId\":\"scripted-55\",\"view\":\"full\"};\nreturn await tools.agent_flow_run_start(input);",
+      "outcome": {
+        "failureCode": null,
+        "receipts": [],
+        "status": "completed"
+      }
+    }
+  ]
+}

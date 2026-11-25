@@ -25,7 +25,7 @@ import {
 } from "../../src/services/mcp-agent-session.ts";
 import { makeDemonstrationCapture } from "../../src/services/teaching-capture.ts";
 import { teachingEventsFor } from "../../src/services/teaching-recorder.ts";
-import { makeCall } from "./agent-harness.ts";
+import { makeCall } from "./agent-process.ts";
 import {
   CART_VIEWED_BEACON,
   fixtureServer,

@@ -19,7 +19,7 @@ import { CreateBrowserLive } from "../../src/services/create-browser.ts";
 import { discardTeachingRecording } from "../../src/services/mcp-teaching-recording.ts";
 import { DEFAULT_TEACHING_CAPTURE_LIMITS } from "../../src/services/teaching-recorder.ts";
 import { makeTeachingRecordingStoreLayer } from "../../src/services/teaching-recording-store.ts";
-import { evidenceDirectory, awaitSession } from "./agent-harness.ts";
+import { evidenceDirectory, awaitSession } from "./agent-process.ts";
 import { fixtureServer, NEVER_ANSWERED } from "./harness.ts";
 
 const viewport = {

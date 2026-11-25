@@ -36,6 +36,52 @@ Run quality and the affected tests. Every wait must observe an event or use virt
 
 Repeating a test locally can help investigate a race. Repeats are optional and do not replace a deterministic regression test.
 
+## The Scripted Agent
+
+Integration tests act as the external agent through the Scripted Agent in `packages/cli/tests/integration/scripted-agent.ts`, and as the person in the Workspace through `User` in `scripted-user.ts`. Use them instead of calling `Toolkit.handle` or writing a click, typing, or MCP call helper in a test file.
+
+A journey is an Effect. Each step names an operation and its input, and the driver renders it on one of two adapters:
+
+- **In-process**, the default, runs the operation through the agent's toolkits and reads the answer as MCP encodes and compacts it.
+- **HTTP** renders the step as one `agent_code_execute` program, sent to an MCP server over the same process. A step aimed at a control carries its role and name, and the program finds the ref in its own Browser Snapshot.
+
+Register a journey with `journey(name, { singleTool, timeout, transcript }, effect)`. Every journey runs in-process. A `singleTool: true` journey also runs over HTTP and is tagged `@single-tool`, so `vitest -t @single-tool` selects the journeys that prove the single tool. Build its process with `scriptedProcess(root)`, and build it again to restart the process.
+
+| Step | What it does |
+| --- | --- |
+| `call(operation, params)` | Calls one operation and mints an operation id the operation takes when `params` omits it. The value is the tool's success as the agent reads it. |
+| `act(sessionId, { role, name }, action)` | Acts on the control with that role and accessible name: an exact name first, then one that contains it. |
+| `enterVariable(sessionId, { role, name }, variable)` | Enters a runtime Variable into the named control. |
+| `awaitSession(sessionId, until)` | Long-polls Session Events until `until` holds, under one hang guard. |
+| `startTeaching(params)` | Starts a Teaching session and hands it to the user. |
+| `User.click`, `User.type`, `User.startRecording`, `User.stopRecording`, `User.takeover`, `User.returnControl`, `User.supplyVariable` | What the person does in the Workspace, through the same Agent Session. |
+
+A refused operation fails with its `ToolFailure`, so assert on it with `Effect.flip`. The agent reads only the code, the message, and the Failure Reference, never the cause. When an operation leaves a session it had not seen waiting on the user, the program ends before it can answer, as a Dry Run that requests a secret Variable does. The driver then fails with the code `intervention`, which is the driver's and not Contingency's, and with the session and its reasons. Read the session with `agent_session_get` and act as the user.
+
+A test that opens its own MCP session, such as a server with the demo store or a child process over stdio, calls the single tool through `mcpProgram(request)`. Its `call` raises a refusal as a `ToolFailure`, and `execute` answers with how a program ended. `rawMcpSession` in `tests/helpers/mcp-http.ts` opens a session without the client's headers.
+
+### Transcripts
+
+A journey with a `transcript` name records its HTTP run to `packages/cli/tests/fixtures/transcripts/<name>.json`. The run rewrites the file only when `RECORD_TRANSCRIPTS=1` is set; nothing else writes it. Re-record after a change to the driver or to an operation the journey calls, from `packages/cli`:
+
+```sh
+RECORD_TRANSCRIPTS=1 vp exec vitest run --config vitest.integration.config.ts tests/integration/flow-delivery.integration.test.ts -t http
+```
+
+Then run `scripted-agent.integration.test.ts`, which replays the committed transcript over HTTP. `replayTranscript(transcript, { environment, root })` replays one against fresh processes. Each program must end with the same outcome it was recorded with.
+
+A transcript is JSON that the `Transcript` schema in `tests/integration/transcript.ts` validates. Its format is stable, and a breaking change raises `schemaVersion`.
+
+| Field | Holds |
+| --- | --- |
+| `schemaVersion` | `1`. |
+| `journey` | The transcript's name. |
+| `steps` | In order: `process` starts a new MCP process over the same Catalog Root; `program` holds the `code` sent to `agent_code_execute` and its `outcome`; `user` holds one `action` by the person. |
+| `outcome` | `status`, the `failureCode` of the operation failure the program ended with or `null`, and the receipts that did not succeed. |
+| `bindings` | Each `{{token}}` in the programs and actions, and where a replay takes its value: `step` names an earlier step's `value` or `intervention` path, the earliest step that held the value; `environment` names a value the replaying test supplies, such as the fixture origin. |
+
+Values a process mints, such as session, Flow, and Run ids and cursors, are written as tokens. Operation ids are the agent's own, so they are written as sent. A value the user supplies for a Variable is the user's, so it is written as the environment token `{{variable<NAME>}}`, with the Variable's name stripped to letters and digits, and the replaying test supplies it. A transcript holds only what the agent sent and the outcome it read: programs, failure codes, and receipts. It never holds a failure's cause.
+
 ## Coverage corpora
 
 Three suites test Contingency against the range of interfaces real sites and apps use. Each one is deterministic.

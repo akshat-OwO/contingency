@@ -1,26 +1,29 @@
 import path from "node:path";
 
-import { FlowName, OperationId } from "@contingency/protocol";
-import type { AgentSessionId } from "@contingency/protocol";
-import { NodeServices } from "@effect/platform-node";
-import { expect, it } from "@effect/vitest";
+import { AgentSessionId, TeachingRecordingId } from "@contingency/protocol";
+import { expect } from "@effect/vitest";
 import { Deferred, Effect, FileSystem, Result } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
 import { readFlowFrontmatter } from "../../src/services/flow-package.ts";
 import { TeachingRecordingStore } from "../../src/services/teaching-recording-store.ts";
 import {
-  evidenceDirectory,
-  agentProcessLayer,
   agentViewport,
   awaitRunVideo,
+  evidenceDirectory,
   findNode,
-  runTool,
-  sessionTool,
-  startUserTeaching,
-  teachingRecordingTool,
-} from "./agent-harness.ts";
+} from "./agent-process.ts";
 import { fixtureServer, SETTLE_GATE } from "./harness.ts";
+import {
+  act,
+  call,
+  enterVariable,
+  journey,
+  scriptedProcess,
+  startTeaching,
+} from "./scripted-agent.ts";
+import { User } from "./scripted-user.ts";
+import { bindEnvironment, mintOperationId } from "./transcript.ts";
 
 /** The demonstrated pair. A learned Flow must reach a different one. */
 const DEMONSTRATED_CITY = "Gurugram";
@@ -33,133 +36,76 @@ const CITY_FIELD = { x: 120, y: 116 } as const;
 const AREA_FIELD = { x: 120, y: 196 } as const;
 const CONFIRM_AREA = { x: 120, y: 256 } as const;
 
-const clickAsUser = (
-  sessionId: AgentSessionId,
-  at: { readonly x: number; readonly y: number }
-) =>
-  Effect.gen(function* clickAsTheUser() {
-    const service = yield* AgentSession;
-    for (const eventType of ["mousePressed", "mouseReleased"] as const) {
-      yield* service.sendInput(sessionId, {
-        button: "left",
-        clickCount: 1,
-        eventType,
-        type: "input_mouse",
-        x: at.x,
-        y: at.y,
-      });
-    }
-  });
-
-const typeAsUser = (sessionId: AgentSessionId, text: string) =>
-  Effect.gen(function* typeAsTheUser() {
-    const service = yield* AgentSession;
-    for (const character of text) {
-      yield* service.sendInput(sessionId, {
-        eventType: "keyDown",
-        key: character,
-        text: character,
-        type: "input_keyboard",
-      });
-      yield* service.sendInput(sessionId, {
-        eventType: "keyUp",
-        key: character,
-        type: "input_keyboard",
-      });
-    }
-  });
-
+/** The agent follows the delivery Flow, finding each control by role and name. */
 const driveDeliveryAsAgent = (
-  sessionId: AgentSessionId,
+  sessionId: string,
   city: string,
   area: string,
-  operationPrefix: string,
   variableArea = false
 ) =>
   Effect.gen(function* driveDeliveryFlow() {
-    const first = yield* sessionTool("agent_browser_snapshot", { sessionId });
-    const choose = findNode(first.nodes, "button", "Choose delivery area");
-    const choosing = yield* sessionTool("agent_browser_act", {
-      action: { ref: choose.ref, type: "click" },
-      operationId: OperationId.make(`${operationPrefix}-choose`),
+    yield* act(
       sessionId,
-    });
-    const manually = findNode(
-      choosing.snapshot.nodes,
-      "button",
-      "Select manually"
+      { name: "Choose delivery area", role: "button" },
+      { type: "click" }
     );
-    const picking = yield* sessionTool("agent_browser_act", {
-      action: { ref: manually.ref, type: "click" },
-      operationId: OperationId.make(`${operationPrefix}-manual`),
+    yield* act(
       sessionId,
-    });
-    const cityField = findNode(picking.snapshot.nodes, "textbox", "City");
-    const cityFilled = yield* sessionTool("agent_browser_act", {
-      action: { ref: cityField.ref, text: city, type: "fill" },
-      operationId: OperationId.make(`${operationPrefix}-city`),
-      sessionId,
-    });
-    const areaField = findNode(
-      cityFilled.snapshot.nodes,
-      "textbox",
-      "Search for your delivery area"
+      { name: "Select manually", role: "button" },
+      { type: "click" }
     );
-    const areaFilled = variableArea
-      ? yield* sessionTool("agent_variable_enter", {
-          name: "DELIVERY_AREA",
-          operationId: OperationId.make(`${operationPrefix}-area`),
-          ref: areaField.ref,
-          sessionId,
-        })
-      : yield* sessionTool("agent_browser_act", {
-          action: { ref: areaField.ref, text: area, type: "fill" },
-          operationId: OperationId.make(`${operationPrefix}-area`),
-          sessionId,
-        });
-    const confirm = findNode(
-      areaFilled.snapshot.nodes,
-      "button",
-      "Confirm delivery area"
-    );
-    const confirmed = yield* sessionTool("agent_browser_act", {
-      action: { ref: confirm.ref, type: "click" },
-      operationId: OperationId.make(`${operationPrefix}-confirm`),
+    yield* act(
       sessionId,
-    });
+      { name: "City", role: "textbox" },
+      { text: city, type: "fill" }
+    );
+    const areaField = {
+      name: "Search for your delivery area",
+      role: "textbox",
+    };
+    yield* variableArea
+      ? enterVariable(sessionId, areaField, "DELIVERY_AREA")
+      : act(sessionId, areaField, { text: area, type: "fill" });
+    const confirmed = yield* act(
+      sessionId,
+      { name: "Confirm delivery area", role: "button" },
+      { type: "click" }
+    );
     expect(
-      confirmed.snapshot.nodes.some((node) =>
+      confirmed.snapshot.nodes?.some((node) =>
         node.name.includes(`Delivering to ${area}, ${city}`)
       )
     ).toBe(true);
   });
 
+/** The agent assesses a Dry Run on the evidence it sees, then completes it. */
 const assessDryRunOutcome = (
-  sessionId: AgentSessionId,
+  sessionId: string,
   outcome: "working" | "not-working",
   outcomeComplete = true
 ) =>
   Effect.gen(function* assessOutcome() {
-    const session = yield* AgentSession;
-    const browser = yield* sessionTool("agent_browser_snapshot", { sessionId });
-    const assessed = yield* session.assessTask(
+    const browser = yield* call("agent_browser_snapshot", { sessionId });
+    const assessed = yield* call("agent_run_assess", {
+      evidence: [{ id: browser.snapshotId, kind: "snapshot" }],
+      explanation:
+        outcome === "working"
+          ? "The complete delivery status is visible."
+          : "The delivery status did not match.",
+      outcome,
+      outcomeComplete,
       sessionId,
-      {
-        evidence: [{ id: browser.snapshotId, kind: "snapshot" }],
-        explanation:
-          outcome === "working"
-            ? "The complete delivery status is visible."
-            : "The delivery status did not match.",
-        outcome,
-        outcomeComplete,
-      },
-      false,
-      OperationId.make(`assess-${sessionId}`)
-    );
+    });
     expect(assessed.phase).toBe("running");
-    yield* sessionTool("agent_browser_snapshot", { sessionId });
-    return yield* session.completeRun(sessionId);
+    yield* call("agent_browser_snapshot", { sessionId });
+    return yield* call("agent_run_complete", { sessionId });
   });
+
+/** A Dry Run of the learned Flow with the inputs the agent chooses. */
+const dryRunInputs = (city: string, area: string) => [
+  { changed: true, name: "city", secret: false, value: city },
+  { changed: true, name: "delivery_area", secret: false, value: area },
+];
 
 /**
  * The package the learning agent writes from this recording. It names the city
@@ -200,828 +146,667 @@ label, so the enclosing heading separates one stage of the picker from the
 next without relying on position.
 `;
 
-it.live(
+journey(
   "learns a parameterized delivery-location Flow from a user-led recording",
-  () =>
-    Effect.gen(function* learnDeliveryLocationFlow() {
-      const fileSystem = yield* FileSystem.FileSystem;
-      const root = yield* fileSystem.makeTempDirectoryScoped({
-        prefix: "contingency-delivery-learning-",
+  { singleTool: true, timeout: 480_000, transcript: "flow-delivery" },
+  Effect.gen(function* learnDeliveryLocationFlow() {
+    const fileSystem = yield* FileSystem.FileSystem;
+    const root = yield* fileSystem.makeTempDirectoryScoped({
+      prefix: "contingency-delivery-learning-",
+    });
+    const fixtures = yield* fixtureServer;
+    yield* bindEnvironment("fixtureOrigin", new URL(fixtures.url("")).origin);
+
+    const demonstration = yield* Effect.gen(
+      function* demonstrateDeliveryJourney() {
+        const started = yield* startTeaching({
+          activity: "teaching",
+          clientName: "integration-recorder",
+          clientVersion: "1.0.0",
+          group: "",
+          name: "set-delivery-area",
+          url: fixtures.url("delivery.html"),
+          viewport: agentViewport,
+        });
+        if (started.recordingId === null) {
+          return yield* Effect.die("Teaching did not allocate a recording.");
+        }
+        yield* User.startRecording(started.id);
+        const settle = call("agent_browser_snapshot", {
+          sessionId: started.id,
+        });
+        yield* User.click(started.id, CHOOSE_DELIVERY);
+        const choosing = yield* settle;
+        findNode(choosing.nodes ?? [], "button", "Select manually");
+        yield* User.click(started.id, SELECT_MANUALLY);
+        const picking = yield* settle;
+        findNode(
+          picking.nodes ?? [],
+          "textbox",
+          "Search for your delivery area"
+        );
+        yield* User.click(started.id, CITY_FIELD);
+        yield* User.type(started.id, DEMONSTRATED_CITY);
+        yield* User.click(started.id, AREA_FIELD);
+        yield* User.type(started.id, DEMONSTRATED_AREA);
+        yield* User.click(started.id, CONFIRM_AREA);
+        const confirmed = yield* settle;
+        expect(
+          confirmed.nodes?.some((node) =>
+            node.name.includes(
+              `Delivering to ${DEMONSTRATED_AREA}, ${DEMONSTRATED_CITY}`
+            )
+          )
+        ).toBe(true);
+        yield* call("agent_browser_screenshot", { sessionId: started.id });
+        yield* User.stopRecording(started.id);
+        return {
+          recordingId: started.recordingId,
+          teachingSessionId: started.id,
+        };
+      }
+    ).pipe(Effect.provide(scriptedProcess(root)), Effect.scoped);
+    const { recordingId, teachingSessionId } = demonstration;
+
+    // The recording, failed rehearsals, verified flow, and later Run share one catalog.
+    // oxlint-disable-next-line eslint/complexity
+    yield* Effect.gen(function* learnInLaterProcess() {
+      const claimOperationId = yield* mintOperationId;
+      const claimed = yield* call("agent_teaching_recording_claim", {
+        action: "take",
+        operationId: claimOperationId,
+        recordingId,
       });
-      const fixtures = yield* fixtureServer;
-
-      const demonstration = yield* Effect.scoped(
-        Effect.gen(function* demonstrateDeliveryJourney() {
-          const started = yield* startUserTeaching({
-            activity: "teaching",
-            clientName: "integration-recorder",
-            clientVersion: "1.0.0",
-            group: "",
-            name: "set-delivery-area",
-            operationId: OperationId.make("delivery-start-session"),
-            url: fixtures.url("delivery.html"),
-            viewport: agentViewport,
-          });
-          if (started.recordingId === null) {
-            return yield* Effect.die("Teaching did not allocate a recording.");
-          }
-          const service = yield* AgentSession;
-          yield* service.startTeachingRecording(
-            started.id,
-            OperationId.make("delivery-start-recording")
-          );
-          const settle = sessionTool("agent_browser_snapshot", {
-            sessionId: started.id,
-          });
-          yield* clickAsUser(started.id, CHOOSE_DELIVERY);
-          const choosing = yield* settle;
-          findNode(choosing.nodes, "button", "Select manually");
-          yield* clickAsUser(started.id, SELECT_MANUALLY);
-          const picking = yield* settle;
-          findNode(picking.nodes, "textbox", "Search for your delivery area");
-          yield* clickAsUser(started.id, CITY_FIELD);
-          yield* typeAsUser(started.id, DEMONSTRATED_CITY);
-          yield* clickAsUser(started.id, AREA_FIELD);
-          yield* typeAsUser(started.id, DEMONSTRATED_AREA);
-          yield* clickAsUser(started.id, CONFIRM_AREA);
-          const confirmed = yield* settle;
-          expect(
-            confirmed.nodes.some((node) =>
-              node.name.includes(
-                `Delivering to ${DEMONSTRATED_AREA}, ${DEMONSTRATED_CITY}`
-              )
-            )
-          ).toBe(true);
-          yield* sessionTool("agent_browser_screenshot", {
-            sessionId: started.id,
-          });
-          yield* service.stopTeachingRecording(
-            started.id,
-            OperationId.make("delivery-stop-recording")
-          );
-          return {
-            recordingId: started.recordingId,
-            teachingSessionId: started.id,
-          };
-        }).pipe(Effect.provide(agentProcessLayer(root)))
+      expect(claimed.claim?.flowName).toBe("set-delivery-area");
+      const timeline = yield* call("agent_teaching_timeline_get", {
+        claimOperationId,
+        recordingId,
+      });
+      const serialized = JSON.stringify(timeline);
+      expect(serialized).toContain("Confirm delivery area");
+      expect(serialized).toContain(DEMONSTRATED_AREA);
+      // A reference means nothing outside its session and dies with the
+      // document, and the Flow contract rejects a step that names
+      // one. Every demonstrated click must therefore reach the learning
+      // agent as the role and accessible name of what the user hit.
+      const clicks = timeline.entries.filter(
+        (entry) => entry._tag === "action" && entry.kind === "click"
       );
-      const { recordingId, teachingSessionId } = demonstration;
+      expect(clicks.length).toBeGreaterThan(0);
+      for (const click of clicks) {
+        expect(click).toMatchObject({
+          description: expect.not.stringMatching(/(?<![\w-])e\d+(?![\w-])/u),
+          target: expect.objectContaining({ role: expect.any(String) }),
+        });
+      }
+      expect(
+        clicks.map((click) =>
+          click._tag === "action" ? click.description : ""
+        )
+      ).toContain('Click button "Confirm delivery area"');
+      // A description and a target that disagree are worse than either
+      // gap alone: the learning agent reads a named control it cannot join
+      // back to any recorded tree. Both are read from the one Snapshot
+      // recorded beside the click, so they stand or fall together.
+      for (const entry of timeline.entries) {
+        if (entry._tag !== "action" || entry.target !== null) {
+          continue;
+        }
+        expect(entry.description).not.toMatch(/"/u);
+      }
 
-      yield* Effect.scoped(
-        // The recording, failed rehearsals, verified flow, and later Run share one catalog.
-        // oxlint-disable-next-line eslint/complexity
-        Effect.gen(function* learnInLaterProcess() {
-          const claimOperationId = OperationId.make("delivery-claim");
-          const claimed = yield* teachingRecordingTool(
-            "agent_teaching_recording_claim",
-            { action: "take", operationId: claimOperationId, recordingId }
-          );
-          expect(claimed.claim?.flowName).toBe("set-delivery-area");
-          const timeline = yield* teachingRecordingTool(
-            "agent_teaching_timeline_get",
-            { claimOperationId, recordingId }
-          );
-          const serialized = JSON.stringify(timeline);
-          expect(serialized).toContain("Confirm delivery area");
-          expect(serialized).toContain(DEMONSTRATED_AREA);
-          // A reference means nothing outside its session and dies with the
-          // document, and the Flow contract rejects a step that names
-          // one. Every demonstrated click must therefore reach the learning
-          // agent as the role and accessible name of what the user hit.
-          const clicks = timeline.entries.filter(
-            (entry) => entry._tag === "action" && entry.kind === "click"
-          );
-          expect(clicks.length).toBeGreaterThan(0);
-          for (const click of clicks) {
-            expect(click).toMatchObject({
-              description: expect.not.stringMatching(
-                /(?<![\w-])e\d+(?![\w-])/u
-              ),
-              target: expect.objectContaining({ role: expect.any(String) }),
-            });
-          }
-          expect(
-            clicks.map((click) =>
-              click._tag === "action" ? click.description : ""
-            )
-          ).toContain('Click button "Confirm delivery area"');
-          // A description and a target that disagree are worse than either
-          // gap alone: the learning agent reads a named control it cannot join
-          // back to any recorded tree. Both are read from the one Snapshot
-          // recorded beside the click, so they stand or fall together.
-          for (const entry of timeline.entries) {
-            if (entry._tag !== "action" || entry.target !== null) {
-              continue;
-            }
-            expect(entry.description).not.toMatch(/"/u);
-          }
+      const saved = yield* call("agent_flow_save", {
+        claimOperationId,
+        files: [
+          { content: DELIVERY_FLOW, path: "flow.md" },
+          { content: DELIVERY_ACCESSIBILITY, path: "targets.md" },
+        ],
+        recordingId,
+      });
+      expect(saved.flowName).toBe("set-delivery-area");
 
-          const saved = yield* teachingRecordingTool("agent_flow_save", {
+      const flowDirectory = path.join(root, "set-delivery-area");
+      const flow = yield* fileSystem.readFileString(
+        path.join(flowDirectory, "flow.md")
+      );
+      const accessibility = yield* fileSystem.readFileString(
+        path.join(flowDirectory, "targets.md")
+      );
+      // The package must be followable once the recording is deleted: it
+      // carries no element reference, no artifact path, and no demonstrated
+      // literal standing in for an input.
+      for (const content of [flow, accessibility]) {
+        expect(content).not.toMatch(/(?<![\w-])e\d+(?![\w-])/u);
+        expect(content).not.toContain("trace.zip");
+        expect(content).not.toContain("recording.webm");
+        expect(content).not.toContain(root);
+      }
+      expect(flow).not.toContain(DEMONSTRATED_CITY);
+      expect(flow).not.toContain(DEMONSTRATED_AREA);
+      expect(flow).toContain("{{city}}");
+      expect(flow).toContain("{{delivery_area}}");
+      // Contingency stamps the demonstrated ceiling and device into the
+      // package, because the recording that proves them is deleted once
+      // the user verifies.
+      const stamped = readFlowFrontmatter(flow);
+      expect(stamped?.hosts).toContain("127.0.0.1");
+      expect(stamped?.emulation?.viewport).toEqual(agentViewport);
+
+      const recordingDirectory = yield* evidenceDirectory(
+        root,
+        "recordings",
+        recordingId
+      );
+      const offScope = yield* Effect.result(
+        call("agent_flow_dry_run_start", {
+          inputs: dryRunInputs("Pune", "Baner"),
+          recordingId,
+          url: "http://localhost:1/delivery.html",
+        })
+      );
+      expect(Result.isFailure(offScope)).toBe(true);
+      const demonstratedKeyframes =
+        yield* fileSystem.readDirectory(recordingDirectory);
+      const failedStart = yield* mintOperationId;
+      const failedRun = yield* call("agent_flow_dry_run_start", {
+        inputs: dryRunInputs("Pune", "Baner"),
+        operationId: failedStart,
+        recordingId,
+        url: fixtures.url("delivery.html"),
+      });
+      expect(failedRun.nextAction).toContain(
+        `[Open Workspace](${failedRun.session.viewUrl})`
+      );
+
+      // A Dry Run proves the Flow in a context the demonstration
+      // never touched, so it must not reuse the Teaching session.
+      expect(failedRun.session.id).not.toBe(teachingSessionId);
+      expect(failedRun.session.activity).toBe("run");
+      // A Dry Run session says what it rehearses, so reading it back is
+      // enough to tell it from an Interactive Run (#202).
+      expect(failedRun.session.flowName).toBe("set-delivery-area");
+      expect(failedRun.session.recordingId).toBe(recordingId);
+      expect(failedRun.session.dryRun).toMatchObject({
+        flowName: "set-delivery-area",
+        recordingId,
+      });
+      expect(failedRun.session.run).toHaveProperty("schemaVersion", 3);
+      expect(failedRun.session.run).not.toHaveProperty("steps");
+      const reread = yield* call("agent_session_get", {
+        sessionId: failedRun.session.id,
+      });
+      expect(reread.flowName).toBe("set-delivery-area");
+      expect(reread.recordingId).toBe(recordingId);
+      expect(reread.dryRun).toMatchObject({
+        flowName: "set-delivery-area",
+        recordingId,
+      });
+      expect(failedRun.files.map((file) => file.path)).toEqual(["flow.md"]);
+      expect(failedRun.supportingDocuments).toContainEqual({
+        heading: "Accessibility targets",
+        path: "targets.md",
+      });
+      const originalFlow = yield* fileSystem.readFileString(
+        path.join(flowDirectory, "flow.md")
+      );
+      for (const documentPath of ["flow.md", "checks.json", "setup.md"]) {
+        const refused = yield* Effect.result(
+          call("agent_flow_save", {
             claimOperationId,
-            files: [
-              { content: DELIVERY_FLOW, path: "flow.md" },
-              {
-                content: DELIVERY_ACCESSIBILITY,
-                path: "targets.md",
-              },
-            ],
-            operationId: OperationId.make("delivery-save"),
+            files: [{ content: "Run must not write this", path: documentPath }],
             recordingId,
-          });
-          expect(saved.flowName).toBe("set-delivery-area");
-
-          const flowDirectory = path.join(root, "set-delivery-area");
-          const flow = yield* fileSystem.readFileString(
-            path.join(flowDirectory, "flow.md")
+          })
+        );
+        expect(Result.isFailure(refused)).toBe(true);
+        if (Result.isFailure(refused)) {
+          expect(refused.failure.message).toContain(
+            "An active Run uses this Flow"
           );
-          const accessibility = yield* fileSystem.readFileString(
-            path.join(flowDirectory, "targets.md")
-          );
-          // The package must be followable once the recording is deleted: it
-          // carries no element reference, no artifact path, and no demonstrated
-          // literal standing in for an input.
-          for (const content of [flow, accessibility]) {
-            expect(content).not.toMatch(/(?<![\w-])e\d+(?![\w-])/u);
-            expect(content).not.toContain("trace.zip");
-            expect(content).not.toContain("recording.webm");
-            expect(content).not.toContain(root);
-          }
-          expect(flow).not.toContain(DEMONSTRATED_CITY);
-          expect(flow).not.toContain(DEMONSTRATED_AREA);
-          expect(flow).toContain("{{city}}");
-          expect(flow).toContain("{{delivery_area}}");
-          // Contingency stamps the demonstrated ceiling and device into the
-          // package, because the recording that proves them is deleted once
-          // the user verifies.
-          const stamped = readFlowFrontmatter(flow);
-          expect(stamped?.hosts).toContain("127.0.0.1");
-          expect(stamped?.emulation?.viewport).toEqual(agentViewport);
-
-          const recordingDirectory = yield* evidenceDirectory(
-            root,
-            "recordings",
-            recordingId
-          );
-          const offScope = yield* Effect.result(
-            teachingRecordingTool("agent_flow_dry_run_start", {
-              inputs: [
-                { changed: true, name: "city", secret: false, value: "Pune" },
-                {
-                  changed: true,
-                  name: "delivery_area",
-                  secret: false,
-                  value: "Baner",
-                },
-              ],
-              operationId: OperationId.make("delivery-dry-offscope"),
-              recordingId,
-              url: "http://localhost:1/delivery.html",
-            })
-          );
-          expect(Result.isFailure(offScope)).toBe(true);
-          const demonstratedKeyframes =
-            yield* fileSystem.readDirectory(recordingDirectory);
-          const failedRun = yield* teachingRecordingTool(
-            "agent_flow_dry_run_start",
-            {
-              inputs: [
-                {
-                  changed: true,
-                  name: "city",
-                  secret: false,
-                  value: "Pune",
-                },
-                {
-                  changed: true,
-                  name: "delivery_area",
-                  secret: false,
-                  value: "Baner",
-                },
-              ],
-              operationId: OperationId.make("delivery-dry-failed-start"),
-              recordingId,
-              url: fixtures.url("delivery.html"),
-            }
-          );
-          expect(failedRun.nextAction).toContain(
-            `[Open Workspace](${failedRun.session.viewUrl})`
-          );
-
-          // A Dry Run proves the Flow in a context the demonstration
-          // never touched, so it must not reuse the Teaching session.
-          expect(failedRun.session.id).not.toBe(teachingSessionId);
-          expect(failedRun.session.activity).toBe("run");
-          // A Dry Run session says what it rehearses, so reading it back is
-          // enough to tell it from an Interactive Run (#202).
-          expect(failedRun.session.flowName).toBe("set-delivery-area");
-          expect(failedRun.session.recordingId).toBe(recordingId);
-          expect(failedRun.session.dryRun).toMatchObject({
-            flowName: "set-delivery-area",
-            recordingId,
-          });
-          expect(failedRun.session.run).toHaveProperty("schemaVersion", 3);
-          expect(failedRun.session.run).not.toHaveProperty("steps");
-          const reread = yield* sessionTool("agent_session_get", {
-            sessionId: failedRun.session.id,
-          });
-          expect(reread.flowName).toBe("set-delivery-area");
-          expect(reread.recordingId).toBe(recordingId);
-          expect(reread.dryRun).toMatchObject({
-            flowName: "set-delivery-area",
-            recordingId,
-          });
-          expect(failedRun.files.map((file) => file.path)).toEqual(["flow.md"]);
-          expect(failedRun.supportingDocuments).toContainEqual({
-            heading: "Accessibility targets",
-            path: "targets.md",
-          });
-          const originalFlow = yield* fileSystem.readFileString(
-            path.join(flowDirectory, "flow.md")
-          );
-          for (const documentPath of ["flow.md", "checks.json", "setup.md"]) {
-            const refused = yield* Effect.result(
-              teachingRecordingTool("agent_flow_save", {
-                claimOperationId,
-                files: [
-                  { content: "Run must not write this", path: documentPath },
-                ],
-                operationId: OperationId.make(
-                  `delivery-refused-${documentPath}`
-                ),
-                recordingId,
-              })
-            );
-            expect(Result.isFailure(refused)).toBe(true);
-            if (Result.isFailure(refused)) {
-              expect(refused.failure.message).toContain(
-                "An active Run uses this Flow"
-              );
-            }
-            expect(
-              yield* fileSystem.readFileString(
-                path.join(flowDirectory, "flow.md")
-              )
-            ).toBe(originalFlow);
-            if (documentPath !== "flow.md") {
-              expect(
-                yield* fileSystem.exists(path.join(flowDirectory, documentPath))
-              ).toBe(false);
-            }
-          }
-          const proposal =
-            "Flow set-delivery-area; setup.md; explain delayed navigation; proposed text: Wait for the delivery page to arrive.";
-          const beforeNavigation = yield* sessionTool("agent_browser_act", {
-            action: { type: "navigate", url: fixtures.url("settle.html") },
-            operationId: OperationId.make("delivery-dry-navigate-later"),
-            sessionId: failedRun.session.id,
-          });
-          const navigateLater = findNode(
-            beforeNavigation.snapshot.nodes,
-            "button",
-            "Navigate later"
-          );
-          const gate = yield* fixtures.holdRequest(SETTLE_GATE);
-          const clicked = yield* sessionTool("agent_browser_act", {
-            action: { ref: navigateLater.ref, type: "click" },
-            operationId: OperationId.make("delivery-dry-click-later"),
-            sessionId: failedRun.session.id,
-          });
-          expect(clicked.snapshot.url).toBe(fixtures.url("settle.html"));
-          const beforeArrival = yield* sessionTool("agent_session_get", {
-            sessionId: failedRun.session.id,
-          });
-          yield* Deferred.await(gate.arrived).pipe(
-            Effect.timeout("30 seconds")
-          );
-          const arrived = yield* fixtures.awaitRequest(
-            (url) => url === "/settle.html?arrived"
-          );
-          yield* Deferred.succeed(gate.release, true);
-          yield* Deferred.await(arrived).pipe(Effect.timeout("30 seconds"));
-          const afterNavigation = yield* sessionTool("agent_browser_snapshot", {
-            sessionId: failedRun.session.id,
-          });
-          const arrivedUrl = `${fixtures.url("settle.html")}?arrived`;
-          expect(afterNavigation.url).toBe(arrivedUrl);
-          const assessedAfterNavigation = yield* runTool("agent_run_finding", {
-            evidence: [{ id: afterNavigation.snapshotId, kind: "snapshot" }],
-            explanation: proposal,
-            operationId: OperationId.make("delivery-dry-assess-later"),
-            outcome: "working",
-            sessionId: failedRun.session.id,
-          });
-          expect(assessedAfterNavigation.currentUrl).toBe(arrivedUrl);
-          expect(assessedAfterNavigation.timeline.at(-2)?.id).toBe(
-            clicked.entry.id
-          );
-          // The finding lands after everything the session held before the
-          // navigation arrived.
+        }
+        expect(
+          yield* fileSystem.readFileString(path.join(flowDirectory, "flow.md"))
+        ).toBe(originalFlow);
+        if (documentPath !== "flow.md") {
           expect(
-            assessedAfterNavigation.timeline.slice(0, -1).map(({ id }) => id)
-          ).toEqual(beforeArrival.timeline.map(({ id }) => id));
-          expect(
-            (yield* sessionTool("agent_session_get", {
-              sessionId: failedRun.session.id,
-            })).currentUrl
-          ).toBe(arrivedUrl);
-          expect(
-            yield* fileSystem.readFileString(
-              path.join(flowDirectory, "flow.md")
-            )
-          ).toBe(originalFlow);
-          expect(
-            yield* fileSystem.exists(path.join(flowDirectory, "setup.md"))
+            yield* fileSystem.exists(path.join(flowDirectory, documentPath))
           ).toBe(false);
-          yield* assessDryRunOutcome(failedRun.session.id, "not-working");
-          const replayedFailedRun = yield* teachingRecordingTool(
-            "agent_flow_dry_run_start",
-            {
-              inputs: [
-                { changed: true, name: "city", secret: false, value: "Pune" },
-                {
-                  changed: true,
-                  name: "delivery_area",
-                  secret: false,
-                  value: "Baner",
-                },
-              ],
-              operationId: OperationId.make("delivery-dry-failed-start"),
-              recordingId,
-              url: fixtures.url("delivery.html"),
-            }
-          );
-          expect(replayedFailedRun.session.id).toBe(failedRun.session.id);
-          expect(replayedFailedRun.session.run?.runId).toBe(
-            failedRun.session.run?.runId
-          );
-          // The same operation id with a changed input is a different
-          // request: it conflicts before replacing the Dry Run evidence or
-          // opening another session.
-          const agentSessions = yield* AgentSession;
-          const sessionsBeforeConflict = yield* agentSessions.list();
-          const evidenceBeforeConflict = yield* fileSystem.readDirectory(
-            yield* evidenceDirectory(
-              root,
-              "runs",
-              failedRun.session.run?.runId ?? "missing"
-            ),
-            { recursive: true }
-          );
-          const conflictedDryRun = yield* Effect.flip(
-            teachingRecordingTool("agent_flow_dry_run_start", {
-              inputs: [
-                { changed: true, name: "city", secret: false, value: "Pune" },
-                {
-                  changed: true,
-                  name: "delivery_area",
-                  secret: false,
-                  value: "Kothrud",
-                },
-              ],
-              operationId: OperationId.make("delivery-dry-failed-start"),
-              recordingId,
-              url: fixtures.url("delivery.html"),
-            })
-          );
-          expect(conflictedDryRun.code).toBe("agent_session_conflict");
-          expect(yield* agentSessions.list()).toHaveLength(
-            sessionsBeforeConflict.length
-          );
-          expect(
-            yield* fileSystem.readDirectory(
-              yield* evidenceDirectory(
-                root,
-                "runs",
-                failedRun.session.run?.runId ?? "missing"
-              ),
-              { recursive: true }
-            )
-          ).toEqual(evidenceBeforeConflict);
-          const recordingStore = yield* TeachingRecordingStore;
-          const failedManifest = yield* recordingStore.read(recordingId);
-          expect(failedManifest.lifecycle._tag).toBe("dry-run-failed");
-          if (failedManifest.lifecycle._tag === "dry-run-failed") {
-            if (failedManifest.lifecycle.dryRunSummary?.schemaVersion !== 3) {
-              return yield* Effect.die("Expected the task Dry Run's Summary.");
-            }
-            expect(
-              failedManifest.lifecycle.dryRunSummary?.assessment?.outcome
-            ).toBe("not-working");
-          }
-          if (
-            failedManifest.lifecycle._tag === "dry-run-failed" &&
-            failedManifest.lifecycle.dryRunSummary?.schemaVersion === 3
-          ) {
-            expect(
-              failedManifest.lifecycle.dryRunSummary.findings.map(
-                (finding) => finding.explanation
-              )
-            ).toContain(proposal);
-          }
-          const dryRunDirectory = yield* evidenceDirectory(
+        }
+      }
+      const proposal =
+        "Flow set-delivery-area; setup.md; explain delayed navigation; proposed text: Wait for the delivery page to arrive.";
+      yield* call("agent_browser_act", {
+        action: { type: "navigate", url: fixtures.url("settle.html") },
+        sessionId: failedRun.session.id,
+      });
+      const gate = yield* fixtures.holdRequest(SETTLE_GATE);
+      const clicked = yield* act(
+        failedRun.session.id,
+        { name: "Navigate later", role: "button" },
+        { type: "click" }
+      );
+      expect(clicked.snapshot.url).toBe(fixtures.url("settle.html"));
+      const beforeArrival = yield* call("agent_session_get", {
+        sessionId: failedRun.session.id,
+      });
+      yield* Deferred.await(gate.arrived).pipe(Effect.timeout("30 seconds"));
+      const arrived = yield* fixtures.awaitRequest(
+        (url) => url === "/settle.html?arrived"
+      );
+      yield* Deferred.succeed(gate.release, true);
+      yield* Deferred.await(arrived).pipe(Effect.timeout("30 seconds"));
+      const afterNavigation = yield* call("agent_browser_snapshot", {
+        sessionId: failedRun.session.id,
+      });
+      const arrivedUrl = `${fixtures.url("settle.html")}?arrived`;
+      expect(afterNavigation.url).toBe(arrivedUrl);
+      const assessedAfterNavigation = yield* call("agent_run_finding", {
+        evidence: [{ id: afterNavigation.snapshotId, kind: "snapshot" }],
+        explanation: proposal,
+        outcome: "working",
+        sessionId: failedRun.session.id,
+      });
+      expect(assessedAfterNavigation.currentUrl).toBe(arrivedUrl);
+      expect(assessedAfterNavigation.timeline.at(-2)?.id).toBe(
+        clicked.entry.id
+      );
+      // The finding lands after everything the session held before the
+      // navigation arrived.
+      expect(
+        assessedAfterNavigation.timeline.slice(0, -1).map(({ id }) => id)
+      ).toEqual(beforeArrival.timeline.map(({ id }) => id));
+      expect(
+        (yield* call("agent_session_get", { sessionId: failedRun.session.id }))
+          .currentUrl
+      ).toBe(arrivedUrl);
+      expect(
+        yield* fileSystem.readFileString(path.join(flowDirectory, "flow.md"))
+      ).toBe(originalFlow);
+      expect(
+        yield* fileSystem.exists(path.join(flowDirectory, "setup.md"))
+      ).toBe(false);
+      yield* assessDryRunOutcome(failedRun.session.id, "not-working");
+      const replayedFailedRun = yield* call("agent_flow_dry_run_start", {
+        inputs: dryRunInputs("Pune", "Baner"),
+        operationId: failedStart,
+        recordingId,
+        url: fixtures.url("delivery.html"),
+      });
+      expect(replayedFailedRun.session.id).toBe(failedRun.session.id);
+      expect(replayedFailedRun.session.run?.runId).toBe(
+        failedRun.session.run?.runId
+      );
+      // The same operation id with a changed input is a different
+      // request: it conflicts before replacing the Dry Run evidence or
+      // opening another session.
+      const sessionsBeforeConflict = yield* call("agent_sessions_get", {});
+      const evidenceBeforeConflict = yield* fileSystem.readDirectory(
+        yield* evidenceDirectory(
+          root,
+          "runs",
+          failedRun.session.run?.runId ?? "missing"
+        ),
+        { recursive: true }
+      );
+      const conflictedDryRun = yield* Effect.flip(
+        call("agent_flow_dry_run_start", {
+          inputs: dryRunInputs("Pune", "Kothrud"),
+          operationId: failedStart,
+          recordingId,
+          url: fixtures.url("delivery.html"),
+        })
+      );
+      expect(conflictedDryRun.code).toBe("agent_session_conflict");
+      expect((yield* call("agent_sessions_get", {})).sessions).toHaveLength(
+        sessionsBeforeConflict.sessions.length
+      );
+      expect(
+        yield* fileSystem.readDirectory(
+          yield* evidenceDirectory(
             root,
             "runs",
             failedRun.session.run?.runId ?? "missing"
-          );
-          expect(
-            yield* fileSystem.exists(path.join(dryRunDirectory, "summary.json"))
-          ).toBe(true);
-          if (failedManifest.lifecycle._tag === "dry-run-failed") {
-            const { tracePath, videoPath } =
-              failedManifest.lifecycle.dryRunSummary ?? {};
-            expect(tracePath).not.toBeNull();
-            expect(videoPath).not.toBeNull();
-            expect(
-              yield* fileSystem.exists(
-                path.join(dryRunDirectory, tracePath ?? "missing")
-              )
-            ).toBe(true);
-            expect((yield* awaitRunVideo(dryRunDirectory)).state).toBe("ready");
-            expect(
-              yield* fileSystem.exists(
-                path.join(dryRunDirectory, videoPath ?? "missing")
-              )
-            ).toBe(true);
-          }
-          expect(
-            yield* fileSystem.exists(
-              path.join(root, "runs", failedRun.session.run?.runId ?? "")
-            )
-          ).toBe(false);
-          expect(yield* fileSystem.exists(recordingDirectory)).toBe(true);
-
-          const endedEarly = yield* teachingRecordingTool(
-            "agent_flow_dry_run_start",
-            {
-              inputs: [
-                { changed: true, name: "city", secret: false, value: "Pune" },
-                {
-                  changed: true,
-                  name: "delivery_area",
-                  secret: false,
-                  value: "Baner",
-                },
-              ],
-              operationId: OperationId.make("delivery-dry-early-start"),
-              recordingId,
-              url: fixtures.url("delivery.html"),
-            }
-          );
-          const earlySummary = yield* (yield* AgentSession).completeRun(
-            endedEarly.session.id
-          );
-          expect(earlySummary.schemaVersion).toBe(3);
-          expect(earlySummary).toHaveProperty("assessment", null);
-          expect((yield* recordingStore.read(recordingId)).lifecycle._tag).toBe(
-            "dry-run-failed"
-          );
-
-          const partialRun = yield* teachingRecordingTool(
-            "agent_flow_dry_run_start",
-            {
-              inputs: [
-                { changed: true, name: "city", secret: false, value: "Pune" },
-                {
-                  changed: true,
-                  name: "delivery_area",
-                  secret: false,
-                  value: "Kothrud",
-                },
-              ],
-              operationId: OperationId.make("delivery-partial-start"),
-              recordingId,
-              url: fixtures.url("delivery.html"),
-            }
-          );
-          yield* assessDryRunOutcome(partialRun.session.id, "working", false);
-          expect((yield* recordingStore.read(recordingId)).lifecycle._tag).toBe(
-            "dry-run-failed"
-          );
-
-          // A failed Dry Run keeps the learning claim, so the agent that
-          // learned the flow fixes its package and saves again with the same
-          // claim operation id.
-          const resaved = yield* teachingRecordingTool("agent_flow_save", {
-            claimOperationId,
-            files: [
-              { content: DELIVERY_FLOW, path: "flow.md" },
-              {
-                content: DELIVERY_ACCESSIBILITY,
-                path: "targets.md",
-              },
-            ],
-            operationId: OperationId.make("delivery-save-after-failure"),
-            recordingId,
-          });
-          expect(resaved.flowName).toBe("set-delivery-area");
-
-          const passedRun = yield* teachingRecordingTool(
-            "agent_flow_dry_run_start",
-            {
-              inputs: [
-                {
-                  changed: true,
-                  name: "city",
-                  secret: false,
-                  value: "Mumbai",
-                },
-                {
-                  changed: true,
-                  name: "delivery_area",
-                  secret: true,
-                },
-              ],
-              operationId: OperationId.make("delivery-dry-passed-start"),
-              recordingId,
-              url: fixtures.url("delivery.html"),
-            }
-          );
-          expect(passedRun.session.dryRun?.inputs).toContainEqual({
-            changed: true,
-            name: "delivery_area",
-            value: null,
-          });
-          expect(passedRun.session.dryRun?.variables).toContainEqual({
-            name: "DELIVERY_AREA",
-            runtime: true,
-            supplied: false,
-          });
-          const session = yield* AgentSession;
-          const undeclared = yield* Effect.flip(
-            session.enterSuppliedVariable(
-              passedRun.session.id,
-              "OTHER",
-              "e1",
-              OperationId.make("delivery-undeclared-variable")
-            )
-          );
-          expect(undeclared.code).toBe("agent_session_invalid");
-          const missing = yield* Effect.flip(
-            session.enterSuppliedVariable(
-              passedRun.session.id,
-              "DELIVERY_AREA",
-              "e1",
-              OperationId.make("delivery-missing-variable")
-            )
-          );
-          expect(missing.message).toContain("has not been supplied");
-          const supplied = yield* session.supplyDryRunVariable(
-            passedRun.session.id,
-            "DELIVERY_AREA",
-            "Bandra"
-          );
-          expect(supplied.dryRun?.variables[0]?.supplied).toBe(true);
-          expect(supplied.run?.variables[0]?.supplied).toBe(true);
-          yield* driveDeliveryAsAgent(
-            passedRun.session.id,
-            "Mumbai",
-            "Bandra",
-            "delivery-dry-passed",
-            true
-          );
-          const visible = yield* sessionTool("agent_browser_snapshot", {
-            sessionId: passedRun.session.id,
-          });
-          expect(JSON.stringify(visible)).toContain("Bandra");
-          // Driving the rehearsal writes timeline entries, which must not
-          // cost the session the identity it started with (#202).
-          const afterActing = yield* sessionTool("agent_session_get", {
-            sessionId: passedRun.session.id,
-          });
-          expect(afterActing.flowName).toBe("set-delivery-area");
-          expect(afterActing.recordingId).toBe(recordingId);
-          expect(afterActing.dryRun).toMatchObject({
-            flowName: "set-delivery-area",
-            recordingId,
-          });
-          yield* assessDryRunOutcome(passedRun.session.id, "working");
-          const passedManifest = yield* recordingStore.read(recordingId);
-          expect(passedManifest.lifecycle._tag).toBe("dry-run-passed");
-          if (passedManifest.lifecycle._tag === "dry-run-passed") {
-            if (passedManifest.lifecycle.dryRunSummary?.schemaVersion !== 3) {
-              return yield* Effect.die("Expected the task Dry Run's Summary.");
-            }
-            expect(
-              passedManifest.lifecycle.dryRunSummary?.assessment
-            ).toMatchObject({ outcome: "working", outcomeComplete: true });
-          }
-          const replacementSummary = yield* fileSystem.readFileString(
-            path.join(
-              yield* evidenceDirectory(
-                root,
-                "runs",
-                passedRun.session.run?.runId ?? "missing"
-              ),
-              "summary.json"
-            )
-          );
-          expect(replacementSummary).toContain(passedRun.session.run?.runId);
-          expect(replacementSummary).not.toContain(
-            failedRun.session.run?.runId
-          );
-          expect(yield* fileSystem.exists(recordingDirectory)).toBe(true);
-          const rejected = yield* teachingRecordingTool("agent_flow_decide", {
-            decision: "reject",
-            operationId: OperationId.make("delivery-reject"),
-            recordingId,
-          });
-          expect(rejected.lifecycle).toBe("flow-drafted");
-          expect(yield* fileSystem.exists(recordingDirectory)).toBe(true);
-
-          const takeoverRun = yield* teachingRecordingTool(
-            "agent_flow_dry_run_start",
-            {
-              inputs: [
-                { changed: true, name: "city", secret: false, value: "Pune" },
-                {
-                  changed: true,
-                  name: "delivery_area",
-                  secret: false,
-                  value: "Baner",
-                },
-              ],
-              operationId: OperationId.make("delivery-dry-takeover-start"),
-              recordingId,
-              url: fixtures.url("delivery.html"),
-            }
-          );
-          yield* session.takeover(takeoverRun.session.id, "Check the page");
-          yield* session.returnControl(takeoverRun.session.id);
-          yield* assessDryRunOutcome(takeoverRun.session.id, "working");
-          const takeoverManifest = yield* recordingStore.read(recordingId);
-          expect(takeoverManifest.lifecycle._tag).toBe("dry-run-failed");
-          if (takeoverManifest.lifecycle._tag === "dry-run-failed") {
-            if (takeoverManifest.lifecycle.dryRunSummary?.schemaVersion !== 3) {
-              return yield* Effect.die("Expected the task Dry Run's Summary.");
-            }
-            expect(
-              takeoverManifest.lifecycle.dryRunSummary?.purpose
-            ).toMatchObject({ takeoverOccurred: true });
-          }
-
-          // Run ceilings are gone (ADR 0043), so no clock ends a Dry Run:
-          // only the agent or the user does.
-          const idleRun = yield* teachingRecordingTool(
-            "agent_flow_dry_run_start",
-            {
-              inputs: [
-                { changed: true, name: "city", secret: false, value: "Pune" },
-                {
-                  changed: true,
-                  name: "delivery_area",
-                  secret: false,
-                  value: "Baner",
-                },
-              ],
-              operationId: OperationId.make("delivery-dry-idle-start"),
-              recordingId,
-              url: fixtures.url("delivery.html"),
-            }
-          );
-          const idle = yield* session.get(idleRun.session.id);
-          expect(idle.phase).toBe("running");
-          expect(idle.run).toHaveProperty("lifecycle.phase", "running");
-          expect((yield* recordingStore.read(recordingId)).lifecycle._tag).toBe(
-            "dry-running"
-          );
-          yield* session.completeRun(idleRun.session.id);
-          expect((yield* recordingStore.read(recordingId)).lifecycle._tag).toBe(
-            "dry-run-failed"
-          );
-
-          const finalRun = yield* teachingRecordingTool(
-            "agent_flow_dry_run_start",
-            {
-              inputs: [
-                {
-                  changed: true,
-                  name: "city",
-                  secret: false,
-                  value: "Pune",
-                },
-                {
-                  changed: true,
-                  name: "delivery_area",
-                  secret: false,
-                  value: "Koregaon Park",
-                },
-              ],
-              operationId: OperationId.make("delivery-dry-final-start"),
-              recordingId,
-              url: fixtures.url("delivery.html"),
-            }
-          );
-          yield* driveDeliveryAsAgent(
-            finalRun.session.id,
-            "Pune",
-            "Koregaon Park",
-            "delivery-dry-final"
-          );
-          yield* assessDryRunOutcome(finalRun.session.id, "working");
-          const verified = yield* teachingRecordingTool("agent_flow_decide", {
-            decision: "verify",
-            operationId: OperationId.make("delivery-verify"),
-            recordingId,
-          });
-          expect(verified.cleanup._tag).toBe("purged");
-          expect(yield* fileSystem.exists(recordingDirectory)).toBe(false);
-          // Keyframes are raw Teaching evidence: verification is what
-          // authorizes deleting them, and none survives it.
-          expect(
-            demonstratedKeyframes.filter((name) => name.endsWith(".png"))
-          ).not.toHaveLength(0);
-          expect(
-            yield* fileSystem.exists(path.join(flowDirectory, "flow.md"))
-          ).toBe(true);
-          expect(
-            yield* fileSystem.exists(
-              path.join(flowDirectory, "references", "verification.md")
-            )
-          ).toBe(false);
-          const verification = yield* fileSystem.readFileString(
-            path.join(flowDirectory, "flow.md")
-          );
-          expect(
-            readFlowFrontmatter(verification)?.verification?.verifiedAt
-          ).toBeDefined();
-          expect(verification).toContain(
-            "The complete delivery status is visible."
-          );
-          expect(verification).not.toContain("trace.zip");
-          expect(verification).not.toContain(".webm");
-        }).pipe(Effect.provide(agentProcessLayer(root)))
+          ),
+          { recursive: true }
+        )
+      ).toEqual(evidenceBeforeConflict);
+      const recordingStore = yield* TeachingRecordingStore;
+      const failedManifest = yield* recordingStore.read(
+        TeachingRecordingId.make(recordingId)
       );
-
-      yield* Effect.scoped(
-        Effect.gen(function* runVerifiedFlowAfterRestart() {
-          const restarted = yield* sessionTool("agent_session_start", {
-            clientName: "integration-restart",
-            clientVersion: "1.0.0",
-            operationId: OperationId.make("delivery-restart-run"),
-            url: fixtures.url("delivery.html"),
-            viewport: agentViewport,
-          });
-          yield* driveDeliveryAsAgent(
-            restarted.id,
-            "Pune",
-            "Kalyani Nagar",
-            "delivery-restart"
-          );
-
-          // A Run may only open where the journey was demonstrated: the
-          // stamped ceiling is what the user actually showed, so a foreign
-          // start URL is refused rather than silently becoming the new scope.
-          const foreign = yield* Effect.result(
-            runTool("agent_flow_run_start", {
-              clientName: "integration-restart",
-              clientVersion: "1.0.0",
-              flowName: FlowName.make("set-delivery-area"),
-              inputs: [
-                { name: "city", value: "Pune" },
-                { name: "delivery_area", value: "Baner" },
-              ],
-              operationId: OperationId.make("delivery-run-foreign"),
-              url: "http://localhost:1/delivery.html",
-            })
-          );
-          expect(Result.isFailure(foreign)).toBe(true);
-          if (Result.isFailure(foreign)) {
-            expect(JSON.stringify(foreign.failure)).toContain("flow_invalid");
-            expect(JSON.stringify(foreign.failure)).toContain("localhost");
-          }
-
-          const run = yield* runTool("agent_flow_run_start", {
-            clientName: "integration-restart",
-            clientVersion: "1.0.0",
-            flowName: FlowName.make("set-delivery-area"),
-            inputs: [
-              { name: "city", value: "Pune" },
-              { name: "delivery_area", value: "Baner" },
-            ],
-            operationId: OperationId.make("delivery-run-start"),
-            url: fixtures.url("delivery.html"),
-          });
-          expect(run.flowDocuments).toEqual([
-            {
-              files: [expect.objectContaining({ path: "flow.md" })],
-              flowName: "set-delivery-area",
-              supportingDocuments: [
-                {
-                  heading: "Accessibility targets",
-                  path: "targets.md",
-                },
-              ],
-            },
-          ]);
-          expect(run.run).toHaveProperty("schemaVersion", 3);
-          expect(run.run).not.toHaveProperty("steps");
-          // The Run reproduces the device the journey was demonstrated on, so
-          // read the Emulation the browser actually applied rather than any
-          // value the start call echoed back.
-          const session = yield* AgentSession;
-          const applied = yield* session.emulation(run.id);
-          expect(applied.emulation.viewport).toEqual(agentViewport);
-        }).pipe(Effect.provide(agentProcessLayer(root)))
+      expect(failedManifest.lifecycle._tag).toBe("dry-run-failed");
+      if (failedManifest.lifecycle._tag === "dry-run-failed") {
+        if (failedManifest.lifecycle.dryRunSummary?.schemaVersion !== 3) {
+          return yield* Effect.die("Expected the task Dry Run's Summary.");
+        }
+        expect(
+          failedManifest.lifecycle.dryRunSummary?.assessment?.outcome
+        ).toBe("not-working");
+      }
+      if (
+        failedManifest.lifecycle._tag === "dry-run-failed" &&
+        failedManifest.lifecycle.dryRunSummary?.schemaVersion === 3
+      ) {
+        expect(
+          failedManifest.lifecycle.dryRunSummary.findings.map(
+            (finding) => finding.explanation
+          )
+        ).toContain(proposal);
+      }
+      const dryRunDirectory = yield* evidenceDirectory(
+        root,
+        "runs",
+        failedRun.session.run?.runId ?? "missing"
       );
-    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+      expect(
+        yield* fileSystem.exists(path.join(dryRunDirectory, "summary.json"))
+      ).toBe(true);
+      if (failedManifest.lifecycle._tag === "dry-run-failed") {
+        const { tracePath, videoPath } =
+          failedManifest.lifecycle.dryRunSummary ?? {};
+        expect(tracePath).not.toBeNull();
+        expect(videoPath).not.toBeNull();
+        expect(
+          yield* fileSystem.exists(
+            path.join(dryRunDirectory, tracePath ?? "missing")
+          )
+        ).toBe(true);
+        expect((yield* awaitRunVideo(dryRunDirectory)).state).toBe("ready");
+        expect(
+          yield* fileSystem.exists(
+            path.join(dryRunDirectory, videoPath ?? "missing")
+          )
+        ).toBe(true);
+      }
+      expect(
+        yield* fileSystem.exists(
+          path.join(root, "runs", failedRun.session.run?.runId ?? "")
+        )
+      ).toBe(false);
+      expect(yield* fileSystem.exists(recordingDirectory)).toBe(true);
+
+      const endedEarly = yield* call("agent_flow_dry_run_start", {
+        inputs: dryRunInputs("Pune", "Baner"),
+        recordingId,
+        url: fixtures.url("delivery.html"),
+      });
+      const earlySummary = yield* call("agent_run_complete", {
+        sessionId: endedEarly.session.id,
+      });
+      expect(earlySummary.schemaVersion).toBe(3);
+      expect(earlySummary).toHaveProperty("assessment", null);
+      expect(
+        (yield* recordingStore.read(TeachingRecordingId.make(recordingId)))
+          .lifecycle._tag
+      ).toBe("dry-run-failed");
+
+      const partialRun = yield* call("agent_flow_dry_run_start", {
+        inputs: dryRunInputs("Pune", "Kothrud"),
+        recordingId,
+        url: fixtures.url("delivery.html"),
+      });
+      yield* assessDryRunOutcome(partialRun.session.id, "working", false);
+      expect(
+        (yield* recordingStore.read(TeachingRecordingId.make(recordingId)))
+          .lifecycle._tag
+      ).toBe("dry-run-failed");
+
+      // A failed Dry Run keeps the learning claim, so the agent that
+      // learned the flow fixes its package and saves again with the same
+      // claim operation id.
+      const resaved = yield* call("agent_flow_save", {
+        claimOperationId,
+        files: [
+          { content: DELIVERY_FLOW, path: "flow.md" },
+          { content: DELIVERY_ACCESSIBILITY, path: "targets.md" },
+        ],
+        recordingId,
+      });
+      expect(resaved.flowName).toBe("set-delivery-area");
+
+      // A secret input is the user's to type, so the start ends the agent's
+      // program at a Variable request and the agent reads the session next.
+      const requested = yield* Effect.flip(
+        call("agent_flow_dry_run_start", {
+          inputs: [
+            { changed: true, name: "city", secret: false, value: "Mumbai" },
+            { changed: true, name: "delivery_area", secret: true },
+          ],
+          recordingId,
+          url: fixtures.url("delivery.html"),
+        })
+      );
+      expect(requested.intervention?.reasons).toEqual(["variable_requested"]);
+      const passedRun = {
+        session: yield* call("agent_session_get", {
+          sessionId: requested.intervention?.sessionId ?? "agent-missing",
+        }),
+      };
+      expect(passedRun.session.dryRun?.inputs).toContainEqual({
+        changed: true,
+        name: "delivery_area",
+        value: null,
+      });
+      expect(passedRun.session.dryRun?.variables).toContainEqual({
+        name: "DELIVERY_AREA",
+        runtime: true,
+        supplied: false,
+      });
+      const undeclared = yield* Effect.flip(
+        call("agent_variable_enter", {
+          name: "OTHER",
+          ref: "e1",
+          sessionId: passedRun.session.id,
+        })
+      );
+      expect(undeclared.code).toBe("agent_session_invalid");
+      const missing = yield* Effect.flip(
+        call("agent_variable_enter", {
+          name: "DELIVERY_AREA",
+          ref: "e1",
+          sessionId: passedRun.session.id,
+        })
+      );
+      expect(missing.message).toContain("has not been supplied");
+      const supplied = yield* User.supplyVariable(
+        passedRun.session.id,
+        "DELIVERY_AREA",
+        "Bandra"
+      );
+      expect(supplied.dryRun?.variables[0]?.supplied).toBe(true);
+      expect(supplied.run?.variables[0]?.supplied).toBe(true);
+      yield* driveDeliveryAsAgent(
+        passedRun.session.id,
+        "Mumbai",
+        "Bandra",
+        true
+      );
+      const visible = yield* call("agent_browser_snapshot", {
+        sessionId: passedRun.session.id,
+      });
+      expect(JSON.stringify(visible)).toContain("Bandra");
+      // Driving the rehearsal writes timeline entries, which must not
+      // cost the session the identity it started with (#202).
+      const afterActing = yield* call("agent_session_get", {
+        sessionId: passedRun.session.id,
+      });
+      expect(afterActing.flowName).toBe("set-delivery-area");
+      expect(afterActing.recordingId).toBe(recordingId);
+      expect(afterActing.dryRun).toMatchObject({
+        flowName: "set-delivery-area",
+        recordingId,
+      });
+      yield* assessDryRunOutcome(passedRun.session.id, "working");
+      const passedManifest = yield* recordingStore.read(
+        TeachingRecordingId.make(recordingId)
+      );
+      expect(passedManifest.lifecycle._tag).toBe("dry-run-passed");
+      if (passedManifest.lifecycle._tag === "dry-run-passed") {
+        if (passedManifest.lifecycle.dryRunSummary?.schemaVersion !== 3) {
+          return yield* Effect.die("Expected the task Dry Run's Summary.");
+        }
+        expect(
+          passedManifest.lifecycle.dryRunSummary?.assessment
+        ).toMatchObject({ outcome: "working", outcomeComplete: true });
+      }
+      const replacementSummary = yield* fileSystem.readFileString(
+        path.join(
+          yield* evidenceDirectory(
+            root,
+            "runs",
+            passedRun.session.run?.runId ?? "missing"
+          ),
+          "summary.json"
+        )
+      );
+      expect(replacementSummary).toContain(passedRun.session.run?.runId);
+      expect(replacementSummary).not.toContain(failedRun.session.run?.runId);
+      expect(yield* fileSystem.exists(recordingDirectory)).toBe(true);
+      const rejected = yield* call("agent_flow_decide", {
+        decision: "reject",
+        recordingId,
+      });
+      expect(rejected.lifecycle).toBe("flow-drafted");
+      expect(yield* fileSystem.exists(recordingDirectory)).toBe(true);
+
+      const takeoverRun = yield* call("agent_flow_dry_run_start", {
+        inputs: dryRunInputs("Pune", "Baner"),
+        recordingId,
+        url: fixtures.url("delivery.html"),
+      });
+      yield* User.takeover(takeoverRun.session.id, "Check the page");
+      yield* User.returnControl(takeoverRun.session.id);
+      yield* assessDryRunOutcome(takeoverRun.session.id, "working");
+      const takeoverManifest = yield* recordingStore.read(
+        TeachingRecordingId.make(recordingId)
+      );
+      expect(takeoverManifest.lifecycle._tag).toBe("dry-run-failed");
+      if (takeoverManifest.lifecycle._tag === "dry-run-failed") {
+        if (takeoverManifest.lifecycle.dryRunSummary?.schemaVersion !== 3) {
+          return yield* Effect.die("Expected the task Dry Run's Summary.");
+        }
+        expect(takeoverManifest.lifecycle.dryRunSummary?.purpose).toMatchObject(
+          { takeoverOccurred: true }
+        );
+      }
+
+      // Run ceilings are gone (ADR 0043), so no clock ends a Dry Run:
+      // only the agent or the user does.
+      const idleRun = yield* call("agent_flow_dry_run_start", {
+        inputs: dryRunInputs("Pune", "Baner"),
+        recordingId,
+        url: fixtures.url("delivery.html"),
+      });
+      const idle = yield* call("agent_session_get", {
+        sessionId: idleRun.session.id,
+      });
+      expect(idle.phase).toBe("running");
+      expect(idle.run).toHaveProperty("lifecycle.phase", "running");
+      expect(
+        (yield* recordingStore.read(TeachingRecordingId.make(recordingId)))
+          .lifecycle._tag
+      ).toBe("dry-running");
+      yield* call("agent_run_complete", { sessionId: idleRun.session.id });
+      expect(
+        (yield* recordingStore.read(TeachingRecordingId.make(recordingId)))
+          .lifecycle._tag
+      ).toBe("dry-run-failed");
+
+      const finalRun = yield* call("agent_flow_dry_run_start", {
+        inputs: dryRunInputs("Pune", "Koregaon Park"),
+        recordingId,
+        url: fixtures.url("delivery.html"),
+      });
+      yield* driveDeliveryAsAgent(finalRun.session.id, "Pune", "Koregaon Park");
+      yield* assessDryRunOutcome(finalRun.session.id, "working");
+      const verified = yield* call("agent_flow_decide", {
+        decision: "verify",
+        recordingId,
+      });
+      expect(verified.cleanup._tag).toBe("purged");
+      expect(yield* fileSystem.exists(recordingDirectory)).toBe(false);
+      // Keyframes are raw Teaching evidence: verification is what
+      // authorizes deleting them, and none survives it.
+      expect(
+        demonstratedKeyframes.filter((name) => name.endsWith(".png"))
+      ).not.toHaveLength(0);
+      expect(
+        yield* fileSystem.exists(path.join(flowDirectory, "flow.md"))
+      ).toBe(true);
+      expect(
+        yield* fileSystem.exists(
+          path.join(flowDirectory, "references", "verification.md")
+        )
+      ).toBe(false);
+      const verification = yield* fileSystem.readFileString(
+        path.join(flowDirectory, "flow.md")
+      );
+      expect(
+        readFlowFrontmatter(verification)?.verification?.verifiedAt
+      ).toBeDefined();
+      expect(verification).toContain(
+        "The complete delivery status is visible."
+      );
+      expect(verification).not.toContain("trace.zip");
+      expect(verification).not.toContain(".webm");
+    }).pipe(Effect.provide(scriptedProcess(root)), Effect.scoped);
+
+    yield* Effect.gen(function* runVerifiedFlowAfterRestart() {
+      const restarted = yield* call("agent_session_start", {
+        clientName: "integration-restart",
+        clientVersion: "1.0.0",
+        url: fixtures.url("delivery.html"),
+        viewport: agentViewport,
+      });
+      yield* driveDeliveryAsAgent(restarted.id, "Pune", "Kalyani Nagar");
+
+      // A Run may only open where the journey was demonstrated: the
+      // stamped ceiling is what the user actually showed, so a foreign
+      // start URL is refused rather than silently becoming the new scope.
+      const foreign = yield* Effect.result(
+        call("agent_flow_run_start", {
+          clientName: "integration-restart",
+          clientVersion: "1.0.0",
+          flowName: "set-delivery-area",
+          inputs: [
+            { name: "city", value: "Pune" },
+            { name: "delivery_area", value: "Baner" },
+          ],
+          url: "http://localhost:1/delivery.html",
+        })
+      );
+      expect(Result.isFailure(foreign)).toBe(true);
+      if (Result.isFailure(foreign)) {
+        expect(JSON.stringify(foreign.failure)).toContain("flow_invalid");
+        expect(JSON.stringify(foreign.failure)).toContain("localhost");
+      }
+
+      const run = yield* call("agent_flow_run_start", {
+        clientName: "integration-restart",
+        clientVersion: "1.0.0",
+        flowName: "set-delivery-area",
+        inputs: [
+          { name: "city", value: "Pune" },
+          { name: "delivery_area", value: "Baner" },
+        ],
+        url: fixtures.url("delivery.html"),
+      });
+      expect(run.flowDocuments).toEqual([
+        {
+          files: [expect.objectContaining({ path: "flow.md" })],
+          flowName: "set-delivery-area",
+          supportingDocuments: [
+            { heading: "Accessibility targets", path: "targets.md" },
+          ],
+        },
+      ]);
+      expect(run.run).toHaveProperty("schemaVersion", 3);
+      expect(run.run).not.toHaveProperty("steps");
+      // The Run reproduces the device the journey was demonstrated on, so
+      // read the Emulation the browser actually applied rather than any
+      // value the start call echoed back.
+      const session = yield* AgentSession;
+      const applied = yield* session.emulation(AgentSessionId.make(run.id));
+      expect(applied.emulation.viewport).toEqual(agentViewport);
+    }).pipe(Effect.provide(scriptedProcess(root)), Effect.scoped);
+  })
 );

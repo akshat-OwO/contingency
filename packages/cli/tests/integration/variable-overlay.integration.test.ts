@@ -9,7 +9,7 @@ import {
   agentViewport,
   findNode,
   sessionTool,
-} from "./agent-harness.ts";
+} from "./agent-process.ts";
 import { fixtureServer } from "./harness.ts";
 
 it.live(

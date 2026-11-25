@@ -12,7 +12,7 @@ import {
   runTool,
   sessionTool,
   teachingRecordingTool,
-} from "./agent-harness.ts";
+} from "./agent-process.ts";
 import { fixtureServer } from "./harness.ts";
 
 const operation = OperationId.make;

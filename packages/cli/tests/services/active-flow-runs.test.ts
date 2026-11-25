@@ -20,7 +20,7 @@ import {
   TeachingRecordingStore,
   makeTeachingRecordingStoreLayer,
 } from "../../src/services/teaching-recording-store.ts";
-import { teachingRecordingTool } from "../integration/agent-harness.ts";
+import { teachingRecordingTool } from "../integration/agent-process.ts";
 
 for (const platform of ["android", "ios"] as const) {
   it.effect(

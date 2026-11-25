@@ -36,7 +36,7 @@ import {
   agentProcessLayer,
   runTool,
   sessionTool,
-} from "../tests/integration/agent-harness.ts";
+} from "../tests/integration/agent-process.ts";
 
 /** Names a random walk never clicks, even though a Run would confirm them. */
 const AVOIDED =

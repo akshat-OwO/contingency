@@ -198,6 +198,67 @@ export const statelessMcp = (origin: string) => {
     });
 };
 
+/**
+ * A JSON-RPC client that names its own request ids, so a test can cancel one
+ * program while it runs and read how that request's POST ended.
+ */
+export const rawMcpSession = (origin: string) =>
+  Effect.gen(function* openRawSession() {
+    const base = {
+      accept: "application/json, text/event-stream",
+      "content-type": "application/json",
+      "mcp-protocol-version": "2025-06-18",
+    };
+    const send = (
+      headers: Readonly<Record<string, string>>,
+      body: { readonly [key: string]: JsonValue }
+    ) =>
+      Effect.promise(async () => {
+        const response = await fetch(`${origin}${MCP_HTTP_PATH}`, {
+          body: JSON.stringify(body),
+          headers,
+          method: "POST",
+        });
+        return {
+          headers: response.headers,
+          status: response.status,
+          text: await response.text(),
+        };
+      });
+    const initialized = yield* send(base, {
+      id: 1,
+      jsonrpc: "2.0",
+      method: "initialize",
+      params: {
+        capabilities: {},
+        clientInfo: { name: "verify", version: "1.0" },
+        protocolVersion: "2025-06-18",
+      },
+    });
+    const headers = {
+      ...base,
+      "mcp-session-id": initialized.headers.get("mcp-session-id") ?? "",
+    };
+    /** Runs one program under the request id `id`. */
+    const execute = (id: number, code: string) =>
+      send(headers, {
+        id,
+        jsonrpc: "2.0",
+        method: "tools/call",
+        params: {
+          arguments: { code, timeoutMs: 90_000 },
+          name: "agent_code_execute",
+        },
+      });
+    const cancel = (requestId: number) =>
+      send(headers, {
+        jsonrpc: "2.0",
+        method: "notifications/cancelled",
+        params: { reason: "The user cancelled the program.", requestId },
+      });
+    return { cancel, execute };
+  });
+
 /** Parameters sent to the sole MCP tool to call one operation. */
 export const operationParams = (
   name: string,

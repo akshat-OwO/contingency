@@ -15,7 +15,7 @@ import {
   agentProcessLayer,
   startUserTeaching,
   teachingRecordingTool,
-} from "./agent-harness.ts";
+} from "./agent-process.ts";
 import { fixtureServer } from "./harness.ts";
 
 const viewport = { deviceScaleFactor: 1, height: 560, width: 920 } as const;

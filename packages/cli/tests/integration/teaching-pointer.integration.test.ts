@@ -9,7 +9,7 @@ import {
   agentViewport,
   sessionTool,
   startUserTeaching,
-} from "./agent-harness.ts";
+} from "./agent-process.ts";
 import { fixtureServer } from "./harness.ts";
 
 /** Roughly one sweep of the pointer: the Workspace sends a move per frame. */

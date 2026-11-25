@@ -254,16 +254,20 @@ const refusalOf = (tool: Tool.Any, cause: Cause.Cause<unknown>) => {
   const referenced =
     Predicate.hasProperty(error, "failureReference") &&
     Predicate.isString(error.failureReference);
+  const code = Predicate.hasProperty(error, "code") ? error.code : undefined;
   const refused = referenced
     ? Effect.void
     : Effect.logInfo("MCP tool refused").pipe(
-        Effect.annotateLogs({
-          code: Predicate.hasProperty(error, "code") ? error.code : undefined,
-          tool: tool.name,
-        })
+        Effect.annotateLogs({ code, tool: tool.name })
       );
   if (error instanceof Error && error.message !== "") {
-    return refused.pipe(Effect.as(error.message));
+    // A program reads only the message, so it names the code too, as the
+    // failures that end in `(<code>)` already do (ADR 0089).
+    const named =
+      !Predicate.isString(code) || error.message.includes(`(${code})`)
+        ? error.message
+        : `${error.message} (${code})`;
+    return refused.pipe(Effect.as(named));
   }
   // SAFETY: a declared failure encodes without services, as McpServer assumes.
   const encoding = Schema.encodeUnknownEffect(tool.failureSchema)(
