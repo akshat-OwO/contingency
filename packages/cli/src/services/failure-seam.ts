@@ -65,6 +65,11 @@ const decodePayloadIds = Schema.decodeUnknownOption(
   })
 );
 
+/** The session an RPC answer issues, such as `agent.session.start`'s. */
+const decodeIssuedSession = Schema.decodeUnknownOption(
+  Schema.Struct({ session: Schema.Struct({ id: AgentSessionId }) })
+);
+
 /**
  * A defect fails its own request with a reference. Effect's RPC server would
  * otherwise send it as a client-wide defect, failing every request in flight.
@@ -76,7 +81,13 @@ export const RpcFailuresLive = Layer.succeed(
     const named = Option.getOrUndefined(decodePayloadIds(payload));
     const claimed = { runId: named?.runId, sessionId: named?.sessionId };
     return effect.pipe(
-      Effect.tap(() => Effect.sync(() => rememberIds(claimed))),
+      Effect.tap((value) =>
+        Effect.sync(() => {
+          rememberIds(claimed);
+          const issued = Option.getOrUndefined(decodeIssuedSession(value));
+          rememberIds({ runId: undefined, sessionId: issued?.session.id });
+        })
+      ),
       Effect.catchCause((cause) =>
         isDefect(cause)
           ? internalFailure(cause).pipe(
