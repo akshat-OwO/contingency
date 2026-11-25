@@ -586,10 +586,10 @@ it.effect(
           recordingId: stopped.recordingId,
         });
 
-        // Start a Dry Run on a simulator whose installed build ("2") differs
-        // from the taught build ("1"); the recording's .app triggers the
-        // app-installation decision automatically.
-        installed = "2";
+        // Start a Dry Run on a simulator whose installed build ("3") differs
+        // from both the taught build ("1") and the selected build ("2"); the
+        // recording's .app triggers the app-installation decision automatically.
+        installed = "3";
         const dryRun = yield* workspace.execute(
           {
             _tag: "start",
@@ -614,7 +614,7 @@ it.effect(
             targetApp: selection.environment.bundleId,
           },
           {
-            installedBuild: "2",
+            installedBuild: "3",
             kind: "app-installation",
             targetApp: selection.environment.bundleId,
           },
