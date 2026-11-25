@@ -34,13 +34,16 @@ import { RpcHandlersLive } from "../../src/routes/rpc.ts";
 import type { AgentBrowserFactory } from "../../src/services/agent-browser-contract.ts";
 import { makeAgentRunStoreLayer } from "../../src/services/agent-run-store.ts";
 import { makeAgentSessionLayer } from "../../src/services/agent-session.ts";
+import type { AndroidWorkspaceService } from "../../src/services/android-workspace.ts";
 import {
   CreateBrowserLive,
   makeCreateBrowserLayer,
 } from "../../src/services/create-browser.ts";
 import type { CreateBrowserOptions } from "../../src/services/create-browser.ts";
 import { discoverFlows } from "../../src/services/flow-catalog-layout.ts";
+import type { FlowCatalogService } from "../../src/services/flow-catalog.ts";
 import { makeFlowCatalogLayer } from "../../src/services/flow-catalog.ts";
+import type { IosWorkspaceService } from "../../src/services/ios-workspace.ts";
 import {
   AgentRunToolHandlersLive,
   AgentRunTools,
@@ -53,6 +56,7 @@ import {
   AgentCatalogToolHandlersLive,
   AgentCatalogTools,
 } from "../../src/services/mcp-catalog.ts";
+import { DeviceWorkspaceToolHandlersLive } from "../../src/services/mcp-device-workspace.ts";
 import {
   McpProcessDiagnostics,
   defaultProcessInfo,
@@ -65,6 +69,7 @@ import {
   RunVideoRenderer,
   RunVideoRendererLive,
 } from "../../src/services/run-video-renderer.ts";
+import type { TeachingRecordingStoreService } from "../../src/services/teaching-recording-store.ts";
 import {
   makeTeachingRecordingStoreLayer,
   TEACHING_RECORDINGS_DIRECTORY,
@@ -506,19 +511,47 @@ export const resolveVariable = (input: {
     });
   });
 
+/** Services an optional native Workspace layer may draw from the process. */
+export type NativeWorkspaceDependencies =
+  | FlowCatalogService
+  | TeachingRecordingStoreService
+  | FileSystem.FileSystem;
+
+export type AndroidWorkspaceLayer = Layer.Layer<
+  AndroidWorkspaceService,
+  never,
+  NativeWorkspaceDependencies
+>;
+
+export type IosWorkspaceLayer = Layer.Layer<
+  IosWorkspaceService,
+  never,
+  NativeWorkspaceDependencies
+>;
+
 /**
  * One MCP process's whole public surface over one Catalog Root: the agent's
- * toolkits and the Workspace's loopback RPC, over a real Chromium.
+ * toolkits and the Workspace's loopback RPC, over a real Chromium and any
+ * supplied native Workspaces.
  *
  * Each call builds a fresh registry, which is how a test spends more than one
  * process lifetime: nothing but the persisted Flow, Teaching Recording,
  * and Run packages crosses between them.
  */
-export const agentProcessLayer = (
+export const agentProcessLayer = <
+  A extends AndroidWorkspaceService = never,
+  I extends IosWorkspaceService = never,
+>(
   initialCatalogRoot: string,
   options: {
     readonly agentBrowserFactory?: AgentBrowserFactory;
+    readonly androidWorkspace?:
+      | Layer.Layer<A, never, NativeWorkspaceDependencies>
+      | undefined;
     readonly followCatalogSelection?: boolean;
+    readonly iosWorkspace?:
+      | Layer.Layer<I, never, NativeWorkspaceDependencies>
+      | undefined;
     /** Paces scroll pauses, for tests that close a gesture on demand. */
     readonly scrollClock?: Clock.Clock;
     /** The Agent Session registry's clock, for tests that move time. */
@@ -530,8 +563,14 @@ export const agentProcessLayer = (
   } = {}
 ) => {
   let selectedCatalogRoot = initialCatalogRoot;
-  const { createBrowser, followCatalogSelection, now, ...sessionSeams } =
-    options;
+  const {
+    androidWorkspace,
+    createBrowser,
+    followCatalogSelection,
+    iosWorkspace,
+    now,
+    ...sessionSeams
+  } = options;
   const sessionOptions = {
     ...sessionSeams,
     allowedActivity: "any" as const,
@@ -548,46 +587,61 @@ export const agentProcessLayer = (
   // A Run persists its own Summary as it ends, so the registry reads the same
   // store the Run tools do.
   const runStore = makeAgentRunStoreLayer({ root: () => selectedCatalogRoot });
+  const baseServices = Layer.mergeAll(
+    makeAgentSessionLayer(sessionOptions).pipe(
+      Layer.provide(
+        Layer.mergeAll(runStore, recordingStore, RunVideoRendererLive)
+      )
+    ),
+    makeFlowCatalogLayer(
+      followCatalogSelection === true
+        ? {
+            ...catalogOptions,
+            onSelect: (root: string) => {
+              selectedCatalogRoot = root;
+            },
+          }
+        : catalogOptions
+    ),
+    Layer.succeed(McpProcessDiagnostics, {
+      read: defaultProcessInfo(),
+    }),
+    runStore,
+    recordingStore,
+    RunVideoRendererLive
+  ).pipe(
+    Layer.provideMerge(
+      createBrowser === undefined
+        ? CreateBrowserLive
+        : makeCreateBrowserLayer(createBrowser)
+    ),
+    Layer.provideMerge(NodeServices.layer)
+  );
+  // SAFETY: when a native workspace layer is omitted, its type parameter
+  // defaults to `never`, matching `Layer.empty`.
+  const optionalAndroid = (androidWorkspace ?? Layer.empty) as Layer.Layer<
+    A,
+    never,
+    NativeWorkspaceDependencies
+  >;
+  // SAFETY: when a native workspace layer is omitted, its type parameter
+  // defaults to `never`, matching `Layer.empty`.
+  const optionalIos = (iosWorkspace ?? Layer.empty) as Layer.Layer<
+    I,
+    never,
+    NativeWorkspaceDependencies
+  >;
+  const services = Layer.mergeAll(optionalAndroid, optionalIos).pipe(
+    Layer.provideMerge(baseServices)
+  );
   return Layer.mergeAll(
     RpcHandlersLive,
     AgentSessionToolHandlersLive,
     AgentCatalogToolHandlersLive,
     AgentRunToolHandlersLive,
-    TeachingRecordingToolHandlersLive
-  ).pipe(
-    Layer.provideMerge(
-      Layer.mergeAll(
-        makeAgentSessionLayer(sessionOptions).pipe(
-          Layer.provide(
-            Layer.mergeAll(runStore, recordingStore, RunVideoRendererLive)
-          )
-        ),
-        makeFlowCatalogLayer(
-          followCatalogSelection === true
-            ? {
-                ...catalogOptions,
-                onSelect: (root: string) => {
-                  selectedCatalogRoot = root;
-                },
-              }
-            : catalogOptions
-        ),
-        Layer.succeed(McpProcessDiagnostics, {
-          read: defaultProcessInfo(),
-        }),
-        runStore,
-        recordingStore,
-        RunVideoRendererLive
-      ).pipe(
-        Layer.provideMerge(
-          createBrowser === undefined
-            ? CreateBrowserLive
-            : makeCreateBrowserLayer(createBrowser)
-        ),
-        Layer.provideMerge(NodeServices.layer)
-      )
-    )
-  );
+    TeachingRecordingToolHandlersLive,
+    DeviceWorkspaceToolHandlersLive
+  ).pipe(Layer.provideMerge(services));
 };
 
 /**

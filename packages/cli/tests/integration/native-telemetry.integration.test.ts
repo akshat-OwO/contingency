@@ -28,18 +28,7 @@ import {
 } from "effect";
 import { TestClock } from "effect/testing";
 
-import type { AndroidRunInput } from "../../src/services/android-run-contract.ts";
-import { createAndroidRun } from "../../src/services/android-run.ts";
-import type {
-  AndroidObservation,
-  AndroidRuntimeBackend,
-} from "../../src/services/android-runtime-contract.ts";
-import { adaptAndroidRuntime } from "../../src/services/android-runtime.ts";
-import type { AndroidDeviceStream } from "../../src/services/android-stream.ts";
-import {
-  AndroidWorkspace,
-  makeAndroidWorkspaceLayer,
-} from "../../src/services/android-workspace.ts";
+import { AndroidWorkspace } from "../../src/services/android-workspace.ts";
 import { REDACTED, toSafeRecord } from "../../src/services/diagnostic-log.ts";
 import type { SafeRecord } from "../../src/services/diagnostic-log.ts";
 import { recordFailure } from "../../src/services/failure-reference.ts";
@@ -63,8 +52,6 @@ import { nativeAppActionPolicy } from "../../src/services/native-app-action-poli
 import type { NativeAppRunDecision } from "../../src/services/native-app-run-contract.ts";
 import { createNativeAppRun } from "../../src/services/native-app-run.ts";
 import { adaptNativeAppRuntime } from "../../src/services/native-app-runtime.ts";
-import { platformRuntimeError } from "../../src/services/platform-runtime-error.ts";
-import { PlatformRuntimeFactory } from "../../src/services/platform-runtime.ts";
 import {
   TeachingRecordingLearning,
   TeachingRecordingLearningLive,
@@ -74,16 +61,17 @@ import {
   makeTeachingRecordingStoreLayer,
 } from "../../src/services/teaching-recording-store.ts";
 import {
+  corpusAndroidSelection,
+  makeCorpusAndroidWorkspaceLayer,
+  makeCorpusNativeBackend,
+} from "../helpers/corpus-native-device.ts";
+import {
   connectMcp,
   operationParams,
   servingMcpHttp,
 } from "../helpers/mcp-http.ts";
 import { makeRecordingTracer } from "../helpers/recording-tracer.ts";
 import type { RecordedSpan } from "../helpers/recording-tracer.ts";
-import {
-  fakeAndroidAdb,
-  fakeAndroidDevice,
-} from "../services/fake-android-adb.ts";
 
 const HOME = "/Users/someone";
 const SECRET = "hunter2-secret-value";
@@ -91,8 +79,6 @@ const SECRET = "hunter2-secret-value";
 const PRIVATE_TOKEN = "agentrun-hunter2-private";
 const PRIVATE_SESSION = "agent-hunter2-private";
 const op = OperationId.make;
-const PNG =
-  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jqz8AAAAASUVORK5CYII=";
 
 const Answer = Schema.Struct({
   result: Schema.Struct({
@@ -116,28 +102,7 @@ const DeviceResult = Schema.Struct({
   ),
 });
 
-const androidSelection: AndroidWorkspaceSelection = {
-  device: {
-    api: 36,
-    avd: "fixture",
-    fingerprint: "fixture",
-    host: "local",
-    serial: "emulator-5554",
-  },
-  environment: {
-    androidVersion: "16",
-    appBuild: "2",
-    appId: "dev.fixture",
-    startingState: "Home",
-  },
-  helperConsent: "none",
-  outcomes: [{ name: "Home", role: "text" }],
-  setup: {
-    activity: "dev.fixture/.Home",
-    conditions: [{ name: "Home", role: "text" }],
-    kind: "restart-activity",
-  },
-};
+const androidSelection: AndroidWorkspaceSelection = corpusAndroidSelection();
 
 const iosSimulator = {
   deviceType: "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
@@ -167,14 +132,6 @@ const iosScreenshot = () => {
   return bytes.toString("base64");
 };
 
-const fakeAndroidStream = (): AndroidDeviceStream => ({
-  access: { path: "/android/stream/fixture", token: "fixture" },
-  authorized: () => false,
-  forward: () => Effect.void,
-  frames: Stream.empty,
-  packets: Stream.empty,
-});
-
 const fakeIosStream = (): IosDeviceStream => ({
   access: { path: "/ios/stream/fixture", token: "fixture" },
   authorized: () => false,
@@ -186,119 +143,6 @@ const fakeIosStream = (): IosDeviceStream => ({
   recover: () => Effect.sync((): undefined => {}),
   start: () => Effect.sync((): undefined => {}),
 });
-
-const makeFakeAndroidWorkspace = (
-  root: string,
-  storeLayer: ReturnType<typeof makeTeachingRecordingStoreLayer>
-) => {
-  let generation = 0;
-  const backend: AndroidRuntimeBackend = {
-    activate: () => Effect.void,
-    capture: () =>
-      Effect.sync((): AndroidObservation => {
-        generation += 1;
-        return {
-          backendSessionId: "android-fixture",
-          capture: {
-            complete: true,
-            mode: "interactive-windows",
-            secureWindowVisibility: "unverified",
-            windowCount: 1,
-          },
-          device: androidSelection.device,
-          generation,
-          id: `android-obs-${generation}`,
-          nodes: [
-            {
-              covered: false,
-              editable: false,
-              hittable: true,
-              name: "Edit",
-              packageName: androidSelection.environment.appId,
-              password: false,
-              role: "button",
-              target: `@e1~s${generation}`,
-            },
-            {
-              covered: false,
-              editable: true,
-              hittable: true,
-              name: "Note",
-              packageName: androidSelection.environment.appId,
-              password: false,
-              role: "textbox",
-              target: `@e2~s${generation}`,
-            },
-            {
-              covered: false,
-              editable: false,
-              hittable: false,
-              name: "Home",
-              packageName: androidSelection.environment.appId,
-              password: false,
-              role: "text",
-              target: `@e3~s${generation}`,
-            },
-          ],
-          ownership: {
-            focusedPackage: androidSelection.environment.appId,
-            kind: "experimental-host-check",
-            systemDialogAuthority: "unsupported",
-          },
-          platform: "android",
-          screenshot: {
-            capturedAt: "2026-11-25T00:00:00.000Z",
-            encoding: "base64",
-            format: "png",
-            image: PNG,
-          },
-        };
-      }),
-    close: () => Effect.void,
-    fill: () =>
-      Effect.succeed({ confirmation: "confirmed", outcome: "entered" }),
-    recover: () => Effect.void,
-    sessionId: "android-fixture",
-    systemKey: () => Effect.void,
-    validate: () => Effect.void,
-  };
-  const androidFactory = {
-    capabilities: [
-      "semantic-actions",
-      "screenshots",
-      "private-input",
-      "teaching-capture",
-      "emulation",
-    ] as const,
-    createRun: (input: AndroidRunInput) =>
-      createAndroidRun(input, {
-        installedBuild: () => Effect.succeed("2"),
-        preflight: () => Effect.void,
-        restart: () => Effect.void,
-        start: (startup) => adaptAndroidRuntime({ backend, startup }),
-      }),
-    platform: "android" as const,
-    start: () => Effect.fail(platformRuntimeError("runtime_failed")),
-  };
-  const runtimeFactory = Layer.succeed(PlatformRuntimeFactory, {
-    android: androidFactory,
-    start: () => Effect.fail(platformRuntimeError("runtime_failed")),
-    web: {
-      capabilities: [],
-      platform: "web",
-      start: () => Effect.die("unused"),
-    },
-  });
-  return makeAndroidWorkspaceLayer({
-    acquireStream: () => Effect.succeed(fakeAndroidStream()),
-    adb: fakeAndroidAdb(fakeAndroidDevice()),
-    root: () => root,
-  }).pipe(
-    Layer.provide(
-      Layer.mergeAll(runtimeFactory, makeFlowCatalogLayer({ root }), storeLayer)
-    )
-  );
-};
 
 const makeFakeIosWorkspace = (
   root: string,
@@ -403,15 +247,23 @@ const makeFakeIosWorkspace = (
   );
 };
 
-/** The first node of a snapshot's observation, as an input names it. */
-const firstTarget = (snapshot: {
-  readonly observation: {
-    readonly id: string;
-    readonly nodes: readonly { readonly target: string }[];
-  } | null;
-}) => ({
+/** One named node of a snapshot's observation, as an input names it. */
+const namedTarget = (
+  snapshot: {
+    readonly observation: {
+      readonly id: string;
+      readonly nodes: readonly {
+        readonly name: string;
+        readonly target: string;
+      }[];
+    } | null;
+  },
+  name: string
+) => ({
   observationId: snapshot.observation?.id ?? "",
-  target: snapshot.observation?.nodes[0]?.target ?? "",
+  target:
+    snapshot.observation?.nodes.find((node) => node.name === name)?.target ??
+    "",
 });
 
 /** A counter's count or a histogram's observations, read from a snapshot. */
@@ -452,7 +304,10 @@ const teachNativeFlow = (input: {
       readonly recordingId: TeachingRecordingId | null;
       readonly observation: {
         readonly id: string;
-        readonly nodes: readonly { readonly target: string }[];
+        readonly nodes: readonly {
+          readonly name: string;
+          readonly target: string;
+        }[];
       } | null;
     },
     unknown
@@ -496,14 +351,15 @@ const teachNativeFlow = (input: {
       { _tag: "observe", image: false, sessionId: started.id },
       "agent"
     );
+    const buttonTarget = namedTarget(observed, input.buttonName);
     yield* input.execute(
       {
         _tag: "input",
         action: {
           _tag: "activate",
-          target: observed.observation?.nodes[0]?.target ?? "",
+          target: buttonTarget.target,
         },
-        observationId: observed.observation?.id ?? "",
+        observationId: buttonTarget.observationId,
         operationId: op(`${input.prefix}-teach-tap`),
         sessionId: started.id,
       },
@@ -626,8 +482,18 @@ it.live(
       );
 
       const { layer: tracerLayer, spans, within } = makeRecordingTracer(HOME);
+      const androidDevice = makeCorpusNativeBackend({
+        device: androidSelection.device,
+        platform: "android",
+        script: { start: "controls", transitions: [] },
+      });
       const androidCtx = yield* Layer.build(
-        makeFakeAndroidWorkspace(root, storeLayer)
+        makeCorpusAndroidWorkspaceLayer({
+          device: androidDevice,
+          root: () => root,
+        }).pipe(
+          Layer.provide(Layer.merge(makeFlowCatalogLayer({ root }), storeLayer))
+        )
       );
       let hang = false;
       const iosCtx = yield* Layer.build(
@@ -638,8 +504,8 @@ it.live(
       const iosWorkspace = Context.get(iosCtx, IosWorkspace);
 
       const androidRecordingId = yield* teachNativeFlow({
-        buttonName: "Edit",
-        condition: { name: "Home", role: "text" },
+        buttonName: "SHOW ALERT",
+        condition: { name: "Last action: none", role: "text" },
         execute: (command, source) =>
           androidWorkspace.execute(
             Schema.decodeUnknownSync(AndroidWorkspaceCommand)(command),
@@ -664,9 +530,11 @@ it.live(
       }).pipe(Effect.provide(learningLayer));
 
       const records: SafeRecord[] = [];
-      const origin = yield* servingMcpHttp({ catalogRoot: root }).pipe(
-        Effect.provideService(AndroidWorkspace, androidWorkspace),
-        Effect.provideService(IosWorkspace, iosWorkspace),
+      const origin = yield* servingMcpHttp({
+        androidWorkspace: Layer.succeed(AndroidWorkspace, androidWorkspace),
+        catalogRoot: root,
+        iosWorkspace: Layer.succeed(IosWorkspace, iosWorkspace),
+      }).pipe(
         Effect.provide(tracerLayer),
         Effect.provide(
           Logger.layer([
@@ -699,7 +567,7 @@ it.live(
         },
         "user"
       );
-      const androidTap = firstTarget(androidPrepared);
+      const androidTap = namedTarget(androidPrepared, "SHOW ALERT");
 
       const iosStarted = yield* iosWorkspace.execute(
         {
@@ -720,7 +588,7 @@ it.live(
         },
         "user"
       );
-      const iosTap = firstTarget(iosPrepared);
+      const iosTap = namedTarget(iosPrepared, "Continue");
 
       const androidActed = Schema.decodeUnknownSync(Answer)(
         yield* request(
@@ -742,9 +610,7 @@ it.live(
       const androidAfter = Schema.decodeUnknownSync(DeviceResult)(
         androidActed.structuredContent.value
       );
-      const androidNoteTarget =
-        androidAfter.observation?.nodes.find((n) => n.name === "Note")
-          ?.target ?? "";
+      const androidEmailTarget = namedTarget(androidAfter, "Email").target;
 
       // Also fill a field with a secret to verify it never enters span attributes.
       const androidFilled = Schema.decodeUnknownSync(Answer)(
@@ -755,7 +621,7 @@ it.live(
               _tag: "input",
               action: {
                 _tag: "fill",
-                target: androidNoteTarget,
+                target: androidEmailTarget,
                 text: SECRET,
               },
               observationId: androidAfter.observation?.id ?? "",
@@ -788,8 +654,11 @@ it.live(
 
       // A tap that never answers meets the program's deadline mid-dispatch.
       hang = true;
-      const iosAfter = firstTarget(
-        Schema.decodeUnknownSync(DeviceResult)(iosActed.structuredContent.value)
+      const iosAfter = namedTarget(
+        Schema.decodeUnknownSync(DeviceResult)(
+          iosActed.structuredContent.value
+        ),
+        "Continue"
       );
       yield* request("tools/call", {
         arguments: {
