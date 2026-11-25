@@ -24,11 +24,19 @@ import type { Tool } from "effect/ai";
 import { HttpRouter, HttpServer } from "effect/http";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
+import { AndroidWorkspace } from "../../src/services/android-workspace.ts";
+import type { AndroidWorkspaceService } from "../../src/services/android-workspace.ts";
 import { makeDemoSiteLayer } from "../../src/services/demo-site-server.ts";
+import { IosWorkspace } from "../../src/services/ios-workspace.ts";
+import type { IosWorkspaceService } from "../../src/services/ios-workspace.ts";
 import { AgentRunTools } from "../../src/services/mcp-agent-run.ts";
 import { AgentSessionTools } from "../../src/services/mcp-agent-session.ts";
 import { AgentCatalogTools } from "../../src/services/mcp-catalog.ts";
-import { newBrowserWaits } from "../../src/services/mcp-code-interpreter.ts";
+import {
+  androidIntervention,
+  newBrowserWaits,
+} from "../../src/services/mcp-code-interpreter.ts";
+import { DeviceWorkspaceTools } from "../../src/services/mcp-device-workspace.ts";
 import { makeMcpHttpLayer } from "../../src/services/mcp-http.ts";
 import { OnboardingTools } from "../../src/services/mcp-onboarding.ts";
 import { TeachingRecordingTools } from "../../src/services/mcp-teaching-recording.ts";
@@ -42,7 +50,11 @@ import {
   hasParameter,
   readPublished,
 } from "./agent-process.ts";
-import type { Readable, ToolFailure } from "./agent-process.ts";
+import type {
+  NativeWorkspaceDependencies,
+  Readable,
+  ToolFailure,
+} from "./agent-process.ts";
 import { performUserAction } from "./scripted-user.ts";
 import {
   answeredValues,
@@ -72,7 +84,8 @@ const ProcessTools = Toolkit.merge(
   AgentSessionTools,
   AgentCatalogTools,
   AgentRunTools,
-  TeachingRecordingTools
+  TeachingRecordingTools,
+  DeviceWorkspaceTools
 );
 
 /**
@@ -412,6 +425,8 @@ const inProcessAgent = Layer.effect(
   Effect.gen(function* makeInProcessAgent() {
     const handlers = yield* ProcessTools;
     const sessions = yield* AgentSession;
+    const android = yield* Effect.serviceOption(AndroidWorkspace);
+    const ios = yield* Effect.serviceOption(IosWorkspace);
     /** The tool's answer as the agent reads it: encoded, then compacted. */
     const handle = (
       operation: OperationName,
@@ -447,6 +462,36 @@ const inProcessAgent = Layer.effect(
     return ScriptedAgent.of({
       run: ({ input, operation, target }) =>
         Effect.gen(function* runInProcess() {
+          if (operation === "agent_device_workspace") {
+            const rawCommand = input["command"];
+            const command =
+              rawCommand !== undefined && isJsonObject(rawCommand)
+                ? rawCommand
+                : undefined;
+            const deviceSessionId = Predicate.isString(command?.["sessionId"])
+              ? command["sessionId"]
+              : undefined;
+            const selected =
+              input["platform"] === "ios"
+                ? Option.getOrUndefined(ios)
+                : Option.getOrUndefined(android);
+            const before = yield* Effect.gen(function* readBefore() {
+              if (deviceSessionId === undefined || selected === undefined) {
+                return Option.none();
+              }
+              const summaries = yield* selected.list();
+              return Option.fromNullishOr(
+                summaries.find(({ id }) => id === deviceSessionId)
+              );
+            }).pipe(Effect.orElseSucceed(() => Option.none()));
+            const value = yield* handle(operation, input);
+            const intervention = androidIntervention(input, value, before);
+            return intervention === undefined
+              ? value
+              : yield* Effect.fail(
+                  intervened(intervention.reasons, intervention.sessionId)
+                );
+          }
           if (target === undefined && Predicate.isString(input["sessionId"])) {
             return yield* handle(operation, input);
           }
@@ -549,19 +594,37 @@ const httpAgent = (recorder: Recorder, demo: boolean) =>
  * the journey's adapter. Build it again to restart the process. A `demo`
  * process also serves the demo store, whose operations run only over HTTP.
  */
-export const scriptedProcess = (
+export const scriptedProcess = <
+  A extends AndroidWorkspaceService = never,
+  I extends IosWorkspaceService = never,
+>(
   root: string,
   {
+    androidWorkspace,
     demo = false,
+    iosWorkspace,
     ...options
-  }: globalThis.Parameters<typeof agentProcessLayer>[1] & {
+  }: Omit<
+    NonNullable<globalThis.Parameters<typeof agentProcessLayer>[1]>,
+    "androidWorkspace" | "iosWorkspace"
+  > & {
+    readonly androidWorkspace?:
+      | Layer.Layer<A, never, NativeWorkspaceDependencies>
+      | undefined;
     readonly demo?: boolean;
+    readonly iosWorkspace?:
+      | Layer.Layer<I, never, NativeWorkspaceDependencies>
+      | undefined;
   } = {}
 ) =>
   Layer.unwrap(
     Script.useSync((script) => {
       script.recorder.process();
-      const process = agentProcessLayer(root, options);
+      const process = agentProcessLayer(root, {
+        ...options,
+        androidWorkspace,
+        iosWorkspace,
+      });
       return script.adapter === "http"
         ? httpAgent(script.recorder, demo).pipe(Layer.provideMerge(process))
         : inProcessAgent.pipe(Layer.provideMerge(process));

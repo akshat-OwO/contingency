@@ -92,6 +92,12 @@ The emulated model plays `demo-interactive-run.json`, recorded by `demo-interact
 RECORD_TRANSCRIPTS=1 vp exec vitest run --config vitest.integration.config.ts tests/integration/demo-interactive-run.integration.test.ts
 ```
 
+### Corpus-backed fake native device
+
+`packages/cli/tests/helpers/corpus-native-device.ts` builds a test-only `NativeAppRuntimeBackend` from the committed accessibility trees under `tests/fixtures/native-snapshots/{android,ios}` and a scripted screen graph (`start` capture and `{ from, on: { role, name, action }, to }` transitions). Loading fails by name if a transition's control is absent from its capture. Each capture maps nodes through the real `androidNodeInteraction` / `androidNodeName` (or iOS equivalents), mints `@eN~sGENERATION` targets, refuses stale generations as the real backend does, synthesizes a PNG of the capture's viewport size, and can inject `capture_incomplete` failures to exercise Capture Gap settling and repair ([ADR 0084](../adr/0084-native-runs-repair-transient-capture-gaps.md)). Pass `androidWorkspace` or `iosWorkspace` to `agentProcessLayer`, `scriptedProcess`, or `servingMcpHttp` to drive native sessions through the Scripted Agent and MCP HTTP.
+
+**What it does not prove:** real emulator or simulator behavior, `agent-device` client or daemon transport, ADB, `simctl`, iOS HID input, device display streams or framebuffers, or Run video and keyframe capture (screenshots are synthesized blank PNGs). Changes to any of those still require real-device verification or an explicit evidence gap in the PR.
+
 ## Coverage corpora
 
 Three suites test Contingency against the range of interfaces real sites and apps use. Each one is deterministic.
