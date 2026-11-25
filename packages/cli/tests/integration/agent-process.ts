@@ -81,25 +81,46 @@ export const agentViewport = {
 export interface ToolFailure {
   readonly code: string;
   readonly diagnostics?: readonly FlowDiagnostic[] | undefined;
+  readonly failureReference?: string | undefined;
+  /** Why a Scripted Agent program ended for the user instead of answering. */
+  readonly intervention?:
+    | { readonly reasons: readonly string[]; readonly sessionId: string }
+    | undefined;
   readonly message: string;
   readonly reason?: typeof BrowserFailureReason.Type | undefined;
 }
 
-const decodeToolSuccess = <Success extends Schema.Top>(
-  schema: Success,
-  result: typeof schema.Encoded
-) => Schema.decodeUnknownEffect(schema)(result);
-
 const ToolFailureSchema = Schema.Struct({
   code: Schema.String,
   diagnostics: Schema.optional(Schema.Array(FlowDiagnostic)),
+  failureReference: Schema.optional(Schema.String),
   message: Schema.String,
   reason: Schema.optional(BrowserFailureReason),
 });
 
-const decodeToolFailure = <Value>(value: Value): ToolFailure | undefined =>
+export const decodeToolFailure = <Value>(
+  value: Value
+): ToolFailure | undefined =>
   Schema.decodeUnknownOption(ToolFailureSchema)(value).pipe(
     Option.getOrUndefined
+  );
+
+const isToolFailure = <Failure>(
+  failure: Failure
+): failure is Failure & ToolFailure => decodeToolFailure(failure) !== undefined;
+
+/**
+ * A handler's failure, kept as it was raised, when it carries what an MCP
+ * client reads; an undeclared one is a defect.
+ */
+export const declaredFailure = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  effect.pipe(
+    Effect.mapError((failure) =>
+      isToolFailure(failure) ? failure : undefined
+    ),
+    Effect.catchIf(Predicate.isUndefined, () =>
+      Effect.die("The tool failed with an undeclared failure.")
+    )
   );
 
 /**
@@ -107,7 +128,7 @@ const decodeToolFailure = <Value>(value: Value): ToolFailure | undefined =>
  * fields. Agent-format calls keep the product defaults. Unpublished fields
  * (ADR 0045) are decoded with their protocol schemas.
  */
-type Readable<T> = T extends { readonly session: infer S }
+export type Readable<T> = T extends { readonly session: infer S }
   ? unknown extends S
     ? Omit<T, "session"> & { readonly session: AgentSessionSnapshot }
     : T
@@ -121,10 +142,18 @@ type Readable<T> = T extends { readonly session: infer S }
         : T
       : Exclude<T, AgentSessionCompact>;
 
-/** The fields each tool leaves unpublished, with the schema that reads them. */
-const unpublishedFields = new Map<string, Schema.Decoder<object>>([
-  ["agent_browser_resume", AgentActionResult],
-  ["agent_browser_act_sequence", AgentActSequenceResult],
+/** What a test reads from one tool's success. */
+export type CallSuccess<
+  Tools extends Record<string, Tool.Any>,
+  Name extends keyof Tools,
+> = Name extends "agent_browser_resume"
+  ? AgentActionResult
+  : Name extends "agent_browser_act_sequence"
+    ? AgentActSequenceResult
+    : Readable<Tool.Success<Tools[Name]>>;
+
+/** The fields each tool publishes as `unknown`, with the schema that reads them. */
+const unknownFields = new Map<string, Schema.Decoder<object>>([
   [
     "agent_flow_dry_run_start",
     Schema.Struct({ session: AgentSessionSnapshot }),
@@ -136,20 +165,41 @@ const unpublishedFields = new Map<string, Schema.Decoder<object>>([
   ["open_run", Schema.Struct({ summary: AgentRunSummary })],
 ]);
 
+/** The fields each tool leaves unpublished, with the schema that reads them. */
+const unpublishedFields = new Map<string, Schema.Decoder<object>>([
+  ["agent_browser_resume", AgentActionResult],
+  ["agent_browser_act_sequence", AgentActSequenceResult],
+  ...unknownFields,
+]);
+
 const isCompact = Schema.is(AgentSessionCompact);
 
-const readable = <Value>(name: string, value: Value) =>
+const decodeFields = <Value>(
+  fieldsByTool: ReadonlyMap<string, Schema.Decoder<object>>,
+  name: string,
+  value: Value
+) =>
   Effect.gen(function* decodeUnpublished() {
     if (isCompact(value)) {
       return yield* Effect.die("A full session was expected, not compact.");
     }
-    const fields = unpublishedFields.get(name);
+    const fields = fieldsByTool.get(name);
     if (fields === undefined) {
       return value;
     }
     const decoded = yield* Schema.decodeUnknownEffect(fields)(value);
     return { ...value, ...decoded };
   });
+
+const readable = <Value>(name: string, value: Value) =>
+  decodeFields(unpublishedFields, name, value);
+
+/**
+ * What an agent reads from a full session view: the fields a tool publishes
+ * as `unknown`, decoded with their protocol schemas.
+ */
+export const readPublished = <Value>(name: string, value: Value) =>
+  decodeFields(unknownFields, name, value);
 
 /** Tools that answer with a Browser Snapshot and take a `format`. */
 const SNAPSHOT_TOOLS = new Set([
@@ -182,72 +232,113 @@ const withSnapshotFormat = <Params>(
   return { ...params, format: "structured" };
 };
 
+/** Whether a tool's parameters declare a field. */
+export const hasParameter = <Tools extends Record<string, Tool.Any>>(
+  toolkit: Toolkit.Toolkit<Tools>,
+  name: keyof Tools,
+  field: string
+) => {
+  const parameters = toolkit.tools[name]?.parametersSchema;
+  return (
+    Predicate.isObjectKeyword(parameters) &&
+    Predicate.hasProperty(parameters, "fields") &&
+    Predicate.isObjectKeyword(parameters.fields) &&
+    Predicate.hasProperty(parameters.fields, field)
+  );
+};
+
+/**
+ * The parameters a test call sends: a full session view and a structured
+ * Snapshot unless the call names its own, so tests can assert on fields.
+ */
+export const callParameters = <Tools extends Record<string, Tool.Any>, Params>(
+  toolkit: Toolkit.Toolkit<Tools>,
+  name: keyof Tools,
+  params: Params,
+  snapshotFormat: SnapshotFormatDefault = "structured"
+): Params => {
+  const selected =
+    snapshotFormat === "structured" &&
+    Predicate.isObjectKeyword(params) &&
+    !Predicate.hasProperty(params, "view") &&
+    hasParameter(toolkit, name, "view")
+      ? { ...params, view: "full" }
+      : params;
+  return withSnapshotFormat(String(name), selected, snapshotFormat);
+};
+
+/**
+ * One tool's answer as a test reads it: a structured failure raised, or the
+ * success decoded with the tool's schema and its unpublished fields.
+ */
+// SAFETY: the generator fails only with a decoded ToolFailure and succeeds
+// with the decoded success `CallSuccess` names.
+export const readToolResult = <
+  Tools extends Record<string, Tool.Any>,
+  Name extends keyof Tools,
+  Result,
+>(
+  toolkit: Toolkit.Toolkit<Tools>,
+  name: Name,
+  result: Result
+): Effect.Effect<
+  CallSuccess<Tools, Name>,
+  ToolFailure,
+  Tool.ResultDecodingServices<Tools[Name]>
+> =>
+  Effect.gen(function* readResult() {
+    const failure = decodeToolFailure(result);
+    if (failure !== undefined) {
+      return yield* Effect.fail(failure);
+    }
+    const tool = toolkit.tools[name];
+    if (tool === undefined) {
+      return yield* Effect.die(`The ${String(name)} tool is not registered.`);
+    }
+    const success = yield* Schema.decodeUnknownEffect(tool.successSchema)(
+      result
+    ).pipe(
+      Effect.flatMap((decoded) => readable(String(name), decoded)),
+      Effect.orDie
+    );
+    // SAFETY: the success schema decodes this tool's answer, and `readable`
+    // adds exactly the fields `CallSuccess` names.
+    return success as CallSuccess<Tools, Name>;
+  }) as Effect.Effect<
+    CallSuccess<Tools, Name>,
+    ToolFailure,
+    Tool.ResultDecodingServices<Tools[Name]>
+  >;
+
 /**
  * One MCP tool call, as the external agent makes it: validated parameters in,
  * the tool's success value out, and a structured failure raised so a test
  * asserts on it with `Effect.flip`.
  */
-export function makeCall<Tools extends Record<string, Tool.Any>>(
-  toolkit: Toolkit.Toolkit<Tools>,
-  snapshotFormat?: SnapshotFormatDefault
-): <Name extends keyof Tools>(
-  name: Name,
-  params: Tool.Parameters<Tools[Name]>
-) => Effect.Effect<
-  Name extends "agent_browser_resume"
-    ? AgentActionResult
-    : Name extends "agent_browser_act_sequence"
-      ? AgentActSequenceResult
-      : Readable<Tool.Success<Tools[Name]>>,
-  ToolFailure,
-  Tool.HandlersFor<Tools> | Tool.ResultDecodingServices<Tools[Name]>
->;
-export function makeCall<Tools extends Record<string, Tool.Any>>(
-  toolkit: Toolkit.Toolkit<Tools>,
-  snapshotFormat: SnapshotFormatDefault = "structured"
-) {
-  return <Name extends keyof Tools>(
+export const makeCall =
+  <Tools extends Record<string, Tool.Any>>(
+    toolkit: Toolkit.Toolkit<Tools>,
+    snapshotFormat: SnapshotFormatDefault = "structured"
+  ) =>
+  <Name extends keyof Tools>(
     name: Name,
     params: Tool.Parameters<Tools[Name]>
-  ) =>
+  ): Effect.Effect<
+    CallSuccess<Tools, Name>,
+    ToolFailure,
+    Tool.HandlersFor<Tools> | Tool.ResultDecodingServices<Tools[Name]>
+  > =>
     Effect.gen(function* callTool() {
       const handlers = yield* toolkit;
-      const parameters = toolkit.tools[name]?.parametersSchema;
-      const selected =
-        snapshotFormat === "structured" &&
-        Predicate.isObjectKeyword(params) &&
-        !Predicate.hasProperty(params, "view") &&
-        Predicate.isObjectKeyword(parameters) &&
-        Predicate.hasProperty(parameters, "fields") &&
-        Predicate.isObjectKeyword(parameters.fields) &&
-        Predicate.hasProperty(parameters.fields, "view")
-          ? { ...params, view: "full" }
-          : params;
       const results = yield* handlers
-        .handle(
-          name,
-          withSnapshotFormat(String(name), selected, snapshotFormat)
-        )
-        .pipe(Effect.orDie, Effect.flatMap(Stream.runCollect));
+        .handle(name, callParameters(toolkit, name, params, snapshotFormat))
+        .pipe(Effect.orDie, Effect.flatMap(Stream.runCollect), declaredFailure);
       const last = results.at(-1);
       if (last === undefined) {
         return yield* Effect.die(`The ${String(name)} tool answered nothing.`);
       }
-      const { result } = last;
-      const failure = decodeToolFailure(result);
-      if (failure !== undefined) {
-        return yield* Effect.fail(failure);
-      }
-      const tool = toolkit.tools[name];
-      if (tool === undefined) {
-        return yield* Effect.die(`The ${String(name)} tool is not registered.`);
-      }
-      return yield* decodeToolSuccess(tool.successSchema, result).pipe(
-        Effect.flatMap((success) => readable(String(name), success)),
-        Effect.orDie
-      );
+      return yield* readToolResult(toolkit, name, last.result);
     });
-}
 
 /** The agent's session, catalog, and Run tools, called the way MCP calls them. */
 export const sessionTool = makeCall(AgentSessionTools);
@@ -297,11 +388,11 @@ export const startUserTeaching = (
   });
 
 /** One node of a Browser Snapshot, or a failure naming what was actually there. */
-export const findNode = (
-  nodes: readonly AgentSnapshotNode[],
+export const findNode = <Node extends Pick<AgentSnapshotNode, "name" | "role">>(
+  nodes: readonly Node[],
   role: string,
   name: string
-): AgentSnapshotNode => {
+): Node => {
   const found = nodes.find(
     (node) => node.role === role && node.name.includes(name)
   );

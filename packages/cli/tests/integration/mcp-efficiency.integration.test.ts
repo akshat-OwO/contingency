@@ -9,58 +9,17 @@ import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Schema } from "effect";
 
-import {
-  connectMcp,
-  operationParams,
-  servingMcpHttp,
-} from "../helpers/mcp-http.ts";
-import type { JsonValue } from "../helpers/mcp-http.ts";
+import { connectMcp, servingMcpHttp } from "../helpers/mcp-http.ts";
 import {
   agentProcessLayer,
   findNode,
   runTool,
   sessionTool,
-} from "./agent-harness.ts";
+} from "./agent-process.ts";
 import { fixtureServer } from "./harness.ts";
+import { mcpProgram } from "./scripted-agent.ts";
 
 const operation = OperationId.make;
-
-const CallResult = Schema.Struct({
-  result: Schema.Struct({
-    isError: Schema.Boolean,
-    structuredContent: Schema.Struct({
-      value: Schema.optional(Schema.Unknown),
-    }),
-  }),
-});
-
-/** One MCP tool call over the real HTTP transport. */
-const callOver =
-  (
-    request: (
-      method: string,
-      params: { readonly [key: string]: JsonValue }
-    ) => Effect.Effect<unknown>
-  ) =>
-  <A>(
-    schema: Schema.Decoder<A>,
-    name: string,
-    args: { readonly [key: string]: JsonValue }
-  ) =>
-    Effect.gen(function* callTool() {
-      const body = yield* request("tools/call", operationParams(name, args));
-      const { result } = Schema.decodeUnknownSync(CallResult)(body);
-      expect(result.isError, JSON.stringify(body)).toBe(false);
-      if (name.endsWith("_start")) {
-        expect(JSON.stringify(result.structuredContent.value)).toMatch(
-          /^\{"nextAction":/u
-        );
-      }
-      return {
-        bytes: JSON.stringify(result.structuredContent.value).length,
-        value: Schema.decodeUnknownSync(schema)(result.structuredContent.value),
-      };
-    });
 
 const CompactSessionList = Schema.Struct({
   sessions: Schema.Array(AgentSessionCompact),
@@ -79,19 +38,17 @@ it.live(
       const { request } = yield* connectMcp(
         yield* servingMcpHttp({ demo: true })
       );
-      const call = callOver(request);
-      const catalog = yield* call(
-        Schema.Struct({ workspaceUrl: Schema.String }),
-        "agent_catalog_get",
-        {}
-      );
-      const workspaceUrl = new URL(catalog.value.workspaceUrl);
+      const { call } = mcpProgram(request);
+      const catalog = Schema.decodeUnknownSync(
+        Schema.Struct({ workspaceUrl: Schema.String })
+      )(yield* call("agent_catalog_get", {}));
+      const workspaceUrl = new URL(catalog.workspaceUrl);
       expect(workspaceUrl.pathname).toBe("/");
       expect(workspaceUrl.search).toBe("");
-      const sessions = yield* call(CompactSessionList, "agent_sessions_get", {
-        view: "compact",
-      });
-      expect(sessions.value.sessions).toHaveLength(0);
+      const sessions = Schema.decodeUnknownSync(CompactSessionList)(
+        yield* call("agent_sessions_get", { view: "compact" })
+      );
+      expect(sessions.sessions).toHaveLength(0);
       for (const view of ["full", "compact"]) {
         for (const name of ["agent_session_start", "agent_example_run_start"]) {
           const args =
@@ -113,20 +70,19 @@ it.live(
                     { name: "product", value: "Trail Hammer" },
                   ],
                 };
-          const started = yield* call(SessionStartGuidance, name, {
+          const answer = yield* call(name, {
             ...args,
             operationId: `link-${name}-${view}`,
             view,
           });
-          expect(new URL(started.value.viewUrl).origin).toBe(
-            workspaceUrl.origin
+          expect(JSON.stringify(answer)).toMatch(/^\{"nextAction":/u);
+          const started =
+            Schema.decodeUnknownSync(SessionStartGuidance)(answer);
+          expect(new URL(started.viewUrl).origin).toBe(workspaceUrl.origin);
+          expect(started.nextAction).toContain(
+            `[Open Workspace](${started.viewUrl})`
           );
-          expect(started.value.nextAction).toContain(
-            `[Open Workspace](${started.value.viewUrl})`
-          );
-          expect(started.value.nextAction).toContain(
-            "before calling another tool"
-          );
+          expect(started.nextAction).toContain("before calling another tool");
         }
       }
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
@@ -137,73 +93,68 @@ it.live("answers compact sessions and pages the history they omit", () =>
     const fixture = yield* fixtureServer;
     const origin = yield* servingMcpHttp();
     const { request } = yield* connectMcp(origin);
-    const call = callOver(request);
+    const { call } = mcpProgram(request);
 
-    const started = yield* call(
+    const startAnswer = yield* call("agent_run_start", {
+      inputs: [],
+      operationId: "compact-start",
+      referencedFlows: [],
+      requestedTask: "Fill in the checkout details",
+      url: fixture.url("checkout.html"),
+    });
+    expect(JSON.stringify(startAnswer)).toMatch(/^\{"nextAction":/u);
+    const started = Schema.decodeUnknownSync(
       Schema.Struct({
         nextAction: Schema.String,
         ...AgentSessionCompact.fields,
-      }),
-      "agent_run_start",
-      {
-        inputs: [],
-        operationId: "compact-start",
-        referencedFlows: [],
-        requestedTask: "Fill in the checkout details",
-        url: fixture.url("checkout.html"),
-      }
+      })
+    )(startAnswer);
+    expect(started.nextAction).toContain(
+      `[Open Workspace](${started.viewUrl})`
     );
-    expect(started.value.nextAction).toContain(
-      `[Open Workspace](${started.value.viewUrl})`
-    );
-    expect(started.value.view).toBe("compact");
-    expect(started.value.run).toEqual(
+    expect(started.view).toBe("compact");
+    expect(started.run).toEqual(
       expect.objectContaining({
         kind: "task",
         lifecycle: { phase: "running" },
         requestedTask: "Fill in the checkout details",
       })
     );
-    const sessionId = started.value.id;
+    const sessionId = started.id;
 
     for (const [index, text] of ["Ada", "Grace", "Linus"].entries()) {
-      yield* request(
-        "tools/call",
-        operationParams("agent_browser_act", {
-          action: { text: "Checkout", type: "wait_for_text" },
-          operationId: `compact-wait-${index}`,
-          sessionId,
-        })
-      );
-      yield* request(
-        "tools/call",
-        operationParams("agent_browser_act", {
-          action: { type: "navigate", url: fixture.url("checkout.html") },
-          intent: { objective: `Reload before typing ${text}` },
-          operationId: `compact-reload-${index}`,
-          sessionId,
-        })
-      );
+      yield* call("agent_browser_act", {
+        action: { text: "Checkout", type: "wait_for_text" },
+        operationId: `compact-wait-${index}`,
+        sessionId,
+      });
+      yield* call("agent_browser_act", {
+        action: { type: "navigate", url: fixture.url("checkout.html") },
+        intent: { objective: `Reload before typing ${text}` },
+        operationId: `compact-reload-${index}`,
+        sessionId,
+      });
     }
 
-    const full = yield* call(AgentSessionSnapshot, "agent_session_get", {
+    const fullAnswer = yield* call("agent_session_get", {
       sessionId,
       view: "full",
     });
-    const compact = yield* call(AgentSessionCompact, "agent_session_get", {
-      sessionId,
-    });
-    expect(compact.value.history.timeline).toBe(full.value.timeline.length);
-    expect(compact.value.latestAttempt?.id).toBe(
-      full.value.timeline.at(-1)?.id
+    const compactAnswer = yield* call("agent_session_get", { sessionId });
+    const full = Schema.decodeUnknownSync(AgentSessionSnapshot)(fullAnswer);
+    const compact =
+      Schema.decodeUnknownSync(AgentSessionCompact)(compactAnswer);
+    expect(compact.history.timeline).toBe(full.timeline.length);
+    expect(compact.latestAttempt?.id).toBe(full.timeline.at(-1)?.id);
+    expect(compact.pendingDecisions).toEqual(full.pendingDecisions);
+    expect(JSON.stringify(compactAnswer).length).toBeLessThan(
+      JSON.stringify(fullAnswer).length
     );
-    expect(compact.value.pendingDecisions).toEqual(full.value.pendingDecisions);
-    expect(compact.bytes).toBeLessThan(full.bytes);
 
-    const listed = yield* call(CompactSessionList, "agent_sessions_get", {});
-    expect(listed.value.sessions.map((session) => session.id)).toEqual([
-      sessionId,
-    ]);
+    const listed = Schema.decodeUnknownSync(CompactSessionList)(
+      yield* call("agent_sessions_get", {})
+    );
+    expect(listed.sessions.map((session) => session.id)).toEqual([sessionId]);
 
     // Paging newest first, two at a time, reaches every retained attempt.
     const seen: string[] = [];
@@ -211,51 +162,43 @@ it.live("answers compact sessions and pages the history they omit", () =>
     do {
       const first = { kind: "timeline", limit: 2, sessionId };
       const args = before === null ? first : { ...first, before };
-      const page: { readonly value: AgentSessionHistoryPage } = yield* call(
-        AgentSessionHistoryPage,
-        "agent_session_history_get",
-        args
-      );
-      expect(page.value.total).toBe(full.value.timeline.length);
-      seen.push(...page.value.timeline.map((entry) => entry.id));
-      before = page.value.nextBefore;
+      const page: AgentSessionHistoryPage = Schema.decodeUnknownSync(
+        AgentSessionHistoryPage
+      )(yield* call("agent_session_history_get", args));
+      expect(page.total).toBe(full.timeline.length);
+      seen.push(...page.timeline.map((entry) => entry.id));
+      before = page.nextBefore;
     } while (before !== null);
-    expect(seen).toEqual(
-      full.value.timeline.map((entry) => entry.id).toReversed()
-    );
+    expect(seen).toEqual(full.timeline.map((entry) => entry.id).toReversed());
 
-    const expired = yield* request(
-      "tools/call",
-      operationParams("agent_session_history_get", {
+    const expired = yield* Effect.flip(
+      call("agent_session_history_get", {
         before: "attempt-gone",
         kind: "timeline",
         sessionId,
       })
     );
-    expect(JSON.stringify(expired)).toContain(
-      "agent_session_history_cursor_expired"
-    );
+    expect(expired.code).toBe("agent_session_history_cursor_expired");
 
-    const assessed = yield* call(AgentSessionCompact, "agent_run_assess", {
-      evidence: [{ id: full.value.timeline.at(-1)?.id ?? "", kind: "attempt" }],
+    const assessedAnswer = yield* call("agent_run_assess", {
+      evidence: [{ id: full.timeline.at(-1)?.id ?? "", kind: "attempt" }],
       explanation: "The checkout page reloaded each time.",
       operationId: "compact-assess",
       outcome: "working",
       sessionId,
       view: "compact",
     });
-    expect(assessed.value.run).toEqual(
+    const assessed =
+      Schema.decodeUnknownSync(AgentSessionCompact)(assessedAnswer);
+    expect(assessed.run).toEqual(
       expect.objectContaining({
         assessment: expect.objectContaining({ outcome: "working" }),
       })
     );
-    yield* request(
-      "tools/call",
-      operationParams("agent_run_complete", {
-        operationId: "compact-complete",
-        sessionId,
-      })
-    );
+    yield* call("agent_run_complete", {
+      operationId: "compact-complete",
+      sessionId,
+    });
   }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );
 

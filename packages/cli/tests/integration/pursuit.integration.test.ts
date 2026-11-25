@@ -32,7 +32,7 @@ import type {
   SystemOneResponse,
 } from "../../src/services/system-one-request.ts";
 import { SystemOne, SystemOneError } from "../../src/services/system-one.ts";
-import { agentProcessLayer, makeCall, runTool } from "./agent-harness.ts";
+import { agentProcessLayer, makeCall, runTool } from "./agent-process.ts";
 
 const operation = OperationId.make;
 const exampleTool = makeCall(OnboardingTools);

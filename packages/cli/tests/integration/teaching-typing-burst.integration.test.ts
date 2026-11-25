@@ -18,8 +18,9 @@ import {
   awaitSession,
   startUserTeaching,
   teachingRecordingTool,
-} from "./agent-harness.ts";
+} from "./agent-process.ts";
 import { fixtureServer } from "./harness.ts";
+import { User } from "./scripted-user.ts";
 
 /** Where the user's pointer lands on the fixture's fixed fields. */
 const MOBILE_FIELD = { x: 120, y: 116 } as const;
@@ -37,23 +38,6 @@ const press = (sessionId: AgentSessionId, name: string, text: string) =>
   Effect.gen(function* pressKey() {
     yield* key(sessionId, { eventType: "keyDown", key: name, text });
     yield* key(sessionId, { eventType: "keyUp", key: name });
-  });
-
-const click = (
-  sessionId: AgentSessionId,
-  at: { readonly x: number; readonly y: number }
-) =>
-  Effect.gen(function* clickAsUser() {
-    const service = yield* AgentSession;
-    for (const eventType of ["mousePressed", "mouseReleased"] as const) {
-      yield* service.sendInput(sessionId, {
-        button: "left",
-        clickCount: 1,
-        eventType,
-        type: "input_mouse",
-        ...at,
-      });
-    }
   });
 
 const startRecording = (name: string) =>
@@ -134,7 +118,7 @@ it.live(
           return yield* Effect.die("Teaching did not open a browser.");
         }
         const page = yield* browser.active();
-        yield* click(sessionId, MOBILE_FIELD);
+        yield* User.click(sessionId, MOBILE_FIELD);
         // The first digit observes the field; later digits reuse that evidence.
         yield* press(sessionId, "9", "9");
         const snapshots = vi.spyOn(page, "snapshot");
@@ -180,7 +164,7 @@ it.live(
       yield* Effect.gen(function* searchAndSubmit() {
         const { recordingId, sessionId } =
           yield* startRecording("typing-pause");
-        yield* click(sessionId, SEARCH_FIELD);
+        yield* User.click(sessionId, SEARCH_FIELD);
         for (const character of "tablets") {
           yield* press(sessionId, character, character);
         }

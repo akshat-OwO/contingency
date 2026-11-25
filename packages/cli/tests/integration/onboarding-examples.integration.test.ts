@@ -25,7 +25,7 @@ import {
   resolveBoundary,
   runTool,
   sessionTool,
-} from "./agent-harness.ts";
+} from "./agent-process.ts";
 import { draftEmulation } from "./harness.ts";
 
 it.live("renders clickable demo location options in the browser page", () =>

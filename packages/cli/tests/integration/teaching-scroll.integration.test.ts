@@ -17,7 +17,7 @@ import {
   agentViewport,
   startUserTeaching,
   teachingRecordingTool,
-} from "./agent-harness.ts";
+} from "./agent-process.ts";
 import { fixtureServer } from "./harness.ts";
 
 /** Roughly one trackpad flick: the browser sees each notch separately. */

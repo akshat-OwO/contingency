@@ -14,52 +14,20 @@ import {
 } from "effect";
 import { HttpRouter, HttpServer } from "effect/http";
 
-import {
-  MCP_HTTP_PATH,
-  makeMcpHttpLayer,
-} from "../../src/services/mcp-http.ts";
-import { connectMcp } from "../helpers/mcp-http.ts";
-import type { JsonValue } from "../helpers/mcp-http.ts";
-import { agentProcessLayer } from "./agent-harness.ts";
+import { makeMcpHttpLayer } from "../../src/services/mcp-http.ts";
+import { connectMcp, rawMcpSession } from "../helpers/mcp-http.ts";
+import { agentProcessLayer } from "./agent-process.ts";
 import { fixtureServer } from "./harness.ts";
+import { codeExecutionOf, mcpProgram } from "./scripted-agent.ts";
 
 // One hang guard per test, sized for a hung browser rather than the work.
 const HANG_GUARD_MS = 120_000;
 
-const Execution = Schema.Struct({
-  result: Schema.Struct({
-    isError: Schema.Boolean,
-    structuredContent: Schema.Struct({
-      diagnostic: Schema.optional(
-        Schema.Struct({ kind: Schema.String, message: Schema.String })
-      ),
-      intervention: Schema.optional(
-        Schema.Struct({
-          operation: Schema.String,
-          pending: Schema.Array(
-            Schema.Struct({
-              boundaryId: Schema.NullOr(Schema.String),
-              kind: Schema.String,
-              pendingDecisionId: Schema.String,
-            })
-          ),
-          reasons: Schema.Array(Schema.String),
-          sessionId: Schema.String,
-        })
-      ),
-      receipts: Schema.optional(
-        Schema.Array(
-          Schema.Struct({
-            operation: Schema.String,
-            operationId: Schema.NullOr(Schema.String),
-            outcome: Schema.String,
-          })
-        )
-      ),
-      status: Schema.String,
-      value: Schema.optional(Schema.Unknown),
-    }),
-  }),
+/** One open decision, as an intervention lists it. */
+const PendingDecision = Schema.Struct({
+  boundaryId: Schema.NullOr(Schema.String),
+  kind: Schema.String,
+  pendingDecisionId: Schema.String,
 });
 
 const Resumed = Schema.Struct({
@@ -98,16 +66,7 @@ it.live(
     Effect.gen(function* interventionAcrossExecutions() {
       const fixture = yield* fixtureServer;
       const { request } = yield* connectMcp(yield* servingSingleTool);
-      const execute = (code: string) =>
-        request("tools/call", {
-          arguments: { code },
-          name: "agent_code_execute",
-        }).pipe(
-          Effect.map(
-            (body) =>
-              Schema.decodeUnknownSync(Execution)(body).result.structuredContent
-          )
-        );
+      const { execute } = mcpProgram(request);
 
       // Start, read, and act in one program: the irreversible click opens a
       // Confirmation, and the read after it is never dispatched.
@@ -136,7 +95,9 @@ it.live(
       const { intervention } = paused;
       expect(intervention?.operation).toBe("agent_browser_act");
       expect(intervention?.reasons).toContain("boundary");
-      const [decision] = intervention?.pending ?? [];
+      const [decision] = Schema.decodeUnknownSync(
+        Schema.Array(PendingDecision)
+      )(intervention?.pending ?? []);
       expect(decision?.kind).toBe("boundary");
       const sessionId = intervention?.sessionId ?? "missing";
       const boundaryId = decision?.boundaryId ?? "missing";
@@ -211,69 +172,7 @@ it.live(
   HANG_GUARD_MS
 );
 
-/**
- * A JSON-RPC client that names its own request ids, so a test can cancel one
- * request while it runs and read how that request's POST ended.
- */
-const rawSession = (origin: string) =>
-  Effect.gen(function* openRawSession() {
-    const base = {
-      accept: "application/json, text/event-stream",
-      "content-type": "application/json",
-      "mcp-protocol-version": "2025-06-18",
-    };
-    const post = (
-      headers: Readonly<Record<string, string>>,
-      body: { readonly [key: string]: JsonValue }
-    ) =>
-      Effect.promise(async () => {
-        const response = await fetch(`${origin}${MCP_HTTP_PATH}`, {
-          body: JSON.stringify(body),
-          headers,
-          method: "POST",
-        });
-        return {
-          headers: response.headers,
-          status: response.status,
-          text: await response.text(),
-        };
-      });
-    const initialized = yield* post(base, {
-      id: 1,
-      jsonrpc: "2.0",
-      method: "initialize",
-      params: {
-        capabilities: {},
-        clientInfo: { name: "verify", version: "1.0" },
-        protocolVersion: "2025-06-18",
-      },
-    });
-    const headers = {
-      ...base,
-      "mcp-session-id": initialized.headers.get("mcp-session-id") ?? "",
-    };
-    const execute = (id: number, code: string) =>
-      post(headers, {
-        id,
-        jsonrpc: "2.0",
-        method: "tools/call",
-        params: {
-          arguments: { code, timeoutMs: 90_000 },
-          name: "agent_code_execute",
-        },
-      });
-    const cancel = (requestId: number) =>
-      post(headers, {
-        jsonrpc: "2.0",
-        method: "notifications/cancelled",
-        params: { reason: "The user cancelled the program.", requestId },
-      });
-    return { cancel, execute };
-  });
-
-const answerOf = (text: string) =>
-  Schema.decodeUnknownSync(Execution)(JSON.parse(text)).result
-    .structuredContent;
+const answerOf = (text: string) => codeExecutionOf(JSON.parse(text));
 
 /** One program step: click the fixture's add button under `operationId`. */
 const click = (operationId: string) => `
@@ -307,7 +206,9 @@ it.live(
   () =>
     Effect.gen(function* cancelledProgram() {
       const fixture = yield* fixtureServer;
-      const { cancel, execute } = yield* rawSession(yield* servingSingleTool);
+      const { cancel, execute } = yield* rawMcpSession(
+        yield* servingSingleTool
+      );
       const started = answerOf(
         (yield* execute(
           2,

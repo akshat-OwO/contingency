@@ -103,6 +103,8 @@ export default defineConfig({
         "packages/cli/src/services/diagnostic-log.ts",
         "packages/cli/src/services/recorder-events.ts",
         "packages/cli/src/services/run-footage.ts",
+        "packages/cli/tests/integration/scripted-agent.ts",
+        "packages/cli/tests/integration/transcript.ts",
         "packages/protocol/src/agent-browser.ts",
         "packages/protocol/src/agent-decision.ts",
         "packages/protocol/src/agent-pursuit.ts",

@@ -9,7 +9,7 @@ import {
   agentProcessLayer,
   agentViewport,
   teachingRecordingTool,
-} from "./agent-harness.ts";
+} from "./agent-process.ts";
 import { fixtureServer } from "./harness.ts";
 
 const phoneIdentity = UserAgentProfileId.make("chrome-android-mobile");

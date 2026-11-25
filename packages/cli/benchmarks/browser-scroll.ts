@@ -17,7 +17,7 @@ import { AgentSession } from "../src/services/agent-session.ts";
 import {
   agentProcessLayer,
   startUserTeaching,
-} from "../tests/integration/agent-harness.ts";
+} from "../tests/integration/agent-process.ts";
 import { fixtureServer } from "../tests/integration/harness.ts";
 
 const main = Effect.gen(function* benchmarkWheelInput() {

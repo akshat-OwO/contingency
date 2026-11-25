@@ -24,7 +24,7 @@ import {
   runTool,
   resolveBoundary,
   sessionTool,
-} from "./agent-harness.ts";
+} from "./agent-process.ts";
 import { fixtureServer } from "./harness.ts";
 
 const taskRun = (snapshot: AgentSessionSnapshot): TaskAgentRunState => {

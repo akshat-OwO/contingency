@@ -14,8 +14,9 @@ import {
   findNode,
   sessionTool,
   teachingRecordingTool,
-} from "./agent-harness.ts";
+} from "./agent-process.ts";
 import { fixtureServer } from "./harness.ts";
+import { User } from "./scripted-user.ts";
 
 /** The prerequisite the agent prepares before the user demonstrates. */
 const PREPARED_CITY = "Gurugram";
@@ -23,24 +24,6 @@ const PREPARED_AREA = "Sector 14";
 
 /** Where the user's pointer lands on the confirmation button. */
 const CONFIRM_AREA = { x: 120, y: 256 } as const;
-
-const clickAsUser = (
-  sessionId: AgentSessionId,
-  at: { readonly x: number; readonly y: number }
-) =>
-  Effect.gen(function* clickAsTheUser() {
-    const service = yield* AgentSession;
-    for (const eventType of ["mousePressed", "mouseReleased"] as const) {
-      yield* service.sendInput(sessionId, {
-        button: "left",
-        clickCount: 1,
-        eventType,
-        type: "input_mouse",
-        x: at.x,
-        y: at.y,
-      });
-    }
-  });
 
 /** The agent chooses a delivery area through the ordinary browser tools. */
 const prepareDeliveryAsAgent = (sessionId: AgentSessionId) =>
@@ -129,7 +112,7 @@ it.live(
           // The agent holds the browser: the user cannot drive it or start
           // recording, even by calling the session directly.
           const refusedInput = yield* Effect.flip(
-            clickAsUser(started.id, CONFIRM_AREA)
+            User.click(started.id, CONFIRM_AREA)
           );
           expect(refusedInput.code).toBe("agent_control_unavailable");
           const refusedStart = yield* Effect.flip(
@@ -171,7 +154,7 @@ it.live(
             started.id,
             OperationId.make("agent-setup-start-recording")
           );
-          yield* clickAsUser(started.id, CONFIRM_AREA);
+          yield* User.click(started.id, CONFIRM_AREA);
           const confirmed = yield* sessionTool("agent_browser_snapshot", {
             sessionId: started.id,
           });

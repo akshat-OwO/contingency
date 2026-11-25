@@ -1,5 +1,4 @@
 import { OperationId } from "@contingency/protocol";
-import type { AgentSessionId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Effect, FileSystem } from "effect";
@@ -10,48 +9,13 @@ import {
   agentViewport,
   startUserTeaching,
   teachingRecordingTool,
-} from "./agent-harness.ts";
+} from "./agent-process.ts";
 import { fixtureServer } from "./harness.ts";
+import { User } from "./scripted-user.ts";
 
 /** Where the user's pointer lands on the fixture's fixed Password field. */
 const PASSWORD_FIELD = { x: 280, y: 152 } as const;
 const PASSWORD = "secret_sauce";
-
-const clickAsUser = (
-  sessionId: AgentSessionId,
-  at: { readonly x: number; readonly y: number }
-) =>
-  Effect.gen(function* clickAsTheUser() {
-    const service = yield* AgentSession;
-    for (const eventType of ["mousePressed", "mouseReleased"] as const) {
-      yield* service.sendInput(sessionId, {
-        button: "left",
-        clickCount: 1,
-        eventType,
-        type: "input_mouse",
-        x: at.x,
-        y: at.y,
-      });
-    }
-  });
-
-const typeAsUser = (sessionId: AgentSessionId, text: string) =>
-  Effect.gen(function* typeAsTheUser() {
-    const service = yield* AgentSession;
-    for (const character of text) {
-      yield* service.sendInput(sessionId, {
-        eventType: "keyDown",
-        key: character,
-        text: character,
-        type: "input_keyboard",
-      });
-      yield* service.sendInput(sessionId, {
-        eventType: "keyUp",
-        key: character,
-        type: "input_keyboard",
-      });
-    }
-  });
 
 it.live("records typing into a password field as one literal fill", () =>
   Effect.gen(function* recordPasswordFill() {
@@ -81,9 +45,9 @@ it.live("records typing into a password field as one literal fill", () =>
           started.id,
           OperationId.make("password-start-recording")
         );
-        yield* typeAsUser(started.id, "standard_user");
-        yield* clickAsUser(started.id, PASSWORD_FIELD);
-        yield* typeAsUser(started.id, PASSWORD);
+        yield* User.type(started.id, "standard_user");
+        yield* User.click(started.id, PASSWORD_FIELD);
+        yield* User.type(started.id, PASSWORD);
         yield* service.stopTeachingRecording(
           started.id,
           OperationId.make("password-stop-recording")

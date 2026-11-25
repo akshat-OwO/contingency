@@ -8,15 +8,15 @@ import {
 import { NodeHttpServer, NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import { Context, Effect, FileSystem, Layer, Schema } from "effect";
-import { McpSchema } from "effect/ai";
 import { HttpRouter, HttpServer } from "effect/http";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
 import { makeDemoSiteLayer } from "../../src/services/demo-site-server.ts";
 import { makeMcpHttpLayer } from "../../src/services/mcp-http.ts";
-import { operationParams } from "../helpers/mcp-http.ts";
-import { agentProcessLayer, agentViewport } from "./agent-harness.ts";
+import { connectMcp } from "../helpers/mcp-http.ts";
+import { agentProcessLayer, agentViewport } from "./agent-process.ts";
 import { fixtureServer } from "./harness.ts";
+import { mcpProgram } from "./scripted-agent.ts";
 
 it.live(
   "returns JSON-compatible Teaching instructions over MCP and persists them once",
@@ -41,69 +41,10 @@ it.live(
       if (server.address._tag === "UnixPathAddress") {
         return yield* Effect.die("Expected TCP server");
       }
-      const origin = `http://127.0.0.1:${server.address.port}/mcp`;
-      let mcpSessionId: string | null = null;
-      let requestId = 0;
-      const post = (method: string, params: Record<string, Schema.Json>) =>
-        Effect.promise(async () => {
-          const headers = new Headers({
-            accept: "application/json, text/event-stream",
-            "content-type": "application/json",
-            "mcp-protocol-version": "2025-06-18",
-          });
-          if (mcpSessionId !== null) {
-            headers.set("mcp-session-id", mcpSessionId);
-          }
-          const response = await fetch(origin, {
-            body: JSON.stringify({
-              id: (requestId += 1),
-              jsonrpc: "2.0",
-              method,
-              params,
-            }),
-            headers,
-            method: "POST",
-          });
-          expect(response.status).toBe(200);
-          mcpSessionId ??= response.headers.get("mcp-session-id");
-          const payload: unknown = await response.json();
-          return payload;
-        });
-      yield* post("initialize", {
-        capabilities: {},
-        clientInfo: { name: "teaching-regression", version: "1" },
-        protocolVersion: "2025-06-18",
-      });
-      yield* Effect.promise(() =>
-        fetch(origin, {
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            method: "notifications/initialized",
-          }),
-          headers: {
-            accept: "application/json, text/event-stream",
-            "content-type": "application/json",
-            "mcp-protocol-version": "2025-06-18",
-            "mcp-session-id": mcpSessionId ?? "",
-          },
-          method: "POST",
-        })
+      const { request } = yield* connectMcp(
+        `http://127.0.0.1:${server.address.port}`
       );
-      const call = (name: string, args: Record<string, Schema.Json>) =>
-        Effect.gen(function* callMcpTool() {
-          const payload = yield* post(
-            "tools/call",
-            operationParams(name, args)
-          );
-          expect(payload, JSON.stringify(payload)).toHaveProperty("result");
-          const response = yield* Schema.decodeUnknownEffect(
-            Schema.Struct({ result: McpSchema.CallToolResult })
-          )(payload);
-          expect(response.result.isError, name).not.toBe(true);
-          return Schema.decodeUnknownSync(
-            Schema.Struct({ value: Schema.Unknown })
-          )(response.result.structuredContent).value;
-        });
+      const { call } = mcpProgram(request);
       const started = yield* Schema.decodeUnknownEffect(AgentSessionSnapshot)(
         yield* call("agent_session_start", {
           activity: "teaching",

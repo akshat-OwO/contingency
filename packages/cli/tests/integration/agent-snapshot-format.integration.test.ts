@@ -15,7 +15,7 @@ import {
   AgentSessionToolHandlersLive,
   AgentSessionTools,
 } from "../../src/services/mcp-agent-session.ts";
-import { findNode, makeCall } from "./agent-harness.ts";
+import { findNode, makeCall } from "./agent-process.ts";
 import { fixtureServer } from "./harness.ts";
 
 /**
