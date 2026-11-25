@@ -459,19 +459,26 @@ describe.skipIf(CLAUDE === undefined && !IN_CI)(
           );
           // Claude Code must never fall through to a hosted model: start it
           // only once emulate answers on loopback.
-          const emulatorHost = new URL(emulator.url).hostname;
+          if (
+            !["127.0.0.1", "localhost", "[::1]"].includes(
+              new URL(emulator.url).hostname
+            )
+          ) {
+            return yield* Effect.die(
+              `Emulate advertises ${emulator.url}, which is not loopback, so Claude Code is not started.`
+            );
+          }
           const emulatorStatus = yield* Effect.promise(() =>
-            fetch(new URL("/_ai/calls", emulator.url)).then(
+            fetch(new URL("/_ai/calls", emulator.url), {
+              redirect: "error",
+            }).then(
               (answer) => answer.status,
               () => 0
             )
           );
-          if (
-            !["127.0.0.1", "localhost", "[::1]"].includes(emulatorHost) ||
-            emulatorStatus !== 200
-          ) {
+          if (emulatorStatus !== 200) {
             return yield* Effect.die(
-              `Emulate is not answering on loopback at ${emulator.url} (status ${emulatorStatus}), so Claude Code is not started.`
+              `Emulate is not answering at ${emulator.url} (status ${emulatorStatus}), so Claude Code is not started.`
             );
           }
           const gate = yield* modelGate(emulator.url, script);
