@@ -1,56 +1,37 @@
 import type { AgentRunId, AgentSessionId } from "@contingency/protocol";
-import { Effect, Option } from "effect";
-
-import type { AgentRunStoreService } from "./agent-run-store.ts";
-import type { AgentSessionService } from "./agent-session.ts";
 
 export interface ClaimedIds {
   readonly runId: AgentRunId | undefined;
   readonly sessionId: AgentSessionId | undefined;
 }
 
-export interface CorrelationSources {
-  readonly sessions: Option.Option<AgentSessionService>;
-  readonly runs: Option.Option<AgentRunStoreService>;
-  /** Ids Contingency itself answered with, such as a started device session. */
-  readonly issued?: ReadonlySet<string>;
-}
+/** Enough for every session and Run one process touches, without growing forever. */
+const KNOWN_LIMIT = 1024;
 
-/** Whether a lookup, when one is available, finds what it reads. */
-const found = (lookup: Option.Option<Effect.Effect<unknown, unknown>>) =>
-  Option.match(lookup, {
-    onNone: () => Effect.succeed(false),
-    onSome: (read) =>
-      read.pipe(
-        Effect.as(true),
-        Effect.orElseSucceed(() => false)
-      ),
-  });
+/** Ids a handler resolved or answered with, newest last. */
+const known = new Set<string>();
+
+/** Remembers ids a handler resolved, so later records may name them. */
+export const rememberIds = (ids: ClaimedIds) => {
+  for (const id of [ids.runId, ids.sessionId]) {
+    if (id === undefined) {
+      continue;
+    }
+    known.delete(id);
+    known.add(id);
+    if (known.size > KNOWN_LIMIT) {
+      known.delete(known.values().next().value ?? id);
+    }
+  }
+};
 
 /**
- * The ids a request names that Contingency knows, for correlation fields.
- * A request's own text is not provenance: an id counts only once it was
- * issued here, names a live session, or names a persisted Run.
+ * The ids a request names that a handler already resolved, for correlation
+ * fields. A request's own text is not provenance, and correlation never waits
+ * on a lookup: an id no handler has resolved yet is omitted.
  */
-export const knownIds = (
-  { issued, runs, sessions }: CorrelationSources,
-  { runId, sessionId }: ClaimedIds
-): Effect.Effect<ClaimedIds> => {
-  const known = <Id extends string>(
-    id: Id | undefined,
-    lookup: (id: Id) => Option.Option<Effect.Effect<unknown, unknown>>
-  ): Effect.Effect<Id | undefined> =>
-    id === undefined || issued?.has(id) === true
-      ? Effect.succeed(id)
-      : found(lookup(id)).pipe(
-          Effect.map((exists) => (exists ? id : undefined))
-        );
-  return Effect.all({
-    runId: known(runId, (id) =>
-      runs.pipe(Option.map((store) => store.read(id)))
-    ),
-    sessionId: known(sessionId, (id) =>
-      sessions.pipe(Option.map((service) => service.get(id)))
-    ),
-  });
-};
+export const knownIds = ({ runId, sessionId }: ClaimedIds): ClaimedIds => ({
+  runId: runId !== undefined && known.has(runId) ? runId : undefined,
+  sessionId:
+    sessionId !== undefined && known.has(sessionId) ? sessionId : undefined,
+});

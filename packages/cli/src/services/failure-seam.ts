@@ -8,10 +8,8 @@ import {
 import type { BrowserRpcErrorType } from "@contingency/protocol";
 import { Cause, Effect, Layer, LogLevel, Option, Schema } from "effect";
 
-import { AgentRunStore } from "./agent-run-store.ts";
-import { AgentSession } from "./agent-session.ts";
 import { childOutputsOf } from "./child-process.ts";
-import { knownIds } from "./correlation-ids.ts";
+import { knownIds, rememberIds } from "./correlation-ids.ts";
 import { lookupFailure, recordFailure } from "./failure-reference.ts";
 import type { FailureReference } from "./failure-reference.ts";
 import { Observability } from "./observability.ts";
@@ -70,38 +68,32 @@ const decodePayloadIds = Schema.decodeUnknownOption(
 /**
  * A defect fails its own request with a reference. Effect's RPC server would
  * otherwise send it as a client-wide defect, failing every request in flight.
+ * Its record names only ids an earlier request resolved.
  */
-export const RpcFailuresLive = Layer.effect(
+export const RpcFailuresLive = Layer.succeed(
   RpcFailures,
-  Effect.gen(function* makeRpcFailures() {
-    const sources = {
-      runs: yield* Effect.serviceOption(AgentRunStore),
-      sessions: yield* Effect.serviceOption(AgentSession),
-    };
-    return (effect, { payload, rpc }) =>
-      effect.pipe(
-        Effect.catchCause((cause) =>
-          isDefect(cause)
-            ? Effect.gen(function* recordDefect() {
-                const named = Option.getOrUndefined(decodePayloadIds(payload));
-                const ids = yield* knownIds(sources, {
-                  runId: named?.runId,
-                  sessionId: named?.sessionId,
-                });
-                const failure = yield* internalFailure(cause).pipe(
-                  Effect.annotateLogs({
-                    rpc: rpc._tag,
-                    ...Object.fromEntries(
-                      Object.entries(ids).filter(([, id]) => id !== undefined)
-                    ),
-                  })
-                );
-                return yield* Effect.fail(failure);
-              })
-            : Effect.failCause(cause)
-        )
-      );
-  })
+  (effect, { payload, rpc }) => {
+    const named = Option.getOrUndefined(decodePayloadIds(payload));
+    const claimed = { runId: named?.runId, sessionId: named?.sessionId };
+    return effect.pipe(
+      Effect.tap(() => Effect.sync(() => rememberIds(claimed))),
+      Effect.catchCause((cause) =>
+        isDefect(cause)
+          ? internalFailure(cause).pipe(
+              Effect.annotateLogs({
+                rpc: rpc._tag,
+                ...Object.fromEntries(
+                  Object.entries(knownIds(claimed)).filter(
+                    ([, id]) => id !== undefined
+                  )
+                ),
+              }),
+              Effect.flatMap(Effect.fail)
+            )
+          : Effect.failCause(cause)
+      )
+    );
+  }
 );
 
 /** A cause as the Workspace shows it: the cause, then each failed child's output tail. */

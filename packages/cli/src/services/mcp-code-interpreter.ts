@@ -26,7 +26,6 @@ import { HttpServerRequest } from "effect/http";
 import { ChildProcessSpawner } from "effect/process";
 import { CurrentLogLevel } from "effect/References";
 
-import { AgentRunStore } from "./agent-run-store.ts";
 import { AgentSession } from "./agent-session.ts";
 import { AndroidWorkspace } from "./android-workspace.ts";
 import type { OfferedOperation } from "./code-interpreter-protocol.ts";
@@ -39,7 +38,7 @@ import type {
   InterpreterDispatch,
   InterpreterOutcome,
 } from "./code-interpreter.ts";
-import { knownIds } from "./correlation-ids.ts";
+import { knownIds, rememberIds } from "./correlation-ids.ts";
 import {
   EXECUTION_VALUE_LIMITS,
   ExecutionValues,
@@ -661,11 +660,6 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
 
     const readSession = (sessionId: AgentSessionId) =>
       sessions.get(sessionId).pipe(Effect.option);
-    const correlation = {
-      issued: new Set<string>(),
-      runs: yield* Effect.serviceOption(AgentRunStore),
-      sessions: Option.some(sessions),
-    };
 
     const browserIntervention = (
       operation: string,
@@ -818,50 +812,43 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
                 ),
               } satisfies DispatchOutcome);
         });
-        return knownIds(correlation, {
+        const claimed = {
           runId: runOf(input),
           sessionId: inputSession(name, input),
+        };
+        const asked = knownIds(claimed);
+        return Effect.gen(function* observeMcpTool() {
+          const outcome = yield* dispatchUnwrapped;
+          // An operation that succeeded resolved the ids its input named.
+          const sessionId = outcome.ok
+            ? (claimed.sessionId ?? answerSession(name, outcome.value))
+            : asked.sessionId;
+          const runId = outcome.ok
+            ? (claimed.runId ?? runOf(outcome.value))
+            : asked.runId;
+          if (asked.sessionId === undefined && sessionId !== undefined) {
+            yield* Effect.annotateCurrentSpan("sessionId", sessionId);
+          }
+          const ended = callOutcome(outcome);
+          yield* Effect.annotateCurrentSpan("outcome", ended);
+          yield* recordMcpCall(name, ended);
+          rememberIds({ runId, sessionId });
+          onContext?.({ runId, sessionId });
+          return outcome;
         }).pipe(
-          Effect.flatMap((asked) =>
-            Effect.gen(function* observeMcpTool() {
-              const outcome = yield* dispatchUnwrapped;
-              const sessionId =
-                asked.sessionId ??
-                (outcome.ok ? answerSession(name, outcome.value) : undefined);
-              const runId =
-                asked.runId ?? (outcome.ok ? runOf(outcome.value) : undefined);
-              if (asked.sessionId === undefined && sessionId !== undefined) {
-                yield* Effect.annotateCurrentSpan("sessionId", sessionId);
-              }
-              const ended = callOutcome(outcome);
-              yield* Effect.annotateCurrentSpan("outcome", ended);
-              yield* recordMcpCall(name, ended);
-              for (const id of [runId, sessionId]) {
-                if (id !== undefined) {
-                  correlation.issued.add(id);
-                }
-              }
-              onContext?.({ runId, sessionId });
-              return outcome;
-            }).pipe(
-              // A program deadline can stop a dispatch whose effect is uncertain.
-              Effect.onInterrupt(() =>
-                Effect.annotateCurrentSpan("outcome", "interrupted").pipe(
-                  Effect.andThen(recordMcpCall(name, "interrupted"))
-                )
-              ),
-              Effect.annotateLogs(namedOnly(asked)),
-              Effect.withSpan("mcp.tool", {
-                attributes: {
-                  operation: name,
-                  ...namedOnly({
-                    runId: undefined,
-                    sessionId: asked.sessionId,
-                  }),
-                },
-              })
+          // A program deadline can stop a dispatch whose effect is uncertain.
+          Effect.onInterrupt(() =>
+            Effect.annotateCurrentSpan("outcome", "interrupted").pipe(
+              Effect.andThen(recordMcpCall(name, "interrupted"))
             )
-          )
+          ),
+          Effect.annotateLogs(namedOnly(asked)),
+          Effect.withSpan("mcp.tool", {
+            attributes: {
+              operation: name,
+              ...namedOnly({ runId: undefined, sessionId: asked.sessionId }),
+            },
+          })
         );
       };
     };
