@@ -459,38 +459,59 @@ const inProcessAgent = Layer.effect(
         })
       ) as Effect.Effect<Schema.Json, ToolFailure>;
     };
+    const dispatchDevice = (input: Schema.JsonObject) => {
+      const rawCommand = input["command"];
+      const command =
+        rawCommand !== undefined && isJsonObject(rawCommand)
+          ? rawCommand
+          : undefined;
+      const deviceSessionId = Predicate.isString(command?.["sessionId"])
+        ? command["sessionId"]
+        : undefined;
+      const selected =
+        input["platform"] === "ios"
+          ? Option.getOrUndefined(ios)
+          : Option.getOrUndefined(android);
+      const runOnce = Effect.gen(function* runDeviceCommand() {
+        const before = yield* Effect.gen(function* readBefore() {
+          if (deviceSessionId === undefined || selected === undefined) {
+            return Option.none();
+          }
+          const summaries = yield* selected.list();
+          return Option.fromNullishOr(
+            summaries.find(({ id }) => id === deviceSessionId)
+          );
+        }).pipe(Effect.orElseSucceed(() => Option.none()));
+        const value = yield* handle("agent_device_workspace", input);
+        return {
+          intervention: androidIntervention(input, value, before),
+          value,
+        };
+      });
+      return Effect.gen(function* settleDeviceCommand() {
+        const first = yield* runOnce;
+        if (first.intervention === undefined) {
+          return first.value;
+        }
+        // Mirror HTTP `settleOperation`: retry the same operation once. A
+        // confirmation already pending in `before` settles, while a fresh
+        // start or unanswered `variable-request` intervenes again.
+        const repeated = yield* runOnce;
+        return repeated.intervention === undefined
+          ? repeated.value
+          : yield* Effect.fail(
+              intervened(
+                repeated.intervention.reasons,
+                repeated.intervention.sessionId
+              )
+            );
+      });
+    };
     return ScriptedAgent.of({
       run: ({ input, operation, target }) =>
         Effect.gen(function* runInProcess() {
           if (operation === "agent_device_workspace") {
-            const rawCommand = input["command"];
-            const command =
-              rawCommand !== undefined && isJsonObject(rawCommand)
-                ? rawCommand
-                : undefined;
-            const deviceSessionId = Predicate.isString(command?.["sessionId"])
-              ? command["sessionId"]
-              : undefined;
-            const selected =
-              input["platform"] === "ios"
-                ? Option.getOrUndefined(ios)
-                : Option.getOrUndefined(android);
-            const before = yield* Effect.gen(function* readBefore() {
-              if (deviceSessionId === undefined || selected === undefined) {
-                return Option.none();
-              }
-              const summaries = yield* selected.list();
-              return Option.fromNullishOr(
-                summaries.find(({ id }) => id === deviceSessionId)
-              );
-            }).pipe(Effect.orElseSucceed(() => Option.none()));
-            const value = yield* handle(operation, input);
-            const intervention = androidIntervention(input, value, before);
-            return intervention === undefined
-              ? value
-              : yield* Effect.fail(
-                  intervened(intervention.reasons, intervention.sessionId)
-                );
+            return yield* dispatchDevice(input);
           }
           if (target === undefined && Predicate.isString(input["sessionId"])) {
             return yield* handle(operation, input);

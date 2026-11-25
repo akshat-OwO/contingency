@@ -24,7 +24,6 @@ import {
   References,
   Result,
   Schema,
-  Stream,
 } from "effect";
 import { TestClock } from "effect/testing";
 
@@ -33,20 +32,8 @@ import { REDACTED, toSafeRecord } from "../../src/services/diagnostic-log.ts";
 import type { SafeRecord } from "../../src/services/diagnostic-log.ts";
 import { recordFailure } from "../../src/services/failure-reference.ts";
 import { makeFlowCatalogLayer } from "../../src/services/flow-catalog.ts";
-import {
-  iosCapabilities,
-  iosRuntimeError,
-  iosSystemKeys,
-} from "../../src/services/ios-runtime.ts";
-import type { IosObservation } from "../../src/services/ios-runtime.ts";
-import type { IosDeviceStream } from "../../src/services/ios-stream.ts";
-import {
-  IosWorkspace,
-  makeIosWorkspaceLayer,
-} from "../../src/services/ios-workspace.ts";
+import { IosWorkspace } from "../../src/services/ios-workspace.ts";
 import { recordPursuitOutcome } from "../../src/services/metrics.ts";
-import { nativeAppActionPolicy } from "../../src/services/native-app-action-policy.ts";
-import { adaptNativeAppRuntime } from "../../src/services/native-app-runtime.ts";
 import {
   TeachingRecordingLearning,
   TeachingRecordingLearningLive,
@@ -57,7 +44,10 @@ import {
 } from "../../src/services/teaching-recording-store.ts";
 import {
   corpusAndroidSelection,
+  corpusIosSelection,
+  corpusIosSimulator,
   makeCorpusAndroidWorkspaceLayer,
+  makeCorpusIosWorkspaceLayer,
   makeCorpusNativeBackend,
 } from "../helpers/corpus-native-device.ts";
 import {
@@ -99,137 +89,7 @@ const DeviceResult = Schema.Struct({
 
 const androidSelection: AndroidWorkspaceSelection = corpusAndroidSelection();
 
-const iosSimulator = {
-  deviceType: "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
-  kind: "simulator",
-  name: "iPhone 17",
-  runtime: "com.apple.CoreSimulator.SimRuntime.iOS-26-5",
-  runtimeVersion: "26.5",
-  udid: "11111111-2222-3333-4444-555555555555",
-} as const;
-
-const iosSelection: IosWorkspaceSelection = {
-  device: iosSimulator,
-  environment: {
-    build: "1",
-    bundleId: "dev.contingency.ioslogin",
-    deviceType: "com.apple.CoreSimulator.SimDeviceType.iPhone-17",
-    runtimeVersion: "26.5",
-  },
-  outcomes: [],
-  setup: { conditions: [], kind: "restart-app" },
-};
-
-const iosScreenshot = () => {
-  const bytes = Buffer.alloc(24);
-  bytes.writeUInt32BE(1206, 16);
-  bytes.writeUInt32BE(2622, 20);
-  return bytes.toString("base64");
-};
-
-const fakeIosStream = (): IosDeviceStream => ({
-  access: { path: "/ios/stream/fixture", token: "fixture" },
-  authorized: () => false,
-  begin: () => Effect.succeed(true),
-  close: () => Effect.void,
-  end: () => Effect.succeed(null),
-  frames: Stream.empty,
-  integrity: () => null,
-  recover: () => Effect.sync((): undefined => {}),
-  start: () => Effect.sync((): undefined => {}),
-});
-
-const makeFakeIosWorkspace = (
-  root: string,
-  storeLayer: ReturnType<typeof makeTeachingRecordingStoreLayer>,
-  options: {
-    readonly failNextCaptures?: () => boolean;
-    /** Whether a tap never answers, as a hung device would. */
-    readonly hangActivate?: () => boolean;
-  } = {}
-) => {
-  let generation = 0;
-  const capture = () =>
-    Effect.suspend(() => {
-      if (options.failNextCaptures?.() === true) {
-        return Effect.fail(iosRuntimeError("capture_incomplete"));
-      }
-      generation += 1;
-      return Effect.succeed<IosObservation>({
-        appId: iosSelection.environment.bundleId,
-        backendSessionId: "ios-fixture",
-        device: iosSimulator,
-        generation,
-        id: `ios-obs-${generation}`,
-        nodes: [
-          {
-            covered: false,
-            editable: false,
-            hittable: true,
-            name: "Continue",
-            packageName: iosSelection.environment.bundleId,
-            password: false,
-            role: "button",
-            target: `@e1~s${generation}`,
-          },
-          {
-            covered: false,
-            editable: true,
-            hittable: true,
-            name: "Email",
-            packageName: iosSelection.environment.bundleId,
-            password: false,
-            role: "textbox",
-            target: `@e2~s${generation}`,
-          },
-        ],
-        platform: "ios",
-        screenshot: {
-          capturedAt: "2026-11-25T00:00:00.000Z",
-          encoding: "base64",
-          format: "png",
-          image: iosScreenshot(),
-        },
-      });
-    });
-  return makeIosWorkspaceLayer({
-    acquireStream: () => Effect.succeed(fakeIosStream()),
-    booted: () => Effect.succeed(true),
-    makeHid: () => Effect.succeed({ forward: () => Effect.void }),
-    root: () => root,
-    runDeps: {
-      installedBuild: () => Effect.succeed("1"),
-      preflight: () => Effect.void,
-      restart: () => Effect.void,
-      start: (startup) =>
-        adaptNativeAppRuntime({
-          backend: {
-            activate: () =>
-              options.hangActivate?.() === true ? Effect.never : Effect.void,
-            capture,
-            close: () => Effect.void,
-            fill: () =>
-              Effect.succeed({
-                confirmation: "confirmed",
-                outcome: "entered",
-              }),
-            recover: () => Effect.void,
-            rotate: () => Effect.void,
-            sessionId: "ios-fixture",
-            systemKey: () => Effect.void,
-            validate: () => Effect.void,
-          },
-          capabilities: iosCapabilities,
-          error: iosRuntimeError,
-          policy: nativeAppActionPolicy(iosRuntimeError, iosSystemKeys),
-          startup,
-        }),
-    },
-    simctl: () => Effect.succeed(""),
-  }).pipe(
-    Layer.provide(Layer.mergeAll(makeFlowCatalogLayer({ root }), storeLayer))
-  );
-};
+const iosSelection: IosWorkspaceSelection = corpusIosSelection();
 
 /** One named node of a snapshot's observation, as an input names it. */
 const namedTarget = (
@@ -480,8 +340,19 @@ it.live(
         )
       );
       let hang = false;
+      const iosDevice = makeCorpusNativeBackend({
+        beforeActivate: () => (hang ? Effect.never : Effect.void),
+        device: corpusIosSimulator,
+        platform: "ios",
+        script: { start: "controls", transitions: [] },
+      });
       const iosCtx = yield* Layer.build(
-        makeFakeIosWorkspace(root, storeLayer, { hangActivate: () => hang })
+        makeCorpusIosWorkspaceLayer({
+          device: iosDevice,
+          root: () => root,
+        }).pipe(
+          Layer.provide(Layer.merge(makeFlowCatalogLayer({ root }), storeLayer))
+        )
       );
 
       const androidWorkspace = Context.get(androidCtx, AndroidWorkspace);
@@ -743,10 +614,17 @@ it.effect(
         Layer.provideMerge(storeLayer)
       );
 
-      let failCapture = false;
-      const iosLayer = makeFakeIosWorkspace(root, storeLayer, {
-        failNextCaptures: () => failCapture,
+      const iosDevice = makeCorpusNativeBackend({
+        device: corpusIosSimulator,
+        platform: "ios",
+        script: { start: "controls", transitions: [] },
       });
+      const iosLayer = makeCorpusIosWorkspaceLayer({
+        device: iosDevice,
+        root: () => root,
+      }).pipe(
+        Layer.provide(Layer.merge(makeFlowCatalogLayer({ root }), storeLayer))
+      );
       const records: SafeRecord[] = [];
       const captureLogger = Logger.layer([
         Logger.make((options) => {
@@ -790,49 +668,49 @@ it.effect(
           },
           "user"
         );
+        const preparedContinue = namedTarget(prepared, "Continue");
         // 1. Trigger a Capture Gap that automatic recovery repairs.
-        failCapture = true;
+        iosDevice.failCapturesUntilRecover();
         const repairedFiber = yield* Effect.forkChild(
           ios.execute(
             {
               _tag: "input",
               action: {
                 _tag: "activate",
-                target: prepared.observation?.nodes[0]?.target ?? "",
+                target: preparedContinue.target,
               },
-              observationId: prepared.observation?.id ?? "",
+              observationId: preparedContinue.observationId,
               operationId: op("gap-repaired-act"),
               sessionId: started.id,
             },
             "agent"
           )
         );
-        // Let settle retries fail, then allow recovery's capture to succeed.
-        yield* TestClock.adjust("6 seconds");
-        failCapture = false;
-        yield* TestClock.adjust("1 second");
+        // Let settle retries fail, then automatic recovery clears the failure.
+        yield* TestClock.adjust("7 seconds");
         const repairedResult = yield* Fiber.join(repairedFiber);
         expect(repairedResult.captureRepairs?.length ?? 0).toBe(1);
 
         // 2. An unrepaired Capture Gap: recovery's own capture fails too, so
         // the session pauses with the gap open.
-        failCapture = true;
+        const repairedContinue = namedTarget(repairedResult, "Continue");
+        iosDevice.failNextCaptures(1_000_000);
         const paused = yield* runSettled(
           ios.execute(
             {
               _tag: "input",
               action: {
                 _tag: "activate",
-                target: repairedResult.observation?.nodes[0]?.target ?? "",
+                target: repairedContinue.target,
               },
-              observationId: repairedResult.observation?.id ?? "",
+              observationId: repairedContinue.observationId,
               operationId: op("gap-unrepaired-act"),
               sessionId: started.id,
             },
             "agent"
           )
         );
-        failCapture = false;
+        iosDevice.failNextCaptures(0);
         expect(Result.isFailure(paused)).toBe(true);
         const gaps = "contingency.capture.gaps";
         const beforeRecover = yield* Metric.snapshot;

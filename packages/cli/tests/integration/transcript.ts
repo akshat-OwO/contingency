@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import { OperationId } from "@contingency/protocol";
-import { Context, Effect, FileSystem, Predicate, Schema } from "effect";
+import { Context, Effect, FileSystem, Option, Predicate, Schema } from "effect";
 
 /**
  * A Scripted Agent transcript: every program a journey sent to
@@ -130,15 +130,37 @@ export const answeredValues = ({
   value: value ?? null,
 });
 
+const JsonToolFailure = Schema.fromJsonString(
+  Schema.Struct({
+    code: Schema.String,
+    failureReference: Schema.optionalKey(Schema.String),
+  })
+);
+
 /**
  * A failed operation's code and Failure Reference, read from the message the
  * agent receives: `<message> (<code>)`, then `(failureReference <ref>)` when
- * the failure has one.
+ * the failure has one, or the JSON-encoded failure struct tools like
+ * `agent_device_workspace` return.
  */
-export const failureCodeOf = (message: string) =>
-  /\((?<code>[a-z][a-z0-9_]*)\)(?: \(failureReference (?<reference>[0-9A-Z]{6})\))?$/u.exec(
-    message
-  )?.groups;
+export const failureCodeOf = (
+  message: string
+): { readonly code?: string; readonly reference?: string } | undefined => {
+  const matched =
+    /\((?<code>[a-z][a-z0-9_]*)\)(?: \(failureReference (?<reference>[0-9A-Z]{6})\))?$/u.exec(
+      message
+    )?.groups;
+  if (matched !== undefined) {
+    return matched;
+  }
+  const parsed = Schema.decodeUnknownOption(JsonToolFailure)(message);
+  if (Option.isNone(parsed)) {
+    return undefined;
+  }
+  return parsed.value.failureReference === undefined
+    ? { code: parsed.value.code }
+    : { code: parsed.value.code, reference: parsed.value.failureReference };
+};
 
 export const outcomeOf = (ending: ProgramEnding): ProgramOutcome => ({
   failureCode:
