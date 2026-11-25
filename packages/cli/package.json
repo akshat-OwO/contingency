@@ -36,6 +36,7 @@
     "agent-device": "0.21.41",
     "axe-core": "^4.13.0",
     "effect": "4.0.1",
+    "emulate": "0.14.0",
     "expo-device-hub": "0.26.1",
     "jsonc-parser": "^3.3.1",
     "lighthouse": "13.5.0",

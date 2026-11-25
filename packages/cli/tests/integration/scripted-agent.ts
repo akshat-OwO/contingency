@@ -24,11 +24,13 @@ import type { Tool } from "effect/ai";
 import { HttpRouter, HttpServer } from "effect/http";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
+import { makeDemoSiteLayer } from "../../src/services/demo-site-server.ts";
 import { AgentRunTools } from "../../src/services/mcp-agent-run.ts";
 import { AgentSessionTools } from "../../src/services/mcp-agent-session.ts";
 import { AgentCatalogTools } from "../../src/services/mcp-catalog.ts";
 import { newBrowserWaits } from "../../src/services/mcp-code-interpreter.ts";
 import { makeMcpHttpLayer } from "../../src/services/mcp-http.ts";
+import { OnboardingTools } from "../../src/services/mcp-onboarding.ts";
 import { TeachingRecordingTools } from "../../src/services/mcp-teaching-recording.ts";
 import { compactMcpValue } from "../../src/services/mcp-value.ts";
 import { connectMcp } from "../helpers/mcp-http.ts";
@@ -49,6 +51,7 @@ import {
   makeScript,
   outcomeOf,
   RECORD_TRANSCRIPTS,
+  resolveTokens,
   Script,
   substitute,
   UserAction,
@@ -64,13 +67,25 @@ import type { Adapter, Recorder, Transcript } from "./transcript.ts";
  * name inside the program. See `docs/agents/testing.md#the-scripted-agent`.
  */
 
-/** Every operation the Scripted Agent calls, typed as the agent's toolkits declare it. */
-const AgentTools = Toolkit.merge(
+/** The operations every process serves, which the in-process adapter calls. */
+const ProcessTools = Toolkit.merge(
   AgentSessionTools,
   AgentCatalogTools,
   AgentRunTools,
   TeachingRecordingTools
 );
+
+/**
+ * Every operation the Scripted Agent calls, typed as the agent's toolkits
+ * declare it. The demo store's operations run only over HTTP, on a process
+ * built with `demo`.
+ */
+const AgentTools = Toolkit.merge(ProcessTools, OnboardingTools);
+
+const servedByEveryProcess = (
+  operation: string
+): operation is keyof (typeof ProcessTools)["tools"] & string =>
+  Predicate.hasProperty(ProcessTools.tools, operation);
 type AgentTool = (typeof AgentTools)["tools"];
 export type OperationName = keyof AgentTool & string;
 
@@ -395,14 +410,22 @@ export class ScriptedAgent extends Context.Service<
 const inProcessAgent = Layer.effect(
   ScriptedAgent,
   Effect.gen(function* makeInProcessAgent() {
-    const handlers = yield* AgentTools;
+    const handlers = yield* ProcessTools;
     const sessions = yield* AgentSession;
     /** The tool's answer as the agent reads it: encoded, then compacted. */
-    const handle = (operation: OperationName, input: Schema.JsonObject) =>
+    const handle = (
+      operation: OperationName,
+      input: Schema.JsonObject
+    ): Effect.Effect<Schema.Json, ToolFailure> => {
+      if (!servedByEveryProcess(operation)) {
+        return Effect.die(
+          `${operation} runs only over HTTP, on a demo process.`
+        );
+      }
       // SAFETY: the handler decodes `input` with the tool's own parameters
       // schema, exactly as an MCP call does; its encoded result is JSON; and
       // each handler layer holds the services its tools depend on.
-      handlers.handle(operation, input as never).pipe(
+      return handlers.handle(operation, input as never).pipe(
         Effect.orDie,
         Effect.flatMap(Stream.runCollect),
         declaredFailure,
@@ -420,6 +443,7 @@ const inProcessAgent = Layer.effect(
               );
         })
       ) as Effect.Effect<Schema.Json, ToolFailure>;
+    };
     return ScriptedAgent.of({
       run: ({ input, operation, target }) =>
         Effect.gen(function* runInProcess() {
@@ -467,14 +491,23 @@ const inProcessAgent = Layer.effect(
   })
 );
 
-/** Serves the single MCP tool over this process's services, on a free port. */
-const mcpServer = HttpRouter.serve(
-  makeMcpHttpLayer(new Set(["http://127.0.0.1:7777"]), {})
-).pipe(
-  Layer.provideMerge(
-    NodeHttpServer.layer(createServer, { host: "127.0.0.1", port: 0 })
-  )
-);
+/**
+ * Serves the single MCP tool over this process's services, on a free port.
+ * With `demo`, it also serves the demo store and its operations, as
+ * `contingency mcp --demo` does.
+ */
+const servedMcp = (demo: boolean) =>
+  HttpRouter.serve(
+    makeMcpHttpLayer(
+      new Set(["http://127.0.0.1:7777"]),
+      demo ? { demoSite: makeDemoSiteLayer() } : {}
+    )
+  ).pipe(
+    Layer.provideMerge(
+      NodeHttpServer.layer(createServer, { host: "127.0.0.1", port: 0 })
+    )
+  );
+const mcpServer = servedMcp(false);
 
 /** Opens an MCP session on the served tool and runs programs through it. */
 const connectToMcp = Effect.gen(function* connectToServedMcp() {
@@ -486,7 +519,7 @@ const connectToMcp = Effect.gen(function* connectToServedMcp() {
   return executeProgram(request);
 });
 
-const httpAgent = (recorder: Recorder) =>
+const httpAgent = (recorder: Recorder, demo: boolean) =>
   Layer.effect(
     ScriptedAgent,
     Effect.gen(function* makeHttpAgent() {
@@ -509,22 +542,28 @@ const httpAgent = (recorder: Recorder) =>
           }),
       });
     })
-  ).pipe(Layer.provide(mcpServer));
+  ).pipe(Layer.provide(servedMcp(demo)));
 
 /**
  * One MCP process over a Catalog Root with the Scripted Agent attached, on
- * the journey's adapter. Build it again to restart the process.
+ * the journey's adapter. Build it again to restart the process. A `demo`
+ * process also serves the demo store, whose operations run only over HTTP.
  */
 export const scriptedProcess = (
   root: string,
-  options?: globalThis.Parameters<typeof agentProcessLayer>[1]
+  {
+    demo = false,
+    ...options
+  }: globalThis.Parameters<typeof agentProcessLayer>[1] & {
+    readonly demo?: boolean;
+  } = {}
 ) =>
   Layer.unwrap(
     Script.useSync((script) => {
       script.recorder.process();
       const process = agentProcessLayer(root, options);
       return script.adapter === "http"
-        ? httpAgent(script.recorder).pipe(Layer.provideMerge(process))
+        ? httpAgent(script.recorder, demo).pipe(Layer.provideMerge(process))
         : inProcessAgent.pipe(Layer.provideMerge(process));
     })
   );
@@ -658,21 +697,26 @@ type JourneyServices = Script | Scope.Scope | NodeServices.NodeServices;
 
 /**
  * Registers a journey. It runs on the in-process adapter; a `singleTool`
- * journey also runs over HTTP and is tagged `@single-tool`. With
+ * journey also runs over HTTP and is tagged `@single-tool`. A `demo`
+ * journey calls the demo store's operations, so it runs only over HTTP. With
  * `RECORD_TRANSCRIPTS=1`, its HTTP run rewrites its `transcript`.
  */
 export const journey = <E>(
   name: string,
   options: {
+    readonly demo?: boolean;
     readonly singleTool?: boolean;
     readonly timeout?: number;
     readonly transcript?: string;
   },
   body: Effect.Effect<void, E, JourneyServices>
 ) => {
-  const adapters: readonly Adapter[] =
-    options.singleTool === true ? ["in-process", "http"] : ["in-process"];
-  const tag = options.singleTool === true ? " @single-tool" : "";
+  const overHttp = options.singleTool === true || options.demo === true;
+  const adapters: readonly Adapter[] = [
+    ...(options.demo === true ? [] : (["in-process"] as const)),
+    ...(overHttp ? (["http"] as const) : []),
+  ];
+  const tag = overHttp ? " @single-tool" : "";
   for (const adapter of adapters) {
     it.live(
       `${name}${tag} (${adapter})`,
@@ -695,24 +739,6 @@ export const journey = <E>(
   }
 };
 
-const valueAt = (
-  value: Schema.Json | undefined,
-  path: readonly (string | number)[]
-) => {
-  let node = value;
-  for (const key of path) {
-    if (Array.isArray(node)) {
-      node = Predicate.isNumber(key) ? node[key] : undefined;
-    } else {
-      node =
-        node !== undefined && isJsonObject(node) && Predicate.isString(key)
-          ? node[key]
-          : undefined;
-    }
-  }
-  return node;
-};
-
 /**
  * Replays a transcript over HTTP against fresh processes on `root`. Each
  * program must end as it did when it was recorded; each token takes this
@@ -726,34 +752,7 @@ export const replayTranscript = (
   }
 ) =>
   Effect.gen(function* replay() {
-    const tokens = new Map<string, string>();
     const values = new Map<number, Schema.Json>();
-    const resolve = (index: number) =>
-      Effect.gen(function* resolveTokens() {
-        for (const { from, token } of transcript.bindings) {
-          if (tokens.has(token)) {
-            continue;
-          }
-          if (from._tag === "environment") {
-            const value = options.environment[from.name];
-            if (value === undefined) {
-              return yield* Effect.die(`The replay supplies no ${from.name}.`);
-            }
-            tokens.set(token, value);
-            continue;
-          }
-          if (from.step >= index) {
-            continue;
-          }
-          const value = valueAt(values.get(from.step), from.path);
-          if (!Predicate.isString(value)) {
-            return yield* Effect.die(
-              `Step ${from.step} has no ${from.path.join(".")} for ${token}.`
-            );
-          }
-          tokens.set(token, value);
-        }
-      });
     const processes: {
       readonly index: number;
       readonly step: Transcript["steps"][number];
@@ -773,7 +772,11 @@ export const replayTranscript = (
       yield* Effect.gen(function* replayProcess() {
         const execute = yield* connectToMcp;
         for (const { index, step } of steps) {
-          yield* resolve(index);
+          const tokens = yield* resolveTokens(transcript, {
+            environment: options.environment,
+            index,
+            values,
+          });
           if (step._tag === "user") {
             yield* performUserAction(
               Schema.decodeUnknownSync(Schema.fromJsonString(UserAction))(
