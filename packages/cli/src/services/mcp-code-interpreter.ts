@@ -17,6 +17,7 @@ import {
   Predicate,
   Schema,
   Stream,
+  Tracer,
 } from "effect";
 import type { Types } from "effect";
 import { AiError, McpSchema, McpServer, Tool, Toolkit } from "effect/ai";
@@ -46,6 +47,8 @@ import { mcpFailureText } from "./failure-seam.ts";
 import { IosWorkspace } from "./ios-workspace.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
 import { compactMcpValue } from "./mcp-value.ts";
+import { recordMcpCall } from "./metrics.ts";
+import type { McpCallOutcome } from "./metrics.ts";
 import {
   compactJsonSchema,
   compactOutputSchema,
@@ -212,12 +215,15 @@ const isJson = Schema.is(Schema.Json);
 const isString = Schema.is(Schema.String);
 
 // Request services come from each MCP call, as Effect's own McpServer
-// arranges, so verification elicitation reaches the client that asked.
+// arranges, so verification elicitation reaches the client that asked, and
+// a handler's spans nest under the call's `mcp.tool` span rather than the
+// span the server was built in.
 const omitRequestServices = Context.omit(
   McpSchema.McpRequestContext,
   McpSchema.McpServerClient,
   HttpServerRequest.HttpServerRequest,
-  CurrentLogLevel
+  CurrentLogLevel,
+  Tracer.ParentSpan
 );
 
 /** What McpServer answers for a failure it does not disclose. */
@@ -371,6 +377,12 @@ const decodeSessionResult = Schema.decodeUnknownOption(
     Schema.Struct({ session: Schema.Struct({ id: AgentSessionId }) }),
   ])
 );
+const decodeRunResult = Schema.decodeUnknownOption(
+  Schema.Union([
+    Schema.Struct({ runId: Schema.String }),
+    Schema.Struct({ run: Schema.Struct({ runId: Schema.String }) }),
+  ])
+);
 const ActionStop = Schema.Struct({
   intervention: Schema.optional(Schema.NullOr(Schema.Json)),
   stopped: Schema.optional(
@@ -410,6 +422,54 @@ const decodeAndroidResult = Schema.decodeUnknownOption(
     ),
   })
 );
+/** The session an operation's input names. */
+const inputSession = (name: string, input: Schema.Json) =>
+  name === "agent_device_workspace"
+    ? Option.getOrUndefined(
+        Option.flatMap(decodeAndroidCommand(input), ({ command }) =>
+          Option.fromNullishOr(command.sessionId)
+        )
+      )
+    : Option.getOrUndefined(
+        Option.map(decodeSessionInput(input), ({ sessionId }) => sessionId)
+      );
+
+/** The session an operation's answer names, such as one a start opened. */
+const answerSession = (name: string, value: Schema.Json) =>
+  name === "agent_device_workspace"
+    ? Option.getOrUndefined(
+        Option.map(decodeAndroidResult(value), ({ id }) => id)
+      )
+    : Option.getOrUndefined(
+        Option.map(decodeSessionResult(value), (result) =>
+          "session" in result ? result.session.id : result.id
+        )
+      );
+
+/** The Run an operation's input or answer names. */
+const runOf = (value: Schema.Json) =>
+  Option.getOrUndefined(
+    Option.map(decodeRunResult(value), (result) =>
+      "run" in result ? result.run.runId : result.runId
+    )
+  );
+
+const callOutcome = (outcome: DispatchOutcome): McpCallOutcome => {
+  if (outcome.intervention !== undefined) {
+    return "intervention";
+  }
+  return outcome.ok ? "succeeded" : "failed";
+};
+
+/** Annotations without the keys a call could not name. */
+const namedOnly = (fields: {
+  readonly sessionId: string | undefined;
+  readonly runId: string | undefined;
+}) =>
+  Object.fromEntries(
+    Object.entries(fields).filter(([, value]) => value !== undefined)
+  );
+
 const encodePendingDecisions = Schema.encodeUnknownOption(
   Schema.Array(AgentPendingDecision)
 );
@@ -657,13 +717,22 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
      * intervention. A program may never act past one: the Pending Decision,
      * Takeover, or Variable request goes back to the agent instead.
      */
-    const makeDispatch = (): InterpreterDispatch => {
+    const makeDispatch = (
+      onContext?: (context: {
+        readonly sessionId?: string | undefined;
+        readonly runId?: string | undefined;
+      }) => void
+    ): InterpreterDispatch => {
       // What this program last saw of each session. A wait it has not seen is
       // new, even one that began during a read or between two operations; a
       // wait that predates the program is not, so a program can still read it.
       const seen = new Map<AgentSessionId, AgentSessionSnapshot>();
-      return (name, input) =>
-        Effect.gen(function* dispatchOperation() {
+      return (name, input) => {
+        const asked = {
+          runId: runOf(input),
+          sessionId: inputSession(name, input),
+        };
+        const dispatchUnwrapped = Effect.gen(function* dispatchOperation() {
           const operation = catalog.get(name);
           if (operation === undefined) {
             return {
@@ -745,6 +814,31 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
                 ),
               } satisfies DispatchOutcome);
         });
+        return Effect.gen(function* observeMcpTool() {
+          const outcome = yield* dispatchUnwrapped;
+          const sessionId =
+            asked.sessionId ??
+            (outcome.ok ? answerSession(name, outcome.value) : undefined);
+          const runId =
+            asked.runId ?? (outcome.ok ? runOf(outcome.value) : undefined);
+          if (asked.sessionId === undefined && sessionId !== undefined) {
+            yield* Effect.annotateCurrentSpan("sessionId", sessionId);
+          }
+          const ended = callOutcome(outcome);
+          yield* Effect.annotateCurrentSpan("outcome", ended);
+          yield* recordMcpCall(name, ended);
+          onContext?.({ runId, sessionId });
+          return outcome;
+        }).pipe(
+          Effect.annotateLogs(namedOnly(asked)),
+          Effect.withSpan("mcp.tool", {
+            attributes: {
+              operation: name,
+              ...namedOnly({ runId: undefined, sessionId: asked.sessionId }),
+            },
+          })
+        );
+      };
     };
 
     return CodeInterpreterTools.of({
@@ -762,15 +856,31 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
                 }
               : { description: "", name: operation.name }
         );
+        let programSessionId: string | undefined;
+        let programRunId: string | undefined;
         return runInterpreterProgram({
           code: params.code,
-          dispatch: makeDispatch(),
+          dispatch: makeDispatch(({ runId, sessionId }) => {
+            if (sessionId !== undefined) {
+              programSessionId = sessionId;
+            }
+            if (runId !== undefined) {
+              programRunId = runId;
+            }
+          }),
           operations,
           timeoutMs: params.timeoutMs ?? INTERPRETER_LIMITS.defaultTimeoutMs,
         }).pipe(
           Effect.flatMap(({ intervention, process, receipts, ...outcome }) =>
             Effect.gen(function* answer() {
-              yield* Effect.logDebug("Code interpreter process", process);
+              yield* Effect.logDebug("Code interpreter process", process).pipe(
+                Effect.annotateLogs(
+                  namedOnly({
+                    runId: programRunId,
+                    sessionId: programSessionId,
+                  })
+                )
+              );
               const result = compactInterpreterOutcome(
                 { ...outcome, process, receipts },
                 params.timeoutMs ?? INTERPRETER_LIMITS.defaultTimeoutMs

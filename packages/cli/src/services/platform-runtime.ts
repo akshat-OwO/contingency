@@ -24,6 +24,7 @@ import type {
   AndroidRuntimeStartInput,
 } from "./android-runtime-contract.ts";
 import type { CreateBrowserService } from "./create-browser-contract.ts";
+import { recordActionDuration } from "./metrics.ts";
 import { nativeAppRuntimeError } from "./native-app-error.ts";
 import type { NativeAppRuntimeStartInput } from "./native-app-runtime-contract.ts";
 import {
@@ -243,6 +244,21 @@ const signature = (snapshot: {
   readonly nodes: readonly unknown[];
 }) => JSON.stringify([snapshot.url, snapshot.nodes]);
 
+/** One browser action at the Platform Runtime interface, timed and traced. */
+const actWeb = <A, E>(action: string, effect: Effect.Effect<A, E>) =>
+  effect.pipe(
+    recordActionDuration("web"),
+    Effect.withSpan("runtime.act", {
+      attributes: { action, platform: "web" },
+    })
+  );
+
+/** One browser observation at the Platform Runtime interface, traced. */
+const observeWeb = <A, E>(effect: Effect.Effect<A, E>) =>
+  effect.pipe(
+    Effect.withSpan("runtime.observe", { attributes: { platform: "web" } })
+  );
+
 /** Guard retained tabs and action observations as well as the shared dispatch path. */
 export const adaptBrowserRuntime = (input: {
   readonly browser: AgentBrowser;
@@ -306,7 +322,7 @@ export const adaptBrowserRuntime = (input: {
             const guarded: AgentBrowserTab = {
               ...tab,
               activateCoordinates: (...args) =>
-                mutate(tab.activateCoordinates(...args)),
+                actWeb("coordinate", mutate(tab.activateCoordinates(...args))),
               beginObservation: (action) =>
                 live(
                   Effect.gen(function* beginObservation() {
@@ -325,18 +341,22 @@ export const adaptBrowserRuntime = (input: {
                     };
                   })
                 ),
-              enterPrivate: (...args) => mutate(tab.enterPrivate(...args)),
+              enterPrivate: (...args) =>
+                actWeb("fill", mutate(tab.enterPrivate(...args))),
               inspect: (x, y) => live(tab.inspect(x, y)),
-              perform: (...args) => mutate(tab.perform(...args)),
+              perform: (action, ...rest) =>
+                actWeb(action.type, mutate(tab.perform(action, ...rest))),
               screenshot: (...args) => live(tab.screenshot(...args)),
-              settledSnapshot: (options) => live(tab.settledSnapshot(options)),
-              snapshot: (options) => live(tab.snapshot(options)),
-              snapshotAfter: (url) => live(tab.snapshotAfter(url)),
+              settledSnapshot: (options) =>
+                observeWeb(live(tab.settledSnapshot(options))),
+              snapshot: (options) => observeWeb(live(tab.snapshot(options))),
+              snapshotAfter: (url) => observeWeb(live(tab.snapshotAfter(url))),
             };
             tabs.set(tab, guarded);
             return guarded;
           })
         ),
+      setFiles: (...args) => actWeb("upload", input.browser.setFiles(...args)),
     };
     const close = lock.withPermits(1)(
       Effect.gen(function* closeRuntime() {
@@ -357,95 +377,102 @@ export const adaptBrowserRuntime = (input: {
       capabilities: browserCapabilities,
       close: () => close,
       dispatch: (id, action) =>
-        lock
-          .withPermits(1)(
-            live(
-              Effect.gen(function* dispatchRuntime() {
-                const captured = Option.getOrUndefined(atoms.get(observation));
-                if (
-                  captured === undefined ||
-                  captured.id !== id ||
-                  captured.epoch !== atoms.get(state).epoch ||
-                  (yield* input.browser.active()) !== captured.tab
-                ) {
-                  return yield* Effect.fail(stale());
-                }
-                if (
-                  signature(yield* captured.tab.snapshot()) !==
-                  captured.signature
-                ) {
-                  yield* invalidate;
-                  return yield* Effect.fail(stale());
-                }
-                if (action.type === "coordinate") {
+        actWeb(
+          action.type,
+          lock
+            .withPermits(1)(
+              live(
+                Effect.gen(function* dispatchRuntime() {
+                  const captured = Option.getOrUndefined(
+                    atoms.get(observation)
+                  );
                   if (
-                    !Number.isFinite(action.x) ||
-                    !Number.isFinite(action.y) ||
-                    action.x < 0 ||
-                    action.y < 0 ||
-                    (yield* captured.tab.screenshot(true, [], [])).image !==
-                      captured.image
+                    captured === undefined ||
+                    captured.id !== id ||
+                    captured.epoch !== atoms.get(state).epoch ||
+                    (yield* input.browser.active()) !== captured.tab
                   ) {
                     return yield* Effect.fail(stale());
                   }
+                  if (
+                    signature(yield* captured.tab.snapshot()) !==
+                    captured.signature
+                  ) {
+                    yield* invalidate;
+                    return yield* Effect.fail(stale());
+                  }
+                  if (action.type === "coordinate") {
+                    if (
+                      !Number.isFinite(action.x) ||
+                      !Number.isFinite(action.y) ||
+                      action.x < 0 ||
+                      action.y < 0 ||
+                      (yield* captured.tab.screenshot(true, [], [])).image !==
+                        captured.image
+                    ) {
+                      return yield* Effect.fail(stale());
+                    }
+                    yield* invalidate;
+                    yield* captured.tab.activateCoordinates(action.x, action.y);
+                    return;
+                  }
+                  const ref = captured.refs.get(action.target);
+                  if (ref === undefined) {
+                    return yield* Effect.fail(stale());
+                  }
+                  yield* input.browser.currentRef(ref);
                   yield* invalidate;
-                  yield* captured.tab.activateCoordinates(action.x, action.y);
-                  return;
-                }
-                const ref = captured.refs.get(action.target);
-                if (ref === undefined) {
-                  return yield* Effect.fail(stale());
-                }
-                yield* input.browser.currentRef(ref);
-                yield* invalidate;
-                yield* captured.tab.perform(
-                  action.type === "activate"
-                    ? { ref, type: "click" }
-                    : { ...action, ref }
-                );
-              })
+                  yield* captured.tab.perform(
+                    action.type === "activate"
+                      ? { ref, type: "click" }
+                      : { ...action, ref }
+                  );
+                })
+              )
             )
-          )
-          .pipe(Effect.mapError(runtimeError)),
+            .pipe(Effect.mapError(runtimeError))
+        ),
       invalidate: () => lock.withPermits(1)(invalidate),
       observe: () =>
-        lock
-          .withPermits(1)(
-            live(
-              Effect.gen(function* observeRuntime() {
-                const tab = yield* input.browser.active();
-                const snapshot = yield* tab.snapshot();
-                const screenshot = yield* tab.screenshot(true, [], []);
-                const id = randomUUID();
-                const refs = new Map(
-                  snapshot.nodes.map((node) => [node.ref, node.ref])
-                );
-                atoms.set(
-                  observation,
-                  Option.some({
-                    epoch: atoms.get(state).epoch,
+        observeWeb(
+          lock
+            .withPermits(1)(
+              live(
+                Effect.gen(function* observeRuntime() {
+                  const tab = yield* input.browser.active();
+                  const snapshot = yield* tab.snapshot();
+                  const screenshot = yield* tab.screenshot(true, [], []);
+                  const id = randomUUID();
+                  const refs = new Map(
+                    snapshot.nodes.map((node) => [node.ref, node.ref])
+                  );
+                  atoms.set(
+                    observation,
+                    Option.some({
+                      epoch: atoms.get(state).epoch,
+                      id,
+                      image: screenshot.image,
+                      refs,
+                      signature: signature(snapshot),
+                      tab,
+                    })
+                  );
+                  const { url: _url, ...visual } = screenshot;
+                  return {
                     id,
-                    image: screenshot.image,
-                    refs,
-                    signature: signature(snapshot),
-                    tab,
-                  })
-                );
-                const { url: _url, ...visual } = screenshot;
-                return {
-                  id,
-                  nodes: snapshot.nodes.map((node) => ({
-                    name: node.name,
-                    role: node.role,
-                    target: node.ref,
-                  })),
-                  platform: "web" as const,
-                  screenshot: visual,
-                };
-              })
+                    nodes: snapshot.nodes.map((node) => ({
+                      name: node.name,
+                      role: node.role,
+                      target: node.ref,
+                    })),
+                    platform: "web" as const,
+                    screenshot: visual,
+                  };
+                })
+              )
             )
-          )
-          .pipe(Effect.mapError(runtimeError)),
+            .pipe(Effect.mapError(runtimeError))
+        ),
       platform: "web",
     };
   });

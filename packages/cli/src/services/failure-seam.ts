@@ -4,7 +4,7 @@ import {
   withFailureReference,
 } from "@contingency/protocol";
 import type { BrowserRpcErrorType } from "@contingency/protocol";
-import { Cause, Effect, Layer, LogLevel, Option } from "effect";
+import { Cause, Effect, Layer, LogLevel, Option, Schema } from "effect";
 
 import { childOutputsOf } from "./child-process.ts";
 import { lookupFailure, recordFailure } from "./failure-reference.ts";
@@ -54,21 +54,34 @@ export const internalFailure = (
 const isDefect = (cause: Cause.Cause<unknown>) =>
   Cause.hasDies(cause) && !Cause.hasInterrupts(cause);
 
+/** The session or Run an RPC names, for the record a defect writes. */
+const decodePayloadIds = Schema.decodeUnknownOption(
+  Schema.Struct({
+    runId: Schema.optionalKey(Schema.String),
+    sessionId: Schema.optionalKey(Schema.String),
+  })
+);
+
 /**
  * A defect fails its own request with a reference. Effect's RPC server would
  * otherwise send it as a client-wide defect, failing every request in flight.
  */
-export const RpcFailuresLive = Layer.succeed(RpcFailures, (effect, { rpc }) =>
-  effect.pipe(
-    Effect.catchCause((cause) =>
-      isDefect(cause)
-        ? internalFailure(cause).pipe(
-            Effect.annotateLogs({ rpc: rpc._tag }),
-            Effect.flatMap(Effect.fail)
-          )
-        : Effect.failCause(cause)
+export const RpcFailuresLive = Layer.succeed(
+  RpcFailures,
+  (effect, { payload, rpc }) =>
+    effect.pipe(
+      Effect.catchCause((cause) =>
+        isDefect(cause)
+          ? internalFailure(cause).pipe(
+              Effect.annotateLogs({
+                rpc: rpc._tag,
+                ...Option.getOrElse(decodePayloadIds(payload), () => ({})),
+              }),
+              Effect.flatMap(Effect.fail)
+            )
+          : Effect.failCause(cause)
+      )
     )
-  )
 );
 
 /** A cause as the Workspace shows it: the cause, then each failed child's output tail. */
