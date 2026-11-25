@@ -621,6 +621,16 @@ journey(
         },
         "user"
       );
+      const afterAllowTap = yield* workspace.execute(
+        { _tag: "observe", image: false, sessionId: started.id },
+        "user"
+      );
+      expect(device.currentCapture()).toBe("controls");
+      expect(
+        afterAllowTap.observation?.nodes.some(
+          (node) => node.role === "button" && node.name === "Continue"
+        )
+      ).toBe(true);
       const stopped = yield* workspace.execute(
         {
           _tag: "record",
@@ -649,6 +659,15 @@ journey(
         operationId: claimOp,
         recordingId,
       });
+      const timeline = yield* call("agent_teaching_timeline_get", {
+        claimOperationId: claimOp,
+        recordingId,
+      });
+      const recordedSteps = timeline.entries
+        .filter((entry) => entry._tag === "action")
+        .map((entry) => entry.description);
+      expect(recordedSteps).toContain("Activate button Continue");
+      expect(recordedSteps).toContain("Activate button Allow Once");
       yield* call("agent_flow_save", {
         claimOperationId: claimOp,
         files: [
@@ -840,6 +859,94 @@ journey(
         recordingId,
       });
       expect(listed.recordings[0]?.lifecycle).toBe("dry-run-passed");
+    }).pipe(
+      Effect.provide(
+        scriptedProcess(root, {
+          iosWorkspace: makeCorpusIosWorkspaceLayer({
+            device,
+            root: () => root,
+          }),
+        })
+      ),
+      Effect.scoped
+    );
+  })
+);
+
+journey(
+  "reports an unanswered iOS variable-request as an intervention on both Scripted Agent adapters",
+  { singleTool: true },
+  Effect.gen(function* iosVariableRequestInterventionJourney() {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped({
+      prefix: "contingency-ios-var-req-",
+    });
+    const selection = corpusIosSelection();
+    const device = makeCorpusNativeBackend({
+      device: corpusIosSimulator,
+      platform: "ios",
+      script: IOS_WIDGET_SCRIPT,
+    });
+    const flowName = FlowName.make("ios-var-req");
+
+    yield* Effect.gen(function* runVariableRequestJourney() {
+      const workspace = yield* IosWorkspace;
+      const startIntervention = yield* Effect.flip(
+        call("agent_device_workspace", {
+          command: {
+            _tag: "start",
+            agentSetup: true,
+            flowName,
+            kind: "teaching",
+            operationId: op("ios-var-start"),
+            recordingId: null,
+            selection,
+          },
+          platform: "ios",
+        })
+      );
+      expect(startIntervention.code).toBe("intervention");
+      const sessionId = AgentSessionId.make(
+        startIntervention.intervention?.sessionId ?? ""
+      );
+      yield* workspace.execute(
+        {
+          _tag: "prepare",
+          operationId: op("ios-var-prepare"),
+          sessionId,
+        },
+        "user"
+      );
+
+      // An unanswered variable-request stays an intervention after retry on
+      // both in-process and MCP HTTP adapters.
+      const variableIntervention = yield* Effect.flip(
+        call("agent_device_workspace", {
+          command: {
+            _tag: "variable-request",
+            name: "PIN",
+            operationId: op("ios-var-request"),
+            purpose: "Sign in before Teaching starts.",
+            replace: false,
+            sessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(variableIntervention.code).toBe("intervention");
+      expect(variableIntervention.intervention?.sessionId).toBe(sessionId);
+      expect(variableIntervention.intervention?.reasons).toContain(
+        "variable_requested"
+      );
+
+      yield* workspace.execute(
+        {
+          _tag: "close",
+          operationId: op("ios-var-close"),
+          sessionId,
+        },
+        "user"
+      );
     }).pipe(
       Effect.provide(
         scriptedProcess(root, {
