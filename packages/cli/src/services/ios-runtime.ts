@@ -95,6 +95,23 @@ export type IosRun = NativeAppRun<
   IosObservation,
   NativeAppRunState<IosRunInput, NativeAppRunDecision>
 >;
+export interface IosRunDriver {
+  readonly preflight: (
+    input: IosRunInput,
+    phase?: "installed"
+  ) => Effect.Effect<void, PlatformRuntimeError>;
+  readonly start: (
+    input: IosRunInput
+  ) => Effect.Effect<NativeAppRuntime<IosObservation>, PlatformRuntimeError>;
+  /** Restarts the prepared Target App under its Starting Data. */
+  readonly restart?: (
+    input: IosRunInput
+  ) => Effect.Effect<void, PlatformRuntimeError>;
+  /** The Target App build on the simulator, read before an installation decision. */
+  readonly installedBuild?: (
+    input: IosRunInput
+  ) => Effect.Effect<string | null, PlatformRuntimeError>;
+}
 export const iosCapabilities = [
   "semantic-actions",
   "screenshots",
@@ -919,61 +936,6 @@ export const iosRunDecisions = (
   ...clearAppDataDecision(request, runId),
 ];
 
-const createIosNativeRun = (
-  input: IosRunInput
-): Effect.Effect<IosRun, PlatformRuntimeError> =>
-  createNativeAppRun(input, {
-    authorize: (request) => request,
-    decisions: iosRunDecisions,
-    differences: (request) =>
-      request.taught.platform === "ios"
-        ? compareIosEnvironments(
-            request.taught.environment,
-            request.environment
-          )
-        : [],
-    error: iosRuntimeError,
-    preflight: (request) =>
-      makeIosDiscovery()
-        .requireRunning(request.device)
-        .pipe(
-          Effect.asVoid,
-          Effect.catchTag("IosError", hostFailure),
-          Effect.andThen(verifyIosFramebufferRelease()),
-          Effect.asVoid
-        ),
-    restart: (request) =>
-      restartIosTargetApp(iosSimctlHost, {
-        bundleId: request.targetApp,
-        environment: request.environment,
-        setup: request.setup,
-        udid: request.device.udid,
-      }).pipe(Effect.catchTag("IosError", hostFailure)),
-    start: startIosRuntime,
-    startingConditions: (request, observation) =>
-      request.setup.conditions.every((condition) =>
-        observation.nodes.some(
-          (node) =>
-            !node.covered &&
-            !node.password &&
-            node.role === condition.role &&
-            node.name === condition.name
-        )
-      ),
-    validate: (request) => {
-      if (!supportsIosPermissions(request.environment)) {
-        return Effect.fail(iosRuntimeError("permission_service_unsupported"));
-      }
-      return request.taught.platform === "ios" &&
-        request.requiredCapabilities.every((capability) =>
-          iosCapabilities.some((supported) => supported === capability)
-        ) &&
-        request.environment.bundleId === request.targetApp
-        ? Effect.void
-        : Effect.fail(iosRuntimeError("capability_missing"));
-    },
-  });
-
 /** The Target App build already on the simulator, or null when absent. */
 const readInstalledIosBuild = (request: IosRunInput) =>
   makeIosDiscovery()
@@ -987,13 +949,92 @@ const readInstalledIosBuild = (request: IosRunInput) =>
       Effect.catchTag("IosError", hostFailure)
     );
 
+const defaultIosRunDriver: Required<IosRunDriver> = {
+  installedBuild: readInstalledIosBuild,
+  preflight: (request) =>
+    makeIosDiscovery()
+      .requireRunning(request.device)
+      .pipe(
+        Effect.asVoid,
+        Effect.catchTag("IosError", hostFailure),
+        Effect.andThen(verifyIosFramebufferRelease()),
+        Effect.asVoid
+      ),
+  restart: (request) =>
+    restartIosTargetApp(iosSimctlHost, {
+      bundleId: request.targetApp,
+      environment: request.environment,
+      setup: request.setup,
+      udid: request.device.udid,
+    }).pipe(Effect.catchTag("IosError", hostFailure)),
+  start: startIosRuntime,
+};
+
 export const createIosRun = (
-  request: IosRunInput
+  request: IosRunInput,
+  deps: Partial<IosRunDriver> = {}
 ): Effect.Effect<IosRun, PlatformRuntimeError> =>
-  Effect.gen(function* createRun() {
-    const input =
-      request.appPath === undefined || request.installedBuild !== undefined
-        ? request
-        : { ...request, installedBuild: yield* readInstalledIosBuild(request) };
-    return yield* createIosNativeRun(input);
+  Effect.suspend(() => {
+    const driver = {
+      installedBuild: deps.installedBuild ?? defaultIosRunDriver.installedBuild,
+      preflight: deps.preflight ?? defaultIosRunDriver.preflight,
+      restart: deps.restart ?? defaultIosRunDriver.restart,
+      start: deps.start ?? defaultIosRunDriver.start,
+    };
+    // Read once per run, after the first preflight verified the simulator, so
+    // the installation decision can say which build it replaces.
+    let { installedBuild } = request;
+    return createNativeAppRun(request, {
+      authorize: (input) => input,
+      decisions: (input, runId) =>
+        iosRunDecisions(
+          installedBuild === undefined ? input : { ...input, installedBuild },
+          runId
+        ),
+      differences: (input) =>
+        input.taught.platform === "ios"
+          ? compareIosEnvironments(input.taught.environment, input.environment)
+          : [],
+      error: iosRuntimeError,
+      preflight: (input, phase) =>
+        driver.preflight(input, phase).pipe(
+          Effect.andThen(
+            installedBuild !== undefined ||
+              phase !== undefined ||
+              input.appPath === undefined
+              ? Effect.void
+              : driver.installedBuild(input).pipe(
+                  Effect.flatMap((build) =>
+                    Effect.sync(() => {
+                      installedBuild = build;
+                    })
+                  )
+                )
+          )
+        ),
+      restart: driver.restart,
+      start: driver.start,
+      startingConditions: (input, observation) =>
+        input.setup.conditions.every((condition) =>
+          observation.nodes.some(
+            (node) =>
+              !node.covered &&
+              !node.password &&
+              node.role === condition.role &&
+              node.name === condition.name
+          )
+        ),
+      validate: (input) => {
+        if (!supportsIosPermissions(input.environment)) {
+          return Effect.fail(iosRuntimeError("permission_service_unsupported"));
+        }
+        return input.taught.platform === "ios" &&
+          input.requiredCapabilities.every((capability) =>
+            iosCapabilities.some((supported) => supported === capability)
+          ) &&
+          input.environment.bundleId === input.targetApp
+          ? Effect.void
+          : Effect.fail(iosRuntimeError("capability_missing"));
+      },
+    });
   });

@@ -14,18 +14,13 @@ import {
   iosRuntimeError,
   iosSystemKeys,
 } from "../../src/services/ios-runtime.ts";
-import type {
-  IosObservation,
-  IosRunInput,
-} from "../../src/services/ios-runtime.ts";
+import type { IosObservation } from "../../src/services/ios-runtime.ts";
 import type { IosDeviceStream } from "../../src/services/ios-stream.ts";
 import {
   IosWorkspace,
   makeIosWorkspaceLayer,
 } from "../../src/services/ios-workspace.ts";
 import { nativeAppActionPolicy } from "../../src/services/native-app-action-policy.ts";
-import type { NativeAppRunDecision } from "../../src/services/native-app-run-contract.ts";
-import { createNativeAppRun } from "../../src/services/native-app-run.ts";
 import { adaptNativeAppRuntime } from "../../src/services/native-app-runtime.ts";
 import {
   TeachingRecordingStore,
@@ -145,58 +140,10 @@ it.effect(
             };
           })
         );
-      const createRun = (input: IosRunInput) =>
-        createNativeAppRun<IosRunInput, IosObservation, NativeAppRunDecision>(
-          input,
-          {
-            authorize: (request) => request,
-            decisions: () => [],
-            differences: () => [],
-            error: iosRuntimeError,
-            preflight: () => Effect.void,
-            start: (request) =>
-              adaptNativeAppRuntime({
-                backend: {
-                  activate: () => Effect.void,
-                  capture,
-                  close: () => Effect.void,
-                  fill: () =>
-                    Effect.succeed({
-                      confirmation: "confirmed" as const,
-                      outcome: "entered" as const,
-                    }),
-                  recover: () =>
-                    Effect.sync(() => {
-                      recoveries += 1;
-                      unknown = false;
-                    }),
-                  rotate: (orientation) =>
-                    Effect.sync(() => {
-                      device.calls.push(`rotate ${orientation}`);
-                      device.orientation = orientation;
-                    }),
-                  sessionId: "fixture-session",
-                  systemKey: (key) =>
-                    Effect.sync(() => {
-                      device.calls.push(key);
-                      device.app = "com.apple.springboard";
-                    }),
-                  validate: () => Effect.void,
-                },
-                capabilities: iosCapabilities,
-                error: iosRuntimeError,
-                policy: nativeAppActionPolicy(iosRuntimeError, iosSystemKeys),
-                startup: request,
-              }),
-            startingConditions: () => true,
-            validate: () => Effect.void,
-          }
-        );
       const storeLayer = makeTeachingRecordingStoreLayer({ root: () => root });
       const workspaceLayer = makeIosWorkspaceLayer({
         acquireStream: () => Effect.succeed(fakeStream()),
         booted: () => Effect.succeed(true),
-        createRun,
         makeHid: () =>
           Effect.succeed({
             forward: () => Effect.void,
@@ -206,6 +153,45 @@ it.effect(
               }),
           }),
         root: () => root,
+        runDeps: {
+          installedBuild: () => Effect.succeed("1"),
+          preflight: () => Effect.void,
+          restart: () => Effect.void,
+          start: (request) =>
+            adaptNativeAppRuntime({
+              backend: {
+                activate: () => Effect.void,
+                capture,
+                close: () => Effect.void,
+                fill: () =>
+                  Effect.succeed({
+                    confirmation: "confirmed" as const,
+                    outcome: "entered" as const,
+                  }),
+                recover: () =>
+                  Effect.sync(() => {
+                    recoveries += 1;
+                    unknown = false;
+                  }),
+                rotate: (orientation) =>
+                  Effect.sync(() => {
+                    device.calls.push(`rotate ${orientation}`);
+                    device.orientation = orientation;
+                  }),
+                sessionId: "fixture-session",
+                systemKey: (key) =>
+                  Effect.sync(() => {
+                    device.calls.push(key);
+                    device.app = "com.apple.springboard";
+                  }),
+                validate: () => Effect.void,
+              },
+              capabilities: iosCapabilities,
+              error: iosRuntimeError,
+              policy: nativeAppActionPolicy(iosRuntimeError, iosSystemKeys),
+              startup: request,
+            }),
+        },
         simctl: (args) =>
           Effect.sync(() => {
             const command = args.at(0);

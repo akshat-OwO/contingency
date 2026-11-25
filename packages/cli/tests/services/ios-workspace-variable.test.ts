@@ -24,10 +24,7 @@ import {
   iosRuntimeError,
   iosSystemKeys,
 } from "../../src/services/ios-runtime.ts";
-import type {
-  IosObservation,
-  IosRunInput,
-} from "../../src/services/ios-runtime.ts";
+import type { IosObservation } from "../../src/services/ios-runtime.ts";
 import type { IosDeviceStream } from "../../src/services/ios-stream.ts";
 import {
   IosWorkspace,
@@ -35,8 +32,6 @@ import {
 } from "../../src/services/ios-workspace.ts";
 import type { IosWorkspaceService } from "../../src/services/ios-workspace.ts";
 import { nativeAppActionPolicy } from "../../src/services/native-app-action-policy.ts";
-import type { NativeAppRunDecision } from "../../src/services/native-app-run-contract.ts";
-import { createNativeAppRun } from "../../src/services/native-app-run.ts";
 import { adaptNativeAppRuntime } from "../../src/services/native-app-runtime.ts";
 import { SETTLE_MILLIS } from "../../src/services/native-forwarded-lane.ts";
 import { makeTeachingRecordingStoreLayer } from "../../src/services/teaching-recording-store.ts";
@@ -183,54 +178,45 @@ const teachLogin = <A, E>(
           },
         } satisfies IosObservation;
       });
-    const createRun = (input: IosRunInput) =>
-      createNativeAppRun<IosRunInput, IosObservation, NativeAppRunDecision>(
-        input,
-        {
-          authorize: (request) => request,
-          decisions: () => [],
-          differences: () => [],
-          error: iosRuntimeError,
-          preflight: () => Effect.void,
-          start: (request) =>
-            adaptNativeAppRuntime({
-              backend: {
-                activate: (target) =>
-                  Effect.sync(() => {
-                    activations.push(target);
-                  }),
-                capture,
-                close: () => Effect.void,
-                fill: (target) =>
-                  Effect.sync(() => {
-                    fills.push(target);
-                    return {
-                      confirmation: "unconfirmed" as const,
-                      outcome: "entered" as const,
-                    };
-                  }),
-                recover: () => Effect.void,
-                rotate: () => Effect.void,
-                sessionId: "fixture-session",
-                systemKey: () => Effect.void,
-                validate: () => Effect.void,
-              },
-              capabilities: iosCapabilities,
-              error: iosRuntimeError,
-              policy: nativeAppActionPolicy(iosRuntimeError, iosSystemKeys),
-              startup: request,
-            }),
-          startingConditions: () => true,
-          validate: () => Effect.void,
-        }
-      );
     const storeLayer = makeTeachingRecordingStoreLayer({ root: () => root });
     const workspaceLayer = makeIosWorkspaceLayer({
       acquireStream: () => Effect.succeed(fakeStream()),
       booted: () => Effect.succeed(true),
-      createRun,
       makeHid: () => Effect.succeed({ forward: () => Effect.void }),
       root: () => root,
+      runDeps: {
+        installedBuild: () => Effect.succeed("1"),
+        preflight: () => Effect.void,
+        restart: () => Effect.void,
+        start: (request) =>
+          adaptNativeAppRuntime({
+            backend: {
+              activate: (target) =>
+                Effect.sync(() => {
+                  activations.push(target);
+                }),
+              capture,
+              close: () => Effect.void,
+              fill: (target) =>
+                Effect.sync(() => {
+                  fills.push(target);
+                  return {
+                    confirmation: "unconfirmed" as const,
+                    outcome: "entered" as const,
+                  };
+                }),
+              recover: () => Effect.void,
+              rotate: () => Effect.void,
+              sessionId: "fixture-session",
+              systemKey: () => Effect.void,
+              validate: () => Effect.void,
+            },
+            capabilities: iosCapabilities,
+            error: iosRuntimeError,
+            policy: nativeAppActionPolicy(iosRuntimeError, iosSystemKeys),
+            startup: request,
+          }),
+      },
       simctl: () => Effect.succeed("light"),
     }).pipe(
       Layer.provide(Layer.merge(storeLayer, makeFlowCatalogLayer({ root })))

@@ -97,3 +97,40 @@ it.effect("refuses an unsupported permission service before preflight", () =>
     })
   )
 );
+
+it.effect(
+  "reads installedBuild afresh on each evaluation of the same createIosRun Effect",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* perExecutionInstalledBuild() {
+        const input = {
+          ...request(yield* Effect.scope),
+          appPath: "/build/Fixture.app",
+        };
+        let currentBuild = "1";
+        let lookups = 0;
+        const create = createIosRun(input, {
+          installedBuild: () =>
+            Effect.sync(() => {
+              lookups += 1;
+              return currentBuild;
+            }),
+          preflight: () => Effect.void,
+          restart: () => Effect.void,
+          start: () => Effect.die("unused"),
+        });
+
+        const first = yield* create;
+        expect(first.state().pending).toMatchObject([
+          { installedBuild: "1", kind: "app-installation" },
+        ]);
+
+        currentBuild = "3";
+        const second = yield* create;
+        expect(second.state().pending).toMatchObject([
+          { installedBuild: "3", kind: "app-installation" },
+        ]);
+        expect(lookups).toBe(2);
+      })
+    )
+);

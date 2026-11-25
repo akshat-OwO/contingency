@@ -9,26 +9,32 @@ import {
 import type { IosWorkspaceSelection } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Result, Schema } from "effect";
+import { Effect, FileSystem, Layer, Result, Schema, Stream } from "effect";
 import type { Mutable } from "effect/Types";
 
 import { makeFlowCatalogLayer } from "../../src/services/flow-catalog.ts";
-import type {
-  IosRunInput,
-  IosObservation,
+import {
+  iosCapabilities,
+  iosRuntimeError,
+  iosSystemKeys,
 } from "../../src/services/ios-runtime.ts";
+import type { IosObservation } from "../../src/services/ios-runtime.ts";
+import type { IosDeviceStream } from "../../src/services/ios-stream.ts";
 import {
   IosWorkspace,
   iosWorkspaceRefusal,
   makeIosWorkspaceLayer,
 } from "../../src/services/ios-workspace.ts";
-import type { NativeAppRunDecision } from "../../src/services/native-app-run-contract.ts";
-import { createNativeAppRun } from "../../src/services/native-app-run.ts";
-import { platformRuntimeError } from "../../src/services/platform-runtime-error.ts";
+import { nativeAppActionPolicy } from "../../src/services/native-app-action-policy.ts";
+import { adaptNativeAppRuntime } from "../../src/services/native-app-runtime.ts";
 import {
   TargetAppBuilds,
   targetAppBuildError,
 } from "../../src/services/target-app-builds.ts";
+import {
+  TeachingRecordingLearning,
+  TeachingRecordingLearningLive,
+} from "../../src/services/teaching-recording-learning.ts";
 import {
   TeachingRecordingStore,
   makeTeachingRecordingStoreLayer,
@@ -141,22 +147,13 @@ for (const existing of [false, true]) {
           root: () => root,
         });
         const workspaceLayer = makeIosWorkspaceLayer({
-          createRun: (input) =>
-            createNativeAppRun<
-              IosRunInput,
-              IosObservation,
-              NativeAppRunDecision
-            >(input, {
-              authorize: (request) => request,
-              decisions: () => [],
-              differences: () => [],
-              error: platformRuntimeError,
-              preflight: () => Effect.void,
-              start: () => Effect.die("Startup must not prepare the simulator"),
-              startingConditions: () => true,
-              validate: () => Effect.void,
-            }),
           root: () => root,
+          runDeps: {
+            installedBuild: () => Effect.succeed(null),
+            preflight: () => Effect.void,
+            restart: () => Effect.void,
+            start: () => Effect.die("Startup must not prepare the simulator"),
+          },
         }).pipe(
           Layer.provide(Layer.merge(storeLayer, makeFlowCatalogLayer({ root })))
         );
@@ -225,21 +222,13 @@ it.effect(
       const root = yield* fs.makeTempDirectoryScoped();
       const storeLayer = makeTeachingRecordingStoreLayer({ root: () => root });
       const workspaceLayer = makeIosWorkspaceLayer({
-        createRun: (input) =>
-          createNativeAppRun<IosRunInput, IosObservation, NativeAppRunDecision>(
-            input,
-            {
-              authorize: (request) => request,
-              decisions: () => [],
-              differences: () => [],
-              error: platformRuntimeError,
-              preflight: () => Effect.void,
-              start: () => Effect.die("Startup must not prepare the simulator"),
-              startingConditions: () => true,
-              validate: () => Effect.void,
-            }
-          ),
         root: () => root,
+        runDeps: {
+          installedBuild: () => Effect.succeed(null),
+          preflight: () => Effect.void,
+          restart: () => Effect.void,
+          start: () => Effect.die("Startup must not prepare the simulator"),
+        },
       }).pipe(
         Layer.provide(Layer.merge(storeLayer, makeFlowCatalogLayer({ root })))
       );
@@ -319,24 +308,17 @@ it.effect(
       });
       const storeLayer = makeTeachingRecordingStoreLayer({ root: () => root });
       const workspaceLayer = makeIosWorkspaceLayer({
-        createRun: (input) => {
-          installs.push(input.appPath);
-          return createNativeAppRun<
-            IosRunInput,
-            IosObservation,
-            NativeAppRunDecision
-          >(input, {
-            authorize: (request) => request,
-            decisions: () => [],
-            differences: () => [],
-            error: platformRuntimeError,
-            preflight: () => Effect.void,
-            start: () => Effect.die("Startup must not prepare the simulator"),
-            startingConditions: () => true,
-            validate: () => Effect.void,
-          });
-        },
         root: () => root,
+        runDeps: {
+          installedBuild: (input) =>
+            Effect.sync(() => {
+              installs.push(input.appPath);
+              return null;
+            }),
+          preflight: () => Effect.void,
+          restart: () => Effect.void,
+          start: () => Effect.die("Startup must not prepare the simulator"),
+        },
       }).pipe(
         Layer.provide(
           Layer.mergeAll(storeLayer, makeFlowCatalogLayer({ root }), builds)
@@ -391,5 +373,256 @@ it.effect(
           (yield* store.read(started.recordingId)).targetAppBuild
         ).toBeUndefined();
       }).pipe(Effect.provide(Layer.merge(storeLayer, workspaceLayer)));
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
+);
+
+const fakeIosStream = (): IosDeviceStream => ({
+  access: { path: "/ios/stream/fixture", token: "fixture" },
+  authorized: () => false,
+  begin: () => Effect.succeed(true),
+  close: () => Effect.void,
+  end: () => Effect.succeed(null),
+  frames: Stream.empty,
+  integrity: () => null,
+  recover: () => Effect.sync((): undefined => {}),
+  start: () => Effect.sync((): undefined => {}),
+});
+
+const iosScreenshot = () => {
+  const bytes = Buffer.alloc(24);
+  bytes.writeUInt32BE(1206, 16);
+  bytes.writeUInt32BE(2622, 20);
+  return bytes.toString("base64");
+};
+
+it.effect(
+  "produces the app-installation and environment-permission decisions on an iOS Dry Run whose Target App build differs from the taught one",
+  () =>
+    Effect.gen(function* dryRunBuildDifference() {
+      const fs = yield* FileSystem.FileSystem;
+      const root = yield* fs.makeTempDirectoryScoped();
+      const uploads = yield* fs.makeTempDirectoryScoped();
+      const upload = path.join(uploads, "Login-v2.app");
+      yield* fs.makeDirectory(upload);
+      yield* fs.writeFileString(path.join(upload, "Login"), "v2-binary");
+
+      let generation = 0;
+      const capture = (device: IosObservation["device"]) =>
+        Effect.sync((): IosObservation => {
+          generation += 1;
+          return {
+            appId: selection.environment.bundleId,
+            backendSessionId: "ios-build-diff",
+            device,
+            generation,
+            id: `ios-obs-${generation}`,
+            nodes: [
+              {
+                covered: false,
+                editable: false,
+                hittable: true,
+                name: "Login fixture",
+                packageName: selection.environment.bundleId,
+                password: false,
+                role: "text",
+                target: `@e1~s${generation}`,
+              },
+              {
+                covered: false,
+                editable: false,
+                hittable: true,
+                name: "Signed in",
+                packageName: selection.environment.bundleId,
+                password: false,
+                role: "text",
+                target: `@e2~s${generation}`,
+              },
+            ],
+            platform: "ios",
+            screenshot: {
+              capturedAt: "2026-11-25T00:00:00.000Z",
+              encoding: "base64",
+              format: "png",
+              image: iosScreenshot(),
+            },
+          };
+        });
+
+      const builds = Layer.succeed(TargetAppBuilds, {
+        claim: (_platform, buildPath) =>
+          buildPath === upload
+            ? Effect.succeed({ path: upload, sha256: null })
+            : Effect.fail(targetAppBuildError("build_unknown")),
+        discard: () => Effect.void,
+        receiveAndroid: () => Effect.die("No Android uploads."),
+        receiveIos: () => Effect.die("Uploads arrive through the route."),
+      });
+      const storeLayer = makeTeachingRecordingStoreLayer({ root: () => root });
+      const learningLayer = TeachingRecordingLearningLive.pipe(
+        Layer.provideMerge(storeLayer)
+      );
+      let installed = "1";
+      const workspaceLayer = makeIosWorkspaceLayer({
+        acquireStream: () => Effect.succeed(fakeIosStream()),
+        booted: () => Effect.succeed(true),
+        makeHid: () => Effect.succeed({ forward: () => Effect.void }),
+        root: () => root,
+        runDeps: {
+          installedBuild: () => Effect.succeed(installed),
+          preflight: () => Effect.void,
+          restart: () => Effect.void,
+          start: (startup) =>
+            adaptNativeAppRuntime({
+              backend: {
+                activate: () => Effect.void,
+                capture: () => capture(startup.device),
+                close: () => Effect.void,
+                fill: () =>
+                  Effect.succeed({
+                    confirmation: "confirmed",
+                    outcome: "entered",
+                  }),
+                recover: () => Effect.void,
+                rotate: () => Effect.void,
+                sessionId: "ios-build-diff",
+                systemKey: () => Effect.void,
+                validate: () => Effect.void,
+              },
+              capabilities: iosCapabilities,
+              error: iosRuntimeError,
+              policy: nativeAppActionPolicy(iosRuntimeError, iosSystemKeys),
+              startup,
+            }),
+        },
+        simctl: () => Effect.succeed("light"),
+      }).pipe(
+        Layer.provide(
+          Layer.mergeAll(storeLayer, makeFlowCatalogLayer({ root }), builds)
+        )
+      );
+
+      yield* Effect.gen(function* teachThenDryRunWithNewBuild() {
+        const workspace = yield* IosWorkspace;
+        const store = yield* TeachingRecordingStore;
+        const learning = yield* TeachingRecordingLearning;
+        const flowName = FlowName.make("ios-login-build");
+
+        // Teach with an uploaded .app build ("1"); the recording retains it.
+        const taughtStart = yield* workspace.execute(
+          {
+            _tag: "start",
+            flowName,
+            kind: "teaching",
+            operationId: OperationId.make("diff-teach-start"),
+            recordingId: null,
+            selection: { ...selection, appPath: upload },
+          },
+          "user"
+        );
+        for (const decision of taughtStart.preparation.pending) {
+          yield* workspace.execute(
+            {
+              _tag: "decide",
+              allow: true,
+              decisionId: decision.id,
+              operationId: OperationId.make(`diff-teach-decide-${decision.id}`),
+              sessionId: taughtStart.id,
+            },
+            "user"
+          );
+        }
+        yield* workspace.execute(
+          {
+            _tag: "prepare",
+            operationId: OperationId.make("diff-teach-prepare"),
+            sessionId: taughtStart.id,
+          },
+          "user"
+        );
+        yield* workspace.execute(
+          {
+            _tag: "record",
+            operationId: OperationId.make("diff-teach-record"),
+            sessionId: taughtStart.id,
+            start: true,
+          },
+          "user"
+        );
+        const stopped = yield* workspace.execute(
+          {
+            _tag: "record",
+            operationId: OperationId.make("diff-teach-stop"),
+            sessionId: taughtStart.id,
+            start: false,
+          },
+          "user"
+        );
+        yield* workspace.execute(
+          {
+            _tag: "close",
+            operationId: OperationId.make("diff-teach-close"),
+            sessionId: taughtStart.id,
+          },
+          "user"
+        );
+        if (stopped.recordingId === null) {
+          return yield* Effect.die("Teaching must own a recording");
+        }
+        const claimOp = OperationId.make("diff-claim");
+        yield* store.startLearning({
+          operationId: claimOp,
+          recordingId: stopped.recordingId,
+        });
+        yield* learning.save({
+          claimOperationId: claimOp,
+          files: [
+            {
+              content:
+                "---\nname: ios-login-build\ndescription: Verify login build.\ninputs:\n---\n\n# Login\n\n1. Check Login fixture. Done when: Signed in is visible.\n",
+              path: "flow.md",
+            },
+          ],
+          operationId: OperationId.make("diff-save"),
+          recordingId: stopped.recordingId,
+        });
+
+        // Start a Dry Run on a simulator whose installed build ("3") differs
+        // from both the taught build ("1") and the selected build ("2"); the
+        // recording's .app triggers the app-installation decision automatically.
+        installed = "3";
+        const dryRun = yield* workspace.execute(
+          {
+            _tag: "start",
+            flowName,
+            kind: "dry-run",
+            operationId: OperationId.make("diff-dry-start"),
+            recordingId: stopped.recordingId,
+            selection: {
+              ...selection,
+              environment: { ...selection.environment, build: "2" },
+            },
+          },
+          "agent"
+        );
+        expect(
+          dryRun.preparation.pending.map((decision) => decision.kind)
+        ).toEqual(["run-environment-permission", "app-installation"]);
+        expect(dryRun.preparation.pending).toMatchObject([
+          {
+            differences: [{ field: "build", selected: "2", taught: "1" }],
+            kind: "run-environment-permission",
+            targetApp: selection.environment.bundleId,
+          },
+          {
+            installedBuild: "3",
+            kind: "app-installation",
+            targetApp: selection.environment.bundleId,
+          },
+        ]);
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(storeLayer, learningLayer, workspaceLayer)
+        )
+      );
     }).pipe(Effect.scoped, Effect.provide(NodeServices.layer))
 );

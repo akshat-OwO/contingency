@@ -15,10 +15,7 @@ import {
   iosRuntimeError,
   iosSystemKeys,
 } from "../../src/services/ios-runtime.ts";
-import type {
-  IosObservation,
-  IosRunInput,
-} from "../../src/services/ios-runtime.ts";
+import type { IosObservation } from "../../src/services/ios-runtime.ts";
 import type { IosDeviceStream } from "../../src/services/ios-stream.ts";
 import {
   IosWorkspace,
@@ -26,8 +23,6 @@ import {
 } from "../../src/services/ios-workspace.ts";
 import type { IosWorkspaceService } from "../../src/services/ios-workspace.ts";
 import { nativeAppActionPolicy } from "../../src/services/native-app-action-policy.ts";
-import type { NativeAppRunDecision } from "../../src/services/native-app-run-contract.ts";
-import { createNativeAppRun } from "../../src/services/native-app-run.ts";
 import { adaptNativeAppRuntime } from "../../src/services/native-app-runtime.ts";
 import {
   TeachingRecordingLearning,
@@ -155,56 +150,46 @@ const fixture = <A, E>(
           },
         });
       });
-    const createRun = (input: IosRunInput) =>
-      createNativeAppRun<IosRunInput, IosObservation, NativeAppRunDecision>(
-        input,
-        {
-          authorize: (request) => request,
-          decisions: () => [],
-          differences: () => [],
-          error: iosRuntimeError,
-          preflight: () => Effect.void,
-          restart: () => Effect.void,
-          start: (request) =>
-            adaptNativeAppRuntime({
-              backend: {
-                activate: () =>
-                  Effect.sync(() => {
-                    activations += 1;
-                  }),
-                capture,
-                close: () => Effect.void,
-                fill: () =>
-                  Effect.succeed({
-                    confirmation: "confirmed" as const,
-                    outcome: "entered" as const,
-                  }),
-                recover: () =>
-                  Effect.sync(() => {
-                    recoveries += 1;
-                    untilRecover = false;
-                  }),
-                rotate: () => Effect.void,
-                sessionId: "fixture-session",
-                systemKey: () => Effect.void,
-                validate: () => Effect.void,
-              },
-              capabilities: iosCapabilities,
-              error: iosRuntimeError,
-              policy: nativeAppActionPolicy(iosRuntimeError, iosSystemKeys),
-              startup: request,
-            }),
-          startingConditions: () => true,
-          validate: () => Effect.void,
-        }
-      );
     const store = makeTeachingRecordingStoreLayer({ root: () => root });
     const workspace = makeIosWorkspaceLayer({
       acquireStream: () => Effect.succeed(fakeStream()),
       booted: () => Effect.succeed(true),
-      createRun,
       makeHid: () => Effect.succeed({ forward: () => Effect.void }),
       root: () => root,
+      runDeps: {
+        installedBuild: () => Effect.succeed("1"),
+        preflight: () => Effect.void,
+        restart: () => Effect.void,
+        start: (request) =>
+          adaptNativeAppRuntime({
+            backend: {
+              activate: () =>
+                Effect.sync(() => {
+                  activations += 1;
+                }),
+              capture,
+              close: () => Effect.void,
+              fill: () =>
+                Effect.succeed({
+                  confirmation: "confirmed" as const,
+                  outcome: "entered" as const,
+                }),
+              recover: () =>
+                Effect.sync(() => {
+                  recoveries += 1;
+                  untilRecover = false;
+                }),
+              rotate: () => Effect.void,
+              sessionId: "fixture-session",
+              systemKey: () => Effect.void,
+              validate: () => Effect.void,
+            },
+            capabilities: iosCapabilities,
+            error: iosRuntimeError,
+            policy: nativeAppActionPolicy(iosRuntimeError, iosSystemKeys),
+            startup: request,
+          }),
+      },
       simctl: (args) =>
         Effect.succeed(args.at(0) === "ui" && args.length < 4 ? "light" : ""),
     }).pipe(Layer.provide(Layer.merge(store, makeFlowCatalogLayer({ root }))));
