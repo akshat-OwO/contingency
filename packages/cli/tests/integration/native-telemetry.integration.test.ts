@@ -87,6 +87,9 @@ import {
 
 const HOME = "/Users/someone";
 const SECRET = "hunter2-secret-value";
+/** Shaped like a code, so only its provenance keeps it out of the log. */
+const PRIVATE_TOKEN = "agentrun-hunter2-private";
+const PRIVATE_SESSION = "agent-hunter2-private";
 const op = OperationId.make;
 const PNG =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jqz8AAAAASUVORK5CYII=";
@@ -302,6 +305,8 @@ const makeFakeIosWorkspace = (
   storeLayer: ReturnType<typeof makeTeachingRecordingStoreLayer>,
   options: {
     readonly failNextCaptures?: () => boolean;
+    /** Whether a tap never answers, as a hung device would. */
+    readonly hangActivate?: () => boolean;
   } = {}
 ) => {
   let generation = 0;
@@ -364,7 +369,10 @@ const makeFakeIosWorkspace = (
           start: (startup) =>
             adaptNativeAppRuntime({
               backend: {
-                activate: () => Effect.void,
+                activate: () =>
+                  options.hangActivate?.() === true
+                    ? Effect.never
+                    : Effect.void,
                 capture,
                 close: () => Effect.void,
                 fill: () =>
@@ -621,7 +629,10 @@ it.live(
       const androidCtx = yield* Layer.build(
         makeFakeAndroidWorkspace(root, storeLayer)
       );
-      const iosCtx = yield* Layer.build(makeFakeIosWorkspace(root, storeLayer));
+      let hang = false;
+      const iosCtx = yield* Layer.build(
+        makeFakeIosWorkspace(root, storeLayer, { hangActivate: () => hang })
+      );
 
       const androidWorkspace = Context.get(androidCtx, AndroidWorkspace);
       const iosWorkspace = Context.get(iosCtx, IosWorkspace);
@@ -652,10 +663,18 @@ it.live(
         selection: iosSelection,
       }).pipe(Effect.provide(learningLayer));
 
+      const records: SafeRecord[] = [];
       const origin = yield* servingMcpHttp({ catalogRoot: root }).pipe(
         Effect.provideService(AndroidWorkspace, androidWorkspace),
         Effect.provideService(IosWorkspace, iosWorkspace),
-        Effect.provide(tracerLayer)
+        Effect.provide(tracerLayer),
+        Effect.provide(
+          Logger.layer([
+            Logger.make((options) => {
+              records.push(toSafeRecord(options, HOME));
+            }),
+          ])
+        )
       );
       const { request } = yield* connectMcp(origin);
 
@@ -767,6 +786,45 @@ it.live(
       expect(iosActed.isError).toBe(false);
       expect(iosActed.structuredContent.status).toBe("completed");
 
+      // A tap that never answers meets the program's deadline mid-dispatch.
+      hang = true;
+      const iosAfter = firstTarget(
+        Schema.decodeUnknownSync(DeviceResult)(iosActed.structuredContent.value)
+      );
+      yield* request("tools/call", {
+        arguments: {
+          code: `return await tools.agent_device_workspace(${JSON.stringify({
+            command: {
+              _tag: "input",
+              action: { _tag: "activate", target: iosAfter.target },
+              observationId: iosAfter.observationId,
+              operationId: "ios-hung-1",
+              sessionId: iosStarted.id,
+            },
+            platform: "ios",
+          })})`,
+          timeoutMs: 1000,
+        },
+        name: "agent_code_execute",
+      });
+
+      // An argument the tool refuses never becomes a correlation field.
+      yield* request(
+        "tools/call",
+        operationParams("open_run", { runId: PRIVATE_TOKEN })
+      );
+      yield* request(
+        "tools/call",
+        operationParams("agent_device_workspace", {
+          command: { _tag: "state", sessionId: PRIVATE_SESSION },
+          platform: "ios",
+        })
+      );
+      expect(records.length).toBeGreaterThan(0);
+      for (const record of records) {
+        expect(JSON.stringify(record)).not.toContain("hunter2-private");
+      }
+
       const mcpSpans = spans.filter((span) => span.name === "mcp.tool");
       const actSpans = spans.filter((span) => span.name === "runtime.act");
       const observeSpans = spans.filter(
@@ -789,15 +847,28 @@ it.live(
       const snapshots = yield* Metric.snapshot;
       const duration = "contingency.action.duration";
       // Each platform's Teaching tap, then the agent's tap, and on Android
-      // the agent's fill.
+      // the agent's fill. The hung iOS tap still took time, so it counts.
       expect(metricCount(snapshots, duration, { platform: "android" })).toBe(3);
-      expect(metricCount(snapshots, duration, { platform: "ios" })).toBe(2);
+      expect(metricCount(snapshots, duration, { platform: "ios" })).toBe(3);
       expect(
         metricCount(snapshots, "contingency.mcp.calls", {
           operation: "agent_device_workspace",
           outcome: "succeeded",
         })
       ).toBe(3);
+      expect(
+        metricCount(snapshots, "contingency.mcp.calls", {
+          operation: "agent_device_workspace",
+          outcome: "interrupted",
+        })
+      ).toBe(1);
+      expect(
+        spans.some(
+          (span) =>
+            span.name === "mcp.tool" &&
+            span.attributes.get("outcome") === "interrupted"
+        )
+      ).toBe(true);
     }).pipe(
       Effect.scoped,
       Effect.provideService(Metric.MetricRegistry, new Map()),
@@ -910,6 +981,20 @@ it.effect(
         );
         failCapture = false;
         expect(Result.isFailure(paused)).toBe(true);
+        const gaps = "contingency.capture.gaps";
+        const beforeRecover = yield* Metric.snapshot;
+        expect(metricCount(beforeRecover, gaps, { repaired: "false" })).toBe(1);
+        expect(metricCount(beforeRecover, gaps, { repaired: "true" })).toBe(1);
+
+        // The user's Recover repairs the open gap: it moves, never counts twice.
+        yield* ios.execute(
+          {
+            _tag: "recover",
+            operationId: op("gap-recover"),
+            sessionId: started.id,
+          },
+          "user"
+        );
 
         // 3. Record a Failure Reference inside the session and a Pursuit outcome.
         yield* Effect.annotateLogs({ sessionId: started.id })(
@@ -927,43 +1012,19 @@ it.effect(
       );
 
       const snapshots = yield* Metric.snapshot;
-      const repairedGaps = snapshots.find(
-        (s) =>
-          s.id === "contingency.capture.gaps" &&
-          s.attributes?.repaired === "true"
-      );
-      const unrepairedGaps = snapshots.find(
-        (s) =>
-          s.id === "contingency.capture.gaps" &&
-          s.attributes?.repaired === "false"
-      );
-      const pursuitDone = snapshots.find(
-        (s) =>
-          s.id === "contingency.pursuit.outcomes" &&
-          s.attributes?.outcome === "done"
-      );
-      const failureRefs = snapshots.find(
-        (s) =>
-          s.id === "contingency.failure.references" &&
-          s.attributes?.code === "runtime_failed"
-      );
-
-      expect(repairedGaps?.type).toBe("Counter");
-      expect(unrepairedGaps?.type).toBe("Counter");
-      expect(pursuitDone?.type).toBe("Counter");
-      expect(failureRefs?.type).toBe("Counter");
-      if (repairedGaps?.type === "Counter") {
-        expect(Number(repairedGaps.state.count)).toBe(1);
-      }
-      if (unrepairedGaps?.type === "Counter") {
-        expect(Number(unrepairedGaps.state.count)).toBe(1);
-      }
-      if (pursuitDone?.type === "Counter") {
-        expect(Number(pursuitDone.state.count)).toBe(1);
-      }
-      if (failureRefs?.type === "Counter") {
-        expect(Number(failureRefs.state.count)).toBe(1);
-      }
+      const gaps = "contingency.capture.gaps";
+      expect(metricCount(snapshots, gaps, { repaired: "true" })).toBe(2);
+      expect(metricCount(snapshots, gaps, { repaired: "false" })).toBe(0);
+      expect(
+        metricCount(snapshots, "contingency.pursuit.outcomes", {
+          outcome: "done",
+        })
+      ).toBe(1);
+      expect(
+        metricCount(snapshots, "contingency.failure.references", {
+          code: "runtime_failed",
+        })
+      ).toBe(1);
 
       // Every Diagnostic Log record emitted in the session carries sessionId.
       expect(records.length).toBeGreaterThan(0);

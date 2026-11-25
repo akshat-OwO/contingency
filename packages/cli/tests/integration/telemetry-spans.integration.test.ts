@@ -77,6 +77,15 @@ it.live(
             within(span, act)
         )
       ).toBe(true);
+      // The settled read after the click is part of the same operation.
+      expect(
+        spans.some(
+          (span) =>
+            span.name === "runtime.observe" &&
+            span.attributes.get("platform") === "web" &&
+            within(span, act)
+        )
+      ).toBe(true);
       const start = spans.find(
         (span) =>
           span.name === "mcp.tool" &&

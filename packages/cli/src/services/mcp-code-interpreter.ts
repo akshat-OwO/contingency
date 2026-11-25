@@ -1,5 +1,6 @@
 import {
   AgentPendingDecision,
+  AgentRunId,
   AgentSessionId,
   AndroidWorkspacePreparation,
   AndroidWorkspaceSummary,
@@ -25,6 +26,7 @@ import { HttpServerRequest } from "effect/http";
 import { ChildProcessSpawner } from "effect/process";
 import { CurrentLogLevel } from "effect/References";
 
+import { AgentRunStore } from "./agent-run-store.ts";
 import { AgentSession } from "./agent-session.ts";
 import { AndroidWorkspace } from "./android-workspace.ts";
 import type { OfferedOperation } from "./code-interpreter-protocol.ts";
@@ -37,6 +39,7 @@ import type {
   InterpreterDispatch,
   InterpreterOutcome,
 } from "./code-interpreter.ts";
+import { knownIds } from "./correlation-ids.ts";
 import {
   EXECUTION_VALUE_LIMITS,
   ExecutionValues,
@@ -379,8 +382,8 @@ const decodeSessionResult = Schema.decodeUnknownOption(
 );
 const decodeRunResult = Schema.decodeUnknownOption(
   Schema.Union([
-    Schema.Struct({ runId: Schema.String }),
-    Schema.Struct({ run: Schema.Struct({ runId: Schema.String }) }),
+    Schema.Struct({ runId: AgentRunId }),
+    Schema.Struct({ run: Schema.Struct({ runId: AgentRunId }) }),
   ])
 );
 const ActionStop = Schema.Struct({
@@ -658,6 +661,11 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
 
     const readSession = (sessionId: AgentSessionId) =>
       sessions.get(sessionId).pipe(Effect.option);
+    const correlation = {
+      issued: new Set<string>(),
+      runs: yield* Effect.serviceOption(AgentRunStore),
+      sessions: Option.some(sessions),
+    };
 
     const browserIntervention = (
       operation: string,
@@ -728,10 +736,6 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
       // wait that predates the program is not, so a program can still read it.
       const seen = new Map<AgentSessionId, AgentSessionSnapshot>();
       return (name, input) => {
-        const asked = {
-          runId: runOf(input),
-          sessionId: inputSession(name, input),
-        };
         const dispatchUnwrapped = Effect.gen(function* dispatchOperation() {
           const operation = catalog.get(name);
           if (operation === undefined) {
@@ -814,29 +818,50 @@ export const CodeInterpreterToolHandlersLive = CodeInterpreterTools.toLayer(
                 ),
               } satisfies DispatchOutcome);
         });
-        return Effect.gen(function* observeMcpTool() {
-          const outcome = yield* dispatchUnwrapped;
-          const sessionId =
-            asked.sessionId ??
-            (outcome.ok ? answerSession(name, outcome.value) : undefined);
-          const runId =
-            asked.runId ?? (outcome.ok ? runOf(outcome.value) : undefined);
-          if (asked.sessionId === undefined && sessionId !== undefined) {
-            yield* Effect.annotateCurrentSpan("sessionId", sessionId);
-          }
-          const ended = callOutcome(outcome);
-          yield* Effect.annotateCurrentSpan("outcome", ended);
-          yield* recordMcpCall(name, ended);
-          onContext?.({ runId, sessionId });
-          return outcome;
+        return knownIds(correlation, {
+          runId: runOf(input),
+          sessionId: inputSession(name, input),
         }).pipe(
-          Effect.annotateLogs(namedOnly(asked)),
-          Effect.withSpan("mcp.tool", {
-            attributes: {
-              operation: name,
-              ...namedOnly({ runId: undefined, sessionId: asked.sessionId }),
-            },
-          })
+          Effect.flatMap((asked) =>
+            Effect.gen(function* observeMcpTool() {
+              const outcome = yield* dispatchUnwrapped;
+              const sessionId =
+                asked.sessionId ??
+                (outcome.ok ? answerSession(name, outcome.value) : undefined);
+              const runId =
+                asked.runId ?? (outcome.ok ? runOf(outcome.value) : undefined);
+              if (asked.sessionId === undefined && sessionId !== undefined) {
+                yield* Effect.annotateCurrentSpan("sessionId", sessionId);
+              }
+              const ended = callOutcome(outcome);
+              yield* Effect.annotateCurrentSpan("outcome", ended);
+              yield* recordMcpCall(name, ended);
+              for (const id of [runId, sessionId]) {
+                if (id !== undefined) {
+                  correlation.issued.add(id);
+                }
+              }
+              onContext?.({ runId, sessionId });
+              return outcome;
+            }).pipe(
+              // A program deadline can stop a dispatch whose effect is uncertain.
+              Effect.onInterrupt(() =>
+                Effect.annotateCurrentSpan("outcome", "interrupted").pipe(
+                  Effect.andThen(recordMcpCall(name, "interrupted"))
+                )
+              ),
+              Effect.annotateLogs(namedOnly(asked)),
+              Effect.withSpan("mcp.tool", {
+                attributes: {
+                  operation: name,
+                  ...namedOnly({
+                    runId: undefined,
+                    sessionId: asked.sessionId,
+                  }),
+                },
+              })
+            )
+          )
         );
       };
     };

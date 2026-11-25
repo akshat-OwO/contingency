@@ -330,13 +330,15 @@ export const adaptBrowserRuntime = (input: {
                     const captured = yield* live(tab.beginObservation(action));
                     return {
                       observe: () =>
-                        live(
-                          Effect.suspend(() => {
-                            const current = atoms.get(state).epoch;
-                            return current === epoch
-                              ? captured.observe()
-                              : Effect.fail(stale());
-                          })
+                        observeWeb(
+                          live(
+                            Effect.suspend(() => {
+                              const current = atoms.get(state).epoch;
+                              return current === epoch
+                                ? captured.observe()
+                                : Effect.fail(stale());
+                            })
+                          )
                         ),
                     };
                   })

@@ -7,7 +7,11 @@ import { Clock, Duration, Effect, Metric } from "effect";
  * outcome, code, repaired).
  */
 
-export type McpCallOutcome = "succeeded" | "failed" | "intervention";
+export type McpCallOutcome =
+  | "succeeded"
+  | "failed"
+  | "intervention"
+  | "interrupted";
 
 /** Action duration in milliseconds at the Platform Runtime interface, by platform. */
 export const actionDurationMetric = Metric.timer(
@@ -18,10 +22,13 @@ export const actionDurationMetric = Metric.timer(
   }
 );
 
-/** Native Capture Gaps, split by whether they were repaired. */
+/**
+ * Native Capture Gaps by whether they are repaired now. A gap counts once:
+ * open when it pauses a session, and it moves to repaired when a later
+ * Recover repairs it, so the two series always sum to the gaps seen.
+ */
 export const captureGapsMetric = Metric.counter("contingency.capture.gaps", {
-  description: "Native Capture Gaps, split by whether they were repaired.",
-  incremental: true,
+  description: "Native Capture Gaps by whether they are repaired now.",
 });
 
 /** Pursuit outcomes by ending (or `failed` when a Pursuit errors). */
@@ -73,13 +80,21 @@ export const recordCaptureGap = (
   repaired: boolean,
   count = 1
 ): Effect.Effect<void> =>
-  count <= 0
+  count === 0
     ? Effect.void
     : Metric.update(
         Metric.withAttributes(captureGapsMetric, {
           repaired: repaired ? "true" : "false",
         }),
         count
+      );
+
+/** Moves gaps a Recover repaired from the open series to the repaired one. */
+export const recordCaptureRepair = (count: number): Effect.Effect<void> =>
+  count <= 0
+    ? Effect.void
+    : recordCaptureGap(false, -count).pipe(
+        Effect.andThen(recordCaptureGap(true, count))
       );
 
 /** Records one Pursuit ending (or `"failed"` when a Pursuit fails). */

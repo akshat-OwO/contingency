@@ -68,7 +68,7 @@ import {
 import type { IosRun, IosRunInput, IosObservation } from "./ios-runtime.ts";
 import { acquireIosStream } from "./ios-stream.ts";
 import type { IosDeviceStream } from "./ios-stream.ts";
-import { recordCaptureGap } from "./metrics.ts";
+import { recordCaptureGap, recordCaptureRepair } from "./metrics.ts";
 import { NativeAgentTouches } from "./native-agent-touch.ts";
 import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
 import { relayedDecisionAllowed } from "./native-app-run.ts";
@@ -2558,7 +2558,7 @@ export const makeIosWorkspaceLayer = (options: {
                   summary: repaired,
                 };
               });
-              yield* recordCaptureGap(true, repairedCount);
+              yield* recordCaptureRepair(repairedCount);
             }
             // Going Home does not replace the framebuffer source. Keep the
             // active Teaching interval intact; only transport recovery restarts it.

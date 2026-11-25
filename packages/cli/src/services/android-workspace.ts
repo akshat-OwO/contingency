@@ -55,7 +55,7 @@ import { DeviceVideoRenderer } from "./device-video-renderer.ts";
 import { makeExecutionBoundary } from "./execution-boundary.ts";
 import type { ExecutionBoundary } from "./execution-boundary.ts";
 import { FlowCatalog } from "./flow-catalog.ts";
-import { recordCaptureGap } from "./metrics.ts";
+import { recordCaptureGap, recordCaptureRepair } from "./metrics.ts";
 import { NativeAgentTouches } from "./native-agent-touch.ts";
 import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
 import { relayedDecisionAllowed } from "./native-app-run.ts";
@@ -2511,7 +2511,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                 summary: repaired,
               };
             });
-            yield* recordCaptureGap(true, repairedCount);
+            yield* recordCaptureRepair(repairedCount);
           } else if (command._tag === "observe") {
             if (summary.phase !== "running") {
               return yield* denied(
