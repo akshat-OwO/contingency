@@ -172,7 +172,7 @@ it("redacts supplied values in payload fields and never in structural ones", () 
   recorder.user({ _tag: "type", sessionId: "agent-session", text: "type" });
   const program = recorder.tokenize({
     action: { text: "agent", type: "type" },
-    operationId: "agent-type",
+    operationId: "scripted-1",
     sessionId: "agent-session",
   });
   // An observed label is payload, even in a field called `name`.
@@ -203,7 +203,7 @@ it("redacts supplied values in payload fields and never in structural ones", () 
   ]);
   expect(program).toEqual({
     action: { text: "{{supplied2}}", type: "type" },
-    operationId: "agent-type",
+    operationId: "scripted-1",
     sessionId: "agent-session",
   });
   expect(saved).toEqual({
@@ -216,6 +216,80 @@ it("redacts supplied values in payload fields and never in structural ones", () 
     substitute(JSON.stringify(saved), new Map([["{{supplied2}}", "Juhu"]]))
   ).toContain('"name":"Delivering to Juhu"');
 });
+
+it("redacts a supplied value repeated in a Run's closing account", () => {
+  const recorder = makeRecorder();
+  recorder.process();
+  recorder.user({
+    _tag: "supply-variable",
+    name: "AREA",
+    sessionId: "agent-session",
+    value: "SampleDistrict",
+  });
+  expect(
+    recorder.tokenize({
+      agentAccount: "Delivered to SampleDistrict",
+      outcome: "passed",
+      runId: "run-1",
+    })
+  ).toEqual({
+    agentAccount: "Delivered to {{supplied1}}",
+    outcome: "passed",
+    runId: "run-1",
+  });
+});
+
+it.live("binds a Snapshot continuation cursor and replays it over HTTP", () =>
+  Effect.gen(function* recordContinuation() {
+    const script = makeScript("http");
+    yield* Effect.gen(function* pageTheSnapshot() {
+      const fixtures = yield* fixtureServer;
+      yield* bindEnvironment("fixtureOrigin", new URL(fixtures.url("")).origin);
+      const root =
+        yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped({
+          prefix: "contingency-scripted-agent-",
+        });
+      yield* Effect.gen(function* readBothPages() {
+        const started = yield* call("agent_session_start", {
+          clientName: "scripted-agent",
+          clientVersion: "1.0.0",
+          url: fixtures.url("snapshot-cart.html"),
+          viewport: agentViewport,
+        });
+        const first = yield* call("agent_browser_snapshot", {
+          sessionId: started.id,
+        });
+        expect(first.coverage?.truncated).toBe(true);
+        const cursor = first.coverage?.nextCursor;
+        expect(cursor).toBeTruthy();
+        const next = yield* call("agent_browser_snapshot", {
+          cursor: cursor ?? null,
+          sessionId: started.id,
+        });
+        expect(next.coverage?.offset).toBe(first.nodes?.length);
+        yield* call("agent_session_close", { sessionId: started.id });
+      }).pipe(Effect.provide(scriptedProcess(root)), Effect.scoped);
+    }).pipe(Effect.provideService(Script, script));
+
+    const recorded = script.recorder.transcript("snapshot-continuation");
+    const programs = recorded.steps.flatMap((step) =>
+      step._tag === "program" ? [step] : []
+    );
+    const continuation = recorded.bindings.find(
+      ({ from }) =>
+        from._tag === "step" &&
+        from.path.join(".") === "value.coverage.nextCursor"
+    );
+    expect(continuation).toBeDefined();
+    expect(programs[2]?.code).toContain(`"cursor":"${continuation?.token}"`);
+
+    const fixtures = yield* fixtureServer;
+    yield* replayTranscript(recorded, {
+      environment: { fixtureOrigin: new URL(fixtures.url("")).origin },
+      root: yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped(),
+    });
+  }).pipe(Effect.provide(NodeServices.layer))
+);
 
 it("keeps a declared input's name when a supplied value equals it", () => {
   const recorder = makeRecorder();

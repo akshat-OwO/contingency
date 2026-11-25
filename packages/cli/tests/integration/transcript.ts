@@ -166,47 +166,36 @@ const isBindable = (key: string) =>
 /** The fields of a Check proposal or attachment that name what it checks. */
 const CHECK_IDENTIFIERS = [
   "change",
-  "cookiePath",
-  "expectation.itemPath[]",
-  "expectation.predicates[].operator",
-  "expectation.predicates[].path[]",
   "format",
   "kind",
   "name",
   "request.method",
+  "expectation.predicates[].operator",
   "when",
 ];
 
 /**
- * The only fields redaction leaves as written: the identifiers, kinds, and
- * names of declared things that the tools' inputs and the user's actions
- * carry, so a supplied value that happens to equal one never renames it.
- * Paths start at the action or input; `[]` is any item of an array. Every
- * other field is payload and is redacted, so a new free-text field is safe
- * without being listed. Ids and cursors that a process mints are bound whole.
+ * The only fields redaction leaves as written: identifiers the server
+ * validates and nobody mints, such as a Flow, Group, input, or Variable name
+ * and a declared kind, so a supplied value that happens to equal one never
+ * renames it. Paths start at the action or input; `[]` is any item of an
+ * array. Every other field is payload and is redacted, so a new free-text
+ * field is safe without being listed. A value an earlier answer minted, such
+ * as a cursor, is bound to that answer before this list is consulted.
  */
 const EXEMPT_PATHS = new Set([
   "_tag",
   "action.action",
   "action.key",
-  "action.ref",
   "action.type",
   "actions[].action.action",
   "actions[].action.key",
-  "actions[].action.ref",
   "actions[].action.type",
   "actions[].checkIds[].flowName",
   "actions[].intent.checkIds[].flowName",
   "actions[].intent.objectiveKind",
-  "actions[].operationId",
   "activity",
-  "agentAccount",
-  "before",
   "checkIds[].flowName",
-  "claimOperationId",
-  "clientName",
-  "clientVersion",
-  "cursor",
   "decision",
   "emulation.colorScheme",
   "emulation.locale",
@@ -215,7 +204,6 @@ const EXEMPT_PATHS = new Set([
   "emulation.timezoneId",
   "emulation.userAgentProfile",
   "evidence[].kind",
-  "files[].path",
   "flowName",
   "format",
   "group",
@@ -227,10 +215,7 @@ const EXEMPT_PATHS = new Set([
   "name",
   "nativeConditions.outcomes[].role",
   "nativeConditions.starting[].role",
-  "operation",
-  "operationId",
   "outcome",
-  "path",
   "platform",
   "prerequisiteInputs[].flowName",
   "prerequisiteInputs[].name",
@@ -239,12 +224,7 @@ const EXEMPT_PATHS = new Set([
   "proposal.scan.mode",
   "proposal.scan.phase",
   "purpose",
-  "ref",
   "referencedFlows[]",
-  "reportedModel",
-  "reportedProvider",
-  "retryInstructionAt",
-  "root",
   "scan.mode",
   "scan.phase",
   "type",
@@ -309,9 +289,6 @@ export const makeRecorder = () => {
   let supplied = 0;
 
   const tokenFor = (value: string, fieldPath: string, key?: string) => {
-    if (EXEMPT_PATHS.has(fieldPath)) {
-      return value;
-    }
     // The earliest answer that holds the value is the one that minted it.
     for (const [step, values] of sources.entries()) {
       const at = values.get(value);
@@ -332,8 +309,9 @@ export const makeRecorder = () => {
       live.set(token, value);
       return token;
     }
-    // An id or cursor is bound whole or kept; only payload text is redacted.
-    if (key !== undefined && isBindable(key)) {
+    // An identifier, id, or cursor is bound whole or kept; only payload text
+    // is redacted.
+    if (EXEMPT_PATHS.has(fieldPath) || (key !== undefined && isBindable(key))) {
       return value;
     }
     let written = value;
