@@ -3,6 +3,7 @@ import { accessSync, constants, existsSync } from "node:fs";
 import { createServer, request } from "node:http";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { homedir } from "node:os";
 import path from "node:path";
 
 import { NodeServices } from "@effect/platform-node";
@@ -52,6 +53,17 @@ const EXECUTE_TOOL = "mcp__contingency__agent_code_execute";
 const RESOURCE_TOOL = "ReadMcpResourceTool";
 const GETTING_STARTED = "contingency://docs/getting-started";
 const FINAL_TEXT = "The Example Run is complete.";
+const GUIDE_MISSING = "The getting-started guide was not served.";
+
+/** What a demo session's getting-started holds: the guide and its demo procedure. */
+const GUIDE_SECTIONS = [
+  "# Getting started",
+  "## This session",
+  "### Demo onboarding",
+];
+
+/** What the cart shows when the Example Run reached its intended result. */
+const CART_CONTENTS = ["Cedar Pull Saw", "Highlands, Denver"];
 
 /**
  * A model id whose requests carry no mid-conversation `system` messages.
@@ -139,10 +151,12 @@ const makeScript = (transcript: Transcript) => {
     step._tag === "program" ? [{ index, step }] : []
   );
   const outcomes: ProgramOutcome[] = [];
+  const answers: Schema.Json[] = [];
   const nextRule = (body: MessagesRequest) =>
     Effect.gen(function* nextReply() {
       const turns = toolTurns(body);
-      if (!turns.some((turn) => turn.name === RESOURCE_TOOL)) {
+      const guide = turns.find((turn) => turn.name === RESOURCE_TOOL);
+      if (guide === undefined) {
         return {
           id: "read-getting-started",
           reply: [
@@ -154,16 +168,24 @@ const makeScript = (transcript: Transcript) => {
           ],
         };
       }
+      if (!GUIDE_SECTIONS.every((section) => guide.result?.includes(section))) {
+        return {
+          id: "guide-missing",
+          reply: [{ text: GUIDE_MISSING, type: "text" }],
+        };
+      }
       const executions = turns
         .filter((turn) => turn.name === EXECUTE_TOOL)
         .map((turn) => decodeExecution(turn.result ?? ""));
       const values = new Map<number, Schema.Json>();
       outcomes.length = 0;
+      answers.length = 0;
       for (const [position, execution] of executions.entries()) {
         const program = programs[position];
         if (program !== undefined) {
           values.set(program.index, answeredValues(execution));
           outcomes.push(outcomeOf(execution));
+          answers.push(answeredValues(execution));
         }
       }
       const next = programs[executions.length];
@@ -186,7 +208,7 @@ const makeScript = (transcript: Transcript) => {
         ],
       };
     });
-  return { nextRule, outcomes, programs };
+  return { answers, nextRule, outcomes, programs };
 };
 
 const readBody = async (incoming: IncomingMessage) => {
@@ -318,14 +340,43 @@ const run = (
     });
   });
 
-/** Claude Code's environment: private configuration, the gate as its model. */
-const claudeEnvironment = (configDirectory: string, baseUrl: string) => {
+/**
+ * Where Playwright keeps its browsers for this user. Tests share that cache,
+ * so the private home below does not download Chromium again.
+ */
+const browserCache = () => {
+  const configured = process.env["PLAYWRIGHT_BROWSERS_PATH"];
+  if (configured !== undefined && configured.length > 0) {
+    return configured;
+  }
+  if (process.platform === "darwin") {
+    return path.join(homedir(), "Library/Caches/ms-playwright");
+  }
+  if (process.platform === "win32") {
+    return path.join(
+      process.env["LOCALAPPDATA"] ?? path.join(homedir(), "AppData/Local"),
+      "ms-playwright"
+    );
+  }
+  return path.join(
+    process.env["XDG_CACHE_HOME"] ?? path.join(homedir(), ".cache"),
+    "ms-playwright"
+  );
+};
+
+/**
+ * The environment for Contingency and Claude Code: a private home, so no
+ * user Settings, Claude configuration, or Local System One is read, and the
+ * gate as the model.
+ */
+const isolatedEnvironment = (home: string, baseUrl: string) => {
   const env: NodeJS.ProcessEnv = {};
   for (const [name, value] of Object.entries(process.env)) {
     if (
       !name.startsWith("ANTHROPIC_") &&
       !name.startsWith("CLAUDE_") &&
-      !name.startsWith("CONTINGENCY_")
+      !name.startsWith("CONTINGENCY_") &&
+      !name.startsWith("XDG_")
     ) {
       env[name] = value;
     }
@@ -337,9 +388,12 @@ const claudeEnvironment = (configDirectory: string, baseUrl: string) => {
     CLAUDE_CODE_DISABLE_AUTO_MEMORY: "1",
     CLAUDE_CODE_DISABLE_CLAUDE_MDS: "1",
     CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
-    CLAUDE_CONFIG_DIR: configDirectory,
+    CLAUDE_CONFIG_DIR: path.join(home, ".claude"),
     DISABLE_AUTOUPDATER: "1",
     ENABLE_TOOL_SEARCH: "false",
+    HOME: home,
+    PLAYWRIGHT_BROWSERS_PATH: browserCache(),
+    USERPROFILE: home,
   };
 };
 
@@ -369,9 +423,11 @@ describe.skipIf(CLAUDE === undefined)(
             prefix: "contingency-claude-code-",
           });
           const project = path.join(root, "project");
-          const configDirectory = path.join(root, "claude");
+          const home = path.join(root, "home");
           yield* fileSystem.makeDirectory(project);
-          yield* fileSystem.makeDirectory(configDirectory);
+          yield* fileSystem.makeDirectory(path.join(home, ".claude"), {
+            recursive: true,
+          });
           const transcript = yield* readTranscript("demo-interactive-run");
           const script = makeScript(transcript);
           const emulator = yield* Effect.acquireRelease(
@@ -379,7 +435,7 @@ describe.skipIf(CLAUDE === undefined)(
             (opened) => Effect.promise(() => opened.close())
           );
           const gate = yield* modelGate(emulator.url, script);
-          const env = claudeEnvironment(configDirectory, gate.url);
+          const env = isolatedEnvironment(home, gate.url);
 
           // Registration: Claude Code's own commands write and health-check it.
           const registered = yield* run(
@@ -433,6 +489,13 @@ describe.skipIf(CLAUDE === undefined)(
           expect(script.outcomes).toEqual(
             script.programs.map(({ step }) => step.outcome)
           );
+          const cart = script.programs.findLastIndex(({ step }) =>
+            step.code.includes("tools.agent_browser_snapshot(input)")
+          );
+          const seen = JSON.stringify(script.answers[cart] ?? null);
+          for (const shown of CART_CONTENTS) {
+            expect(seen).toContain(shown);
+          }
           const runs = yield* fileSystem.readDirectory(
             path.join(project, "contingency"),
             { recursive: true }
