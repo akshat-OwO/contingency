@@ -163,22 +163,97 @@ const isBindable = (key: string) =>
   !/(?:^o|O)perationId$/u.test(key) &&
   (key === "id" || /(?:Id|Cursor)$/u.test(key));
 
+/** The fields of a Check proposal or attachment that name what it checks. */
+const CHECK_IDENTIFIERS = [
+  "change",
+  "cookiePath",
+  "expectation.itemPath[]",
+  "expectation.predicates[].operator",
+  "expectation.predicates[].path[]",
+  "format",
+  "kind",
+  "name",
+  "request.method",
+  "when",
+];
+
 /**
- * The only fields redaction leaves as written: those that say what a user
- * action or program input is, not what it carries. Paths start at the action
- * or input; `[]` is any item of an array. Every other field is payload and is
- * redacted, so a new free-text field is safe without being listed.
+ * The only fields redaction leaves as written: the identifiers, kinds, and
+ * names of declared things that the tools' inputs and the user's actions
+ * carry, so a supplied value that happens to equal one never renames it.
+ * Paths start at the action or input; `[]` is any item of an array. Every
+ * other field is payload and is redacted, so a new free-text field is safe
+ * without being listed. Ids and cursors that a process mints are bound whole.
  */
 const EXEMPT_PATHS = new Set([
   "_tag",
+  "action.action",
+  "action.key",
+  "action.ref",
   "action.type",
-  "actions[].type",
+  "actions[].action.action",
+  "actions[].action.key",
+  "actions[].action.ref",
+  "actions[].action.type",
+  "actions[].checkIds[].flowName",
+  "actions[].intent.checkIds[].flowName",
+  "actions[].intent.objectiveKind",
+  "actions[].operationId",
+  "activity",
+  "agentAccount",
+  "before",
+  "checkIds[].flowName",
+  "claimOperationId",
+  "clientName",
+  "clientVersion",
+  "cursor",
+  "decision",
+  "emulation.colorScheme",
+  "emulation.locale",
+  "emulation.permissions[].permission",
+  "emulation.permissions[].state",
+  "emulation.timezoneId",
+  "emulation.userAgentProfile",
+  "evidence[].kind",
+  "files[].path",
+  "flowName",
   "format",
+  "group",
+  "inputs[].flowName",
+  "inputs[].name",
+  "intent.checkIds[].flowName",
+  "intent.objectiveKind",
+  "kind",
   "name",
+  "nativeConditions.outcomes[].role",
+  "nativeConditions.starting[].role",
   "operation",
   "operationId",
+  "outcome",
+  "path",
+  "platform",
+  "prerequisiteInputs[].flowName",
+  "prerequisiteInputs[].name",
+  "prerequisites[]",
+  "proposal._tag",
+  "proposal.scan.mode",
+  "proposal.scan.phase",
+  "purpose",
+  "ref",
+  "referencedFlows[]",
+  "reportedModel",
+  "reportedProvider",
+  "retryInstructionAt",
+  "root",
+  "scan.mode",
+  "scan.phase",
   "type",
   "view",
+  ...[
+    "attachments[].candidate",
+    "attachments[].requirement",
+    "proposal.check",
+  ].flatMap((check) => CHECK_IDENTIFIERS.map((field) => `${check}.${field}`)),
 ]);
 
 /** Every bindable value in a program's value, first occurrence first. */

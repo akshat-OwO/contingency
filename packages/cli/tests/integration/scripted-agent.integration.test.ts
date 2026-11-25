@@ -217,6 +217,35 @@ it("redacts supplied values in payload fields and never in structural ones", () 
   ).toContain('"name":"Delivering to Juhu"');
 });
 
+it("keeps a declared input's name when a supplied value equals it", () => {
+  const recorder = makeRecorder();
+  recorder.process();
+  recorder.user({
+    _tag: "supply-variable",
+    name: "area",
+    sessionId: "agent-session",
+    value: "area",
+  });
+  const started = recorder.tokenize({
+    inputs: [{ flowName: "delivery", name: "area", value: "area" }],
+    nativeConditions: { starting: [{ name: "Pick an area", role: "text" }] },
+  });
+  expect(started).toEqual({
+    inputs: [{ flowName: "delivery", name: "area", value: "{{supplied1}}" }],
+    nativeConditions: {
+      starting: [{ name: "Pick an {{supplied1}}", role: "text" }],
+    },
+  });
+  expect(
+    substitute(JSON.stringify(started), new Map([["{{supplied1}}", "Juhu"]]))
+  ).toBe(
+    JSON.stringify({
+      inputs: [{ flowName: "delivery", name: "area", value: "Juhu" }],
+      nativeConditions: { starting: [{ name: "Pick an Juhu", role: "text" }] },
+    })
+  );
+});
+
 it.live("records a journey's programs and replays them over HTTP", () =>
   Effect.gen(function* recordThenReplay() {
     const script = makeScript("http");
