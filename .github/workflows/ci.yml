@@ -173,4 +173,16 @@ jobs:
       - name: Check ffprobe is present
         run: ffprobe -version
 
-      - run: vp exec turbo run test:integration -- --shard=${{ matrix.shard }}/3
+      # The emulated-model test runs a real Claude Code, which only the
+      # shortest shard installs. The sharded run excludes it, so placement
+      # does not depend on Vitest's file hashing, and shard 2 runs it after.
+      # In CI the test fails, rather than skips, when `claude` is missing.
+      - run: vp exec turbo run test:integration -- --shard=${{ matrix.shard }}/3 --exclude tests/integration/claude-code-emulated.integration.test.ts
+
+      - name: Install Claude Code
+        if: ${{ matrix.shard == 2 }}
+        uses: ./.github/actions/install-claude-code
+
+      - name: Claude Code with an emulated model
+        if: ${{ matrix.shard == 2 }}
+        run: vp exec turbo run test:integration -- tests/integration/claude-code-emulated.integration.test.ts
