@@ -2,12 +2,13 @@ import path from "node:path";
 
 import { NodeServices } from "@effect/platform-node";
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Layer, Option } from "effect";
+import { Effect, FileSystem, Layer, Metric, Option } from "effect";
 import type { LogLevel } from "effect";
 import { Command } from "effect/cli";
 import { HttpClient, HttpClientResponse } from "effect/http";
 
 import { diagnosticLogFileName } from "../../src/services/diagnostic-log.ts";
+import { recordMcpCall } from "../../src/services/metrics.ts";
 import {
   applyLaunchFlags,
   cliConfigLayer,
@@ -290,5 +291,29 @@ describe("telemetry", () => {
       );
       expect(body).not.toContain(SECRET);
     });
+  });
+
+  it.effect("exports metrics over OTLP under the same opt-in", () => {
+    const { bodies, layer } = collector();
+    const provider = makeSettingsProvider({
+      env: {},
+      user: { telemetry: { otlpEndpoint: "http://collector.test:4318" } },
+    });
+    return Effect.gen(function* exportMetrics() {
+      yield* Effect.scoped(
+        Layer.build(
+          makeTelemetryLayer(provider, { home: HOME, httpClient: layer })
+        ).pipe(
+          Effect.flatMap((context) =>
+            recordMcpCall("agent_browser_act", "succeeded").pipe(
+              Effect.provideContext(context)
+            )
+          )
+        )
+      );
+      const body = bodies.join("\n");
+      expect(body).toContain('"contingency.mcp.calls"');
+      expect(body).toContain('"agent_browser_act"');
+    }).pipe(Effect.provideService(Metric.MetricRegistry, new Map()));
   });
 });

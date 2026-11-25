@@ -55,6 +55,7 @@ import { DeviceVideoRenderer } from "./device-video-renderer.ts";
 import { makeExecutionBoundary } from "./execution-boundary.ts";
 import type { ExecutionBoundary } from "./execution-boundary.ts";
 import { FlowCatalog } from "./flow-catalog.ts";
+import { recordCaptureGap, recordCaptureRepair } from "./metrics.ts";
 import { NativeAgentTouches } from "./native-agent-touch.ts";
 import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
 import { relayedDecisionAllowed } from "./native-app-run.ts";
@@ -770,6 +771,7 @@ export const makeAndroidWorkspaceLayer = (options: {
               phase: "paused",
             },
           }));
+          yield* recordCaptureGap(false);
           yield* finishRecording(
             session,
             OperationId.make(`android-gap-${randomUUID()}`),
@@ -804,6 +806,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                     now()
                   ),
                 }));
+                yield* recordCaptureGap(true);
                 yield* persist(session);
                 return recovered;
               })
@@ -1654,7 +1657,10 @@ export const makeAndroidWorkspaceLayer = (options: {
           { discard: true }
         );
       /** Names Forwarded Input that reached the device unobserved. */
-      const markUnverified = (session: Session) =>
+      const markUnverified = (session: Session) => {
+        const added = !state(session).summary.captureGaps.includes(
+          "forwarded_input_unverified"
+        );
         update(session, (current) => ({
           ...current,
           summary: {
@@ -1666,6 +1672,8 @@ export const makeAndroidWorkspaceLayer = (options: {
               : [...current.summary.captureGaps, "forwarded_input_unverified"],
           },
         }));
+        return added ? recordCaptureGap(false) : Effect.void;
+      };
       /** Pauses, naming the Forwarded Input no observation has checked. */
       const pauseForwarded = (session: Session, cause: AndroidWorkspaceError) =>
         Effect.gen(function* pauseUnverified() {
@@ -1678,7 +1686,7 @@ export const makeAndroidWorkspaceLayer = (options: {
             })
           );
           if (unverified > 0) {
-            markUnverified(session);
+            yield* markUnverified(session);
             yield* persist(session).pipe(
               Effect.ignore({
                 log: "Debug",
@@ -1861,7 +1869,7 @@ export const makeAndroidWorkspaceLayer = (options: {
               // Input that arrived during the final observation reached the
               // device, but nothing shows its result.
               session.lane.discard();
-              markUnverified(session);
+              yield* markUnverified(session);
             }
             yield* finishRecording(
               session,
@@ -2493,10 +2501,17 @@ export const makeAndroidWorkspaceLayer = (options: {
               );
             }
             acceptObservation(session, yield* session.run.recover());
-            update(session, (value) => ({
-              ...value,
-              summary: repairCaptureGaps(value.summary, "user", now()),
-            }));
+            let repairedCount = 0;
+            update(session, (value) => {
+              const before = value.summary.captureRepairs?.length ?? 0;
+              const repaired = repairCaptureGaps(value.summary, "user", now());
+              repairedCount = (repaired.captureRepairs?.length ?? 0) - before;
+              return {
+                ...value,
+                summary: repaired,
+              };
+            });
+            yield* recordCaptureRepair(repairedCount);
           } else if (command._tag === "observe") {
             if (summary.phase !== "running") {
               return yield* denied(
@@ -2847,7 +2862,11 @@ export const makeAndroidWorkspaceLayer = (options: {
                       )
                 )
               : serialized;
-          }),
+          }).pipe(
+            Effect.annotateLogs(
+              command._tag === "start" ? {} : { sessionId: command.sessionId }
+            )
+          ),
         forward: ({ inputs, sessionId }, source) =>
           Effect.suspend(() => {
             const session = sessions.get(sessionId);
@@ -2858,7 +2877,7 @@ export const makeAndroidWorkspaceLayer = (options: {
                   "This process does not own the Android session. Nothing was sent."
                 )
               : forwardWorkspace(session, inputs, source);
-          }),
+          }).pipe(Effect.annotateLogs({ sessionId })),
         keyframes: (sessionId) => {
           const session = sessions.get(sessionId);
           if (session !== undefined) {

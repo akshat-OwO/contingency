@@ -6,7 +6,15 @@ import {
 import type { AgentSessionId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Deferred, Effect, Fiber, FileSystem, Layer, Schema } from "effect";
+import {
+  Deferred,
+  Effect,
+  Fiber,
+  FileSystem,
+  Layer,
+  Metric,
+  Schema,
+} from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
 import { makeDemoSiteLayer } from "../../src/services/demo-site-server.ts";
@@ -330,6 +338,21 @@ it.live(
               entry.description.startsWith("Pursuit ended done")
             )
           ).toBe(true);
+          // Each Pursuit counts once by its ending, read as a collector would.
+          const outcomes = (yield* Metric.snapshot).flatMap((snapshot) =>
+            snapshot.id === "contingency.pursuit.outcomes" &&
+            snapshot.type === "Counter"
+              ? [[snapshot.attributes?.outcome, snapshot.state.count]]
+              : []
+          );
+          expect(Object.fromEntries(outcomes)).toEqual({
+            blocked: 1,
+            done: 2,
+            // System One itself failing fails the call.
+            failed: 1,
+            paused: 1,
+            unsure: 3,
+          });
         }).pipe(
           Effect.provide(
             Layer.mergeAll(
@@ -342,7 +365,10 @@ it.live(
           )
         )
       );
-    }).pipe(Effect.provide(NodeServices.layer))
+    }).pipe(
+      Effect.provideService(Metric.MetricRegistry, new Map()),
+      Effect.provide(NodeServices.layer)
+    )
 );
 
 it.live(

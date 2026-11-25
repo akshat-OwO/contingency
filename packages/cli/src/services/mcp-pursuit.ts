@@ -45,6 +45,7 @@ import {
   UnpublishedPursuitResult,
 } from "./mcp-session-output.ts";
 import { withStrictParameters } from "./mcp-strict-parameters.ts";
+import { recordPursuitOutcome } from "./metrics.ts";
 import { isTaskRun } from "./run-lifecycle.ts";
 import {
   actionSpace,
@@ -1520,7 +1521,9 @@ export const PursuitToolHandlersLive = PursuitTools.toLayer(
               pursue(params, attempts).pipe(
                 Effect.mapError((cause) =>
                   cause instanceof AgentSessionFailure ? cause : failure(cause)
-                )
+                ),
+                Effect.tap((result) => recordPursuitOutcome(result.ending)),
+                Effect.tapError(() => recordPursuitOutcome("failed"))
               )
           );
           return yield* encodeUnpublishedPursuitResult({
