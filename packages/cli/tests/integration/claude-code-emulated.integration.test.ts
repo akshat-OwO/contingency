@@ -397,12 +397,25 @@ const CallRecord = Schema.Struct({
   status: Schema.Number,
 });
 
+/** Whether `file` lies inside `directory`, a filesystem root included. */
+const contains = (directory: string, file: string) => {
+  const relative = path.relative(directory, file);
+  return (
+    relative.length > 0 &&
+    !relative.startsWith("..") &&
+    !path.isAbsolute(relative)
+  );
+};
+
 it("gives the private home the browser cache Playwright uses here", () => {
   const cache = browserCache();
   expect(path.isAbsolute(cache)).toBe(true);
-  expect(chromium.executablePath().startsWith(`${cache}${path.sep}`)).toBe(
-    true
-  );
+  expect(contains(cache, chromium.executablePath())).toBe(true);
+  const { root } = path.parse(cache);
+  expect(contains(root, path.join(root, "chromium-1", "chrome"))).toBe(true);
+  expect(
+    contains(path.join(root, "cache"), path.join(root, "cache-other", "chrome"))
+  ).toBe(false);
 });
 
 describe.skipIf(CLAUDE === undefined)(
