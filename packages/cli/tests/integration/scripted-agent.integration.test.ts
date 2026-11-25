@@ -175,6 +175,13 @@ it("redacts supplied values in payload fields and never in structural ones", () 
     operationId: "agent-type",
     sessionId: "agent-session",
   });
+  // An observed label is payload, even in a field called `name`.
+  const saved = recorder.tokenize({
+    name: "delivery",
+    nativeConditions: {
+      outcomes: [{ name: "Delivering to agent", role: "text" }],
+    },
+  });
   const { steps } = recorder.transcript("structural");
   const actions = steps.flatMap((step) =>
     step._tag === "user" ? [step.action] : []
@@ -199,6 +206,15 @@ it("redacts supplied values in payload fields and never in structural ones", () 
     operationId: "agent-type",
     sessionId: "agent-session",
   });
+  expect(saved).toEqual({
+    name: "delivery",
+    nativeConditions: {
+      outcomes: [{ name: "Delivering to {{supplied2}}", role: "text" }],
+    },
+  });
+  expect(
+    substitute(JSON.stringify(saved), new Map([["{{supplied2}}", "Juhu"]]))
+  ).toContain('"name":"Delivering to Juhu"');
 });
 
 it.live("records a journey's programs and replays them over HTTP", () =>

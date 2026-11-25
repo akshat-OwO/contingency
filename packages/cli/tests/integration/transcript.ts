@@ -164,18 +164,19 @@ const isBindable = (key: string) =>
   (key === "id" || /(?:Id|Cursor)$/u.test(key));
 
 /**
- * Keys whose value says what a step is, not what it carries: a tag, a kind,
- * a name, or a format. Redaction never rewrites them.
+ * The only fields redaction leaves as written: those that say what a user
+ * action or program input is, not what it carries. Paths start at the action
+ * or input; `[]` is any item of an array. Every other field is payload and is
+ * redacted, so a new free-text field is safe without being listed.
  */
-const STRUCTURAL_KEYS = new Set([
+const EXEMPT_PATHS = new Set([
   "_tag",
-  "button",
-  "eventType",
+  "action.type",
+  "actions[].type",
   "format",
   "name",
   "operation",
   "operationId",
-  "role",
   "type",
   "view",
 ]);
@@ -232,8 +233,8 @@ export const makeRecorder = () => {
   const live = new Map<string, string>();
   let supplied = 0;
 
-  const tokenFor = (value: string, key: string | undefined) => {
-    if (key !== undefined && STRUCTURAL_KEYS.has(key)) {
+  const tokenFor = (value: string, fieldPath: string, key?: string) => {
+    if (EXEMPT_PATHS.has(fieldPath)) {
       return value;
     }
     // The earliest answer that holds the value is the one that minted it.
@@ -275,32 +276,40 @@ export const makeRecorder = () => {
     return written;
   };
 
-  /** `key` is the field the value sits in; an array's items share it. */
-  const tokenize = (value: Schema.Json, key?: string): Schema.Json => {
+  /**
+   * `fieldPath` is the value's path from the action or input, and `key` the field
+   * it sits in; an array's items share both, with `[]` added to the path.
+   */
+  const tokenize = (
+    value: Schema.Json,
+    fieldPath: string,
+    key?: string
+  ): Schema.Json => {
     if (Predicate.isString(value)) {
-      return tokenFor(value, key);
+      return tokenFor(value, fieldPath, key);
     }
     if (Array.isArray(value)) {
-      return value.map((item) => tokenize(item, key));
+      return value.map((item) => tokenize(item, `${fieldPath}[]`, key));
     }
     if (isJsonObject(value)) {
       return Object.fromEntries(
         Object.entries(value).map(([field, child]) => [
           field,
-          tokenize(child, field),
+          tokenize(
+            child,
+            fieldPath === "" ? field : `${fieldPath}.${field}`,
+            field
+          ),
         ])
       );
     }
     return value;
   };
 
-  const tokenizeObject = (input: Schema.JsonObject): Schema.JsonObject =>
-    Object.fromEntries(
-      Object.entries(input).map(([field, child]) => [
-        field,
-        tokenize(child, field),
-      ])
-    );
+  const tokenizeObject = (input: Schema.JsonObject): Schema.JsonObject => {
+    const tokenized = tokenize(input, "");
+    return isJsonObject(tokenized) ? tokenized : input;
+  };
 
   /**
    * A value the user supplies is the user's, never the agent's, so each one
