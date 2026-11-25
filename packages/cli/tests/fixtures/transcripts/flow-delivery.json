@@ -112,9 +112,9 @@
     {
       "from": {
         "_tag": "environment",
-        "name": "variableDELIVERYAREA"
+        "name": "supplied1"
       },
-      "token": "{{variableDELIVERYAREA}}"
+      "token": "{{supplied1}}"
     },
     {
       "from": {
@@ -711,7 +711,7 @@
         "_tag": "supply-variable",
         "name": "DELIVERY_AREA",
         "sessionId": "{{b9}}",
-        "value": "{{variableDELIVERYAREA}}"
+        "value": "{{supplied1}}"
       }
     },
     {

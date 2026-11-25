@@ -406,6 +406,7 @@ const inProcessAgent = Layer.effect(
         Effect.orDie,
         Effect.flatMap(Stream.runCollect),
         declaredFailure,
+        Effect.mapError((failure): ToolFailure => failure),
         Effect.flatMap((results) => {
           const last = results.at(-1);
           // SAFETY: a tool's encoded result is JSON.
@@ -628,7 +629,14 @@ export const awaitSession = (
       if (afterCursor === undefined || afterCursor === null) {
         return yield* Effect.die("The Agent Session returned no event cursor.");
       }
-      session = yield* call("agent_session_get", { afterCursor, sessionId });
+      // A cursor wait answers with compact state, so `until` reads the full
+      // session the agent fetches next.
+      const agent = yield* ScriptedAgent;
+      yield* agent.run({
+        input: yield* prepare("agent_session_get", { afterCursor, sessionId }),
+        operation: "agent_session_get",
+      });
+      session = yield* call("agent_session_get", { sessionId });
     }
     return session;
   }).pipe(Effect.timeout("30 seconds"));

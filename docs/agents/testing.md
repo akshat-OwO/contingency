@@ -80,7 +80,7 @@ A transcript is JSON that the `Transcript` schema in `tests/integration/transcri
 | `outcome` | `status`, the `failureCode` of the operation failure the program ended with or `null`, and the receipts that did not succeed. |
 | `bindings` | Each `{{token}}` in the programs and actions, and where a replay takes its value: `step` names an earlier step's `value` or `intervention` path, the earliest step that held the value; `environment` names a value the replaying test supplies, such as the fixture origin. |
 
-Values a process mints, such as session, Flow, and Run ids and cursors, are written as tokens. Operation ids are the agent's own, so they are written as sent. A value the user supplies for a Variable is the user's, so it is written as the environment token `{{variable<NAME>}}`, with the Variable's name stripped to letters and digits, and the replaying test supplies it. A transcript holds only what the agent sent and the outcome it read: programs, failure codes, and receipts. It never holds a failure's cause.
+Values a process mints, such as session, Flow, and Run ids and cursors, are written as tokens. Operation ids are the agent's own, so they are written as sent. A value the user supplies for a Variable is the user's, so each supply is written as its own environment token, `{{supplied1}}`, `{{supplied2}}` and so on in order, and the replaying test supplies the values. A transcript holds only what the agent sent and the outcome it read: programs, failure codes, and receipts. It never holds a failure's cause.
 
 ## Coverage corpora
 

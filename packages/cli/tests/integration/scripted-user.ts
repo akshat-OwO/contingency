@@ -1,8 +1,9 @@
 import type { AgentSessionId, OperationId } from "@contingency/protocol";
-import { Effect, Option, Schema } from "effect";
+import { Effect, Option } from "effect";
 
 import { AgentSession } from "../../src/services/agent-session.ts";
-import { Script, UserAction } from "./transcript.ts";
+import { Script } from "./transcript.ts";
+import type { UserAction } from "./transcript.ts";
 
 /**
  * The user in the Workspace: what they click, type, record, and hand back,
@@ -106,18 +107,7 @@ const record = (action: UserAction) =>
   Effect.gen(function* recordUserAction() {
     const script = yield* Effect.serviceOption(Script);
     if (Option.isSome(script) && script.value.adapter === "http") {
-      const { recorder } = script.value;
-      // A supplied value is the user's, never the agent's, so the transcript
-      // holds a token the replaying test fills in.
-      if (action._tag === "supply-variable") {
-        recorder.environment(
-          `variable${action.name.replaceAll(/[^A-Za-z0-9]/gu, "")}`,
-          action.value
-        );
-      }
-      recorder.user(
-        Schema.decodeUnknownSync(UserAction)(recorder.tokenize(action))
-      );
+      script.value.recorder.user(action);
     }
   });
 

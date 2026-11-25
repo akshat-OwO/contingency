@@ -1,22 +1,26 @@
 import { AgentSessionId } from "@contingency/protocol";
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
-import { Effect, FileSystem, Schema } from "effect";
+import { Deferred, Effect, Fiber, FileSystem, Schema } from "effect";
 
 import { agentViewport } from "./agent-process.ts";
 import { fixtureServer } from "./harness.ts";
 import {
   act,
+  awaitSession,
   call,
   journey,
   replayTranscript,
   scriptedProcess,
 } from "./scripted-agent.ts";
+import { User } from "./scripted-user.ts";
 import {
   bindEnvironment,
+  makeRecorder,
   makeScript,
   readTranscript,
   Script,
+  substitute,
   Transcript,
 } from "./transcript.ts";
 
@@ -59,6 +63,72 @@ journey(
   { singleTool: true },
   addAnAnvil
 );
+
+journey(
+  "waits on Session Events until the state the next assertion reads",
+  { singleTool: true },
+  Effect.gen(function* awaitTakeoverJourney() {
+    const fixtures = yield* fixtureServer;
+    const root = yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped({
+      prefix: "contingency-scripted-agent-",
+    });
+    yield* Effect.gen(function* awaitTheUser() {
+      const started = yield* call("agent_session_start", {
+        clientName: "scripted-agent",
+        clientVersion: "1.0.0",
+        url: fixtures.url("task-session.html"),
+        viewport: agentViewport,
+      });
+      // The user takes over only after the first read, so the wait must
+      // observe the takeover through a Session Event.
+      const firstRead = yield* Deferred.make<boolean>();
+      const waiting = yield* awaitSession(started.id, (session) => {
+        Deferred.doneUnsafe(firstRead, Effect.succeed(true));
+        return session.controller === "user";
+      }).pipe(Effect.forkChild);
+      yield* Deferred.await(firstRead);
+      yield* User.takeover(started.id, "The user checks the cart.");
+      const session = yield* Fiber.join(waiting);
+      expect(session.controller).toBe("user");
+      yield* User.returnControl(started.id);
+      yield* call("agent_session_close", { sessionId: started.id });
+    }).pipe(Effect.provide(scriptedProcess(root)), Effect.scoped);
+  })
+);
+
+it("binds each supplied value to its own token and restores it literally", () => {
+  const recorder = makeRecorder();
+  recorder.process();
+  for (const value of ["first$$value", "second $& value"]) {
+    recorder.user({
+      _tag: "supply-variable",
+      name: "DELIVERY_AREA",
+      sessionId: "agent-session",
+      value,
+    });
+  }
+  const { bindings, steps } = recorder.transcript("supplied");
+  const supplied = steps.flatMap((step) =>
+    step._tag === "user" && step.action._tag === "supply-variable"
+      ? [step.action.value]
+      : []
+  );
+  expect(supplied).toEqual(["{{supplied1}}", "{{supplied2}}"]);
+  expect(JSON.stringify(steps)).not.toContain("first");
+  expect(JSON.stringify(steps)).not.toContain("second");
+  expect(bindings.map(({ token }) => token)).toEqual([
+    "{{supplied1}}",
+    "{{supplied2}}",
+  ]);
+  const values = new Map([
+    ["{{supplied1}}", "first$$value"],
+    ["{{supplied2}}", "second $& value"],
+  ]);
+  expect(supplied.map((token) => substitute(token, values))).toEqual([
+    "first$$value",
+    "second $& value",
+  ]);
+});
 
 it.live("records a journey's programs and replays them over HTTP", () =>
   Effect.gen(function* recordThenReplay() {
@@ -103,7 +173,7 @@ it.live(
       yield* replayTranscript(yield* readTranscript("flow-delivery"), {
         environment: {
           fixtureOrigin: new URL(fixtures.url("")).origin,
-          variableDELIVERYAREA: "Bandra",
+          supplied1: "Bandra",
         },
         root: yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped({
           prefix: "contingency-replay-",

@@ -105,10 +105,19 @@ export const decodeToolFailure = <Value>(
     Option.getOrUndefined
   );
 
-/** A handler's failure as an MCP client reads it; an undeclared one is a defect. */
+const isToolFailure = <Failure>(
+  failure: Failure
+): failure is Failure & ToolFailure => decodeToolFailure(failure) !== undefined;
+
+/**
+ * A handler's failure, kept as it was raised, when it carries what an MCP
+ * client reads; an undeclared one is a defect.
+ */
 export const declaredFailure = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
   effect.pipe(
-    Effect.mapError(decodeToolFailure),
+    Effect.mapError((failure) =>
+      isToolFailure(failure) ? failure : undefined
+    ),
     Effect.catchIf(Predicate.isUndefined, () =>
       Effect.die("The tool failed with an undeclared failure.")
     )

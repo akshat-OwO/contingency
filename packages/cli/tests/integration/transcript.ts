@@ -197,7 +197,7 @@ export const substitute = (
 ) => {
   let resolved = template;
   for (const [token, value] of values) {
-    resolved = resolved.replaceAll(token, escaped(value));
+    resolved = resolved.replaceAll(token, () => escaped(value));
   }
   return resolved;
 };
@@ -213,6 +213,7 @@ export const makeRecorder = () => {
   const sources: ReadonlyMap<string, readonly Segment[]>[] = [];
   const environment = new Map<string, string>();
   const live = new Map<string, string>();
+  let supplied = 0;
 
   const tokenFor = (value: string) => {
     // The earliest answer that holds the value is the one that minted it.
@@ -265,6 +266,24 @@ export const makeRecorder = () => {
     return value;
   };
 
+  const tokenizeObject = (input: Schema.JsonObject): Schema.JsonObject =>
+    Object.fromEntries(
+      Object.entries(input).map(([key, child]) => [key, tokenize(child)])
+    );
+
+  /**
+   * A value the user supplies is the user's, never the agent's, so each one
+   * is its own environment token, `{{supplied<n>}}`, the replay fills in.
+   */
+  const suppliedToken = (value: string) => {
+    supplied += 1;
+    const name = `supplied${supplied}`;
+    const token = `{{${name}}}`;
+    bindings.push({ from: { _tag: "environment", name }, token });
+    live.set(token, value);
+    return token;
+  };
+
   return {
     /** Names a value the replaying test supplies, such as an origin. */
     environment: (name: string, value: string) => {
@@ -280,11 +299,8 @@ export const makeRecorder = () => {
       steps.push({ _tag: "program", code, outcome: outcomeOf(answer) });
       sources.push(bindableValues(answeredValues(answer)));
     },
-    /** An input or action with each bound value written as its token. */
-    tokenize: (input: Schema.JsonObject): Schema.JsonObject =>
-      Object.fromEntries(
-        Object.entries(input).map(([key, child]) => [key, tokenize(child)])
-      ),
+    /** An input with each bound value written as its token. */
+    tokenize: tokenizeObject,
     transcript: (journey: string): Transcript => ({
       bindings: [...bindings],
       journey,
@@ -292,7 +308,17 @@ export const makeRecorder = () => {
       steps: [...steps],
     }),
     user: (action: UserAction) => {
-      steps.push({ _tag: "user", action });
+      const tokenized = Schema.decodeUnknownSync(UserAction)(
+        tokenizeObject(action)
+      );
+      steps.push({
+        _tag: "user",
+        action:
+          action._tag === "supply-variable" &&
+          tokenized._tag === "supply-variable"
+            ? { ...tokenized, value: suppliedToken(action.value) }
+            : tokenized,
+      });
       sources.push(new Map());
     },
   };
