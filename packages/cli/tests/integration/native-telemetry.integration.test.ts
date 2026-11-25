@@ -49,10 +49,7 @@ import {
   iosRuntimeError,
   iosSystemKeys,
 } from "../../src/services/ios-runtime.ts";
-import type {
-  IosObservation,
-  IosRunInput,
-} from "../../src/services/ios-runtime.ts";
+import type { IosObservation } from "../../src/services/ios-runtime.ts";
 import type { IosDeviceStream } from "../../src/services/ios-stream.ts";
 import {
   IosWorkspace,
@@ -60,8 +57,6 @@ import {
 } from "../../src/services/ios-workspace.ts";
 import { recordPursuitOutcome } from "../../src/services/metrics.ts";
 import { nativeAppActionPolicy } from "../../src/services/native-app-action-policy.ts";
-import type { NativeAppRunDecision } from "../../src/services/native-app-run-contract.ts";
-import { createNativeAppRun } from "../../src/services/native-app-run.ts";
 import { adaptNativeAppRuntime } from "../../src/services/native-app-runtime.ts";
 import { platformRuntimeError } from "../../src/services/platform-runtime-error.ts";
 import { PlatformRuntimeFactory } from "../../src/services/platform-runtime.ts";
@@ -356,47 +351,36 @@ const makeFakeIosWorkspace = (
   return makeIosWorkspaceLayer({
     acquireStream: () => Effect.succeed(fakeIosStream()),
     booted: () => Effect.succeed(true),
-    createRun: (input: IosRunInput) =>
-      createNativeAppRun<IosRunInput, IosObservation, NativeAppRunDecision>(
-        input,
-        {
-          authorize: (request) => request,
-          decisions: () => [],
-          differences: () => [],
-          error: iosRuntimeError,
-          preflight: () => Effect.void,
-          restart: () => Effect.void,
-          start: (startup) =>
-            adaptNativeAppRuntime({
-              backend: {
-                activate: () =>
-                  options.hangActivate?.() === true
-                    ? Effect.never
-                    : Effect.void,
-                capture,
-                close: () => Effect.void,
-                fill: () =>
-                  Effect.succeed({
-                    confirmation: "confirmed",
-                    outcome: "entered",
-                  }),
-                recover: () => Effect.void,
-                rotate: () => Effect.void,
-                sessionId: "ios-fixture",
-                systemKey: () => Effect.void,
-                validate: () => Effect.void,
-              },
-              capabilities: iosCapabilities,
-              error: iosRuntimeError,
-              policy: nativeAppActionPolicy(iosRuntimeError, iosSystemKeys),
-              startup,
-            }),
-          startingConditions: () => true,
-          validate: () => Effect.void,
-        }
-      ),
     makeHid: () => Effect.succeed({ forward: () => Effect.void }),
     root: () => root,
+    runDeps: {
+      installedBuild: () => Effect.succeed("1"),
+      preflight: () => Effect.void,
+      restart: () => Effect.void,
+      start: (startup) =>
+        adaptNativeAppRuntime({
+          backend: {
+            activate: () =>
+              options.hangActivate?.() === true ? Effect.never : Effect.void,
+            capture,
+            close: () => Effect.void,
+            fill: () =>
+              Effect.succeed({
+                confirmation: "confirmed",
+                outcome: "entered",
+              }),
+            recover: () => Effect.void,
+            rotate: () => Effect.void,
+            sessionId: "ios-fixture",
+            systemKey: () => Effect.void,
+            validate: () => Effect.void,
+          },
+          capabilities: iosCapabilities,
+          error: iosRuntimeError,
+          policy: nativeAppActionPolicy(iosRuntimeError, iosSystemKeys),
+          startup,
+        }),
+    },
     simctl: () => Effect.succeed(""),
   }).pipe(
     Layer.provide(Layer.mergeAll(makeFlowCatalogLayer({ root }), storeLayer))

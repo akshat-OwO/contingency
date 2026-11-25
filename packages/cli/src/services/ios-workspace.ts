@@ -65,7 +65,12 @@ import {
   observeIosPostAction,
   iosRuntimeError as platformRuntimeError,
 } from "./ios-runtime.ts";
-import type { IosRun, IosRunInput, IosObservation } from "./ios-runtime.ts";
+import type {
+  IosObservation,
+  IosRun,
+  IosRunDriver,
+  IosRunInput,
+} from "./ios-runtime.ts";
 import { acquireIosStream } from "./ios-stream.ts";
 import type { IosDeviceStream } from "./ios-stream.ts";
 import { recordCaptureGap, recordCaptureRepair } from "./metrics.ts";
@@ -503,7 +508,8 @@ const endVideo = (session: Session) =>
 
 export const makeIosWorkspaceLayer = (options: {
   readonly root: () => string;
-  readonly createRun?: typeof createIosRun;
+  /** Host operations for iOS runs; tests substitute their own. */
+  readonly runDeps?: Partial<IosRunDriver>;
   /** The simulator input helper; tests substitute their own. */
   readonly makeHid?: typeof makeIosHid;
   /** The session's mirror; tests substitute their own. */
@@ -1287,8 +1293,9 @@ export const makeIosWorkspaceLayer = (options: {
                 taught,
                 teaching: command.kind === "teaching",
               };
-              const create = (options.createRun ?? createIosRun)(
-                appPath === undefined ? startup : { ...startup, appPath }
+              const create = createIosRun(
+                appPath === undefined ? startup : { ...startup, appPath },
+                options.runDeps
               );
               const created = yield* Effect.result(create);
               if (Result.isFailure(created)) {

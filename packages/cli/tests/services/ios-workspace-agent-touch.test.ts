@@ -14,10 +14,7 @@ import {
   iosRuntimeError,
   iosSystemKeys,
 } from "../../src/services/ios-runtime.ts";
-import type {
-  IosObservation,
-  IosRunInput,
-} from "../../src/services/ios-runtime.ts";
+import type { IosObservation } from "../../src/services/ios-runtime.ts";
 import type { IosDeviceStream } from "../../src/services/ios-stream.ts";
 import {
   IosWorkspace,
@@ -26,8 +23,6 @@ import {
 import { NativeAgentTouches } from "../../src/services/native-agent-touch.ts";
 import type { NativeAgentGesture } from "../../src/services/native-agent-touch.ts";
 import { nativeAppActionPolicy } from "../../src/services/native-app-action-policy.ts";
-import type { NativeAppRunDecision } from "../../src/services/native-app-run-contract.ts";
-import { createNativeAppRun } from "../../src/services/native-app-run.ts";
 import { adaptNativeAppRuntime } from "../../src/services/native-app-runtime.ts";
 import { makeTeachingRecordingStoreLayer } from "../../src/services/teaching-recording-store.ts";
 
@@ -129,44 +124,6 @@ it.effect(
             },
           };
         });
-      const createRun = (input: IosRunInput) =>
-        createNativeAppRun<IosRunInput, IosObservation, NativeAppRunDecision>(
-          input,
-          {
-            authorize: (request) => request,
-            decisions: () => [],
-            differences: () => [],
-            error: iosRuntimeError,
-            preflight: () => Effect.void,
-            start: (request) =>
-              adaptNativeAppRuntime({
-                backend: {
-                  activate: (target) =>
-                    Effect.sync(() => {
-                      activations.push(target);
-                    }),
-                  capture,
-                  close: () => Effect.void,
-                  fill: () =>
-                    Effect.succeed({
-                      confirmation: "unconfirmed" as const,
-                      outcome: "entered" as const,
-                    }),
-                  recover: () => Effect.void,
-                  rotate: () => Effect.void,
-                  sessionId: "fixture-session",
-                  systemKey: () => Effect.void,
-                  validate: () => Effect.void,
-                },
-                capabilities: iosCapabilities,
-                error: iosRuntimeError,
-                policy: nativeAppActionPolicy(iosRuntimeError, iosSystemKeys),
-                startup: request,
-              }),
-            startingConditions: () => true,
-            validate: () => Effect.void,
-          }
-        );
       // Records each touch instead of drawing it, so no touch waits.
       const touchLayer = Layer.succeed(
         NativeAgentTouches,
@@ -183,9 +140,38 @@ it.effect(
       const workspaceLayer = makeIosWorkspaceLayer({
         acquireStream: () => Effect.succeed(fakeStream()),
         booted: () => Effect.succeed(true),
-        createRun,
         makeHid: () => Effect.succeed({ forward: () => Effect.void }),
         root: () => root,
+        runDeps: {
+          installedBuild: () => Effect.succeed("1"),
+          preflight: () => Effect.void,
+          restart: () => Effect.void,
+          start: (request) =>
+            adaptNativeAppRuntime({
+              backend: {
+                activate: (target) =>
+                  Effect.sync(() => {
+                    activations.push(target);
+                  }),
+                capture,
+                close: () => Effect.void,
+                fill: () =>
+                  Effect.succeed({
+                    confirmation: "unconfirmed" as const,
+                    outcome: "entered" as const,
+                  }),
+                recover: () => Effect.void,
+                rotate: () => Effect.void,
+                sessionId: "fixture-session",
+                systemKey: () => Effect.void,
+                validate: () => Effect.void,
+              },
+              capabilities: iosCapabilities,
+              error: iosRuntimeError,
+              policy: nativeAppActionPolicy(iosRuntimeError, iosSystemKeys),
+              startup: request,
+            }),
+        },
         simctl: () => Effect.succeed("light"),
       }).pipe(
         Layer.provide(
