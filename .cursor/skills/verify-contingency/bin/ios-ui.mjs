@@ -28,6 +28,30 @@ const waitReply = async (page, before, tag = "ios.workspace.command") => {
         ?.getAttribute("aria-busy") === "false"
   );
 };
+/**
+ * Picks a simulator on the Teach on iOS start card: the `Simulator` combobox,
+ * then the option that reads `<name> · iOS <version>`. The card shows no
+ * button for a simulator.
+ */
+export const chooseSimulator = async (control, device) => {
+  await control(
+    "browser",
+    "click",
+    "--role",
+    "combobox",
+    "--name",
+    "Simulator"
+  );
+  await control(
+    "browser",
+    "click",
+    "--role",
+    "option",
+    "--name",
+    `${device.name} · iOS ${device.runtimeVersion}`,
+    "--partial"
+  );
+};
 /** Click a Workspace button; `region` scopes it, as each decision has its own Allow. */
 export const clickIos = async (page, name, region) => {
   const before = await page.evaluate(

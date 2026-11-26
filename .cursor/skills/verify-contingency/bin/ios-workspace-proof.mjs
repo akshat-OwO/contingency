@@ -10,6 +10,7 @@ import {
   selectedSimulatorResource,
   simulatorInventory,
 } from "./ios-proof-resources.mjs";
+import { chooseSimulator } from "./ios-ui.mjs";
 import { iosRpc } from "./ios-workspace-rpc.mjs";
 
 // A tap that focuses a field is recorded as its own forwarded action.
@@ -475,21 +476,12 @@ try {
   // The tile opens the Teach on iOS start card on the home.
   await control("browser", "wait", "--role", "form", "--name", "Teach on iOS");
   await fill("Flow name", flowName);
-  // Device choice is a card named for the simulator; the name is unique to
-  // this proof-owned UDID.
+  // The Simulator combobox lists every iPhone simulator as an option reading
+  // `<name> · iOS <version>`; the name is unique to this proof-owned UDID.
   const listedDevices = await iosRpc(instance.mcpUrl, "ios.devices.list", {});
   const selectedDevice = listedDevices.find((entry) => entry.udid === selected);
   assert.ok(selectedDevice, "The proof-owned simulator must be discovered");
-  await control(
-    "browser",
-    "click",
-    "--role",
-    "button",
-    "--name",
-    selectedDevice.name,
-    "--partial",
-    "true"
-  );
+  await chooseSimulator(control, selectedDevice);
   // The Target App is the fixture `.app` folder, uploaded through the card's
   // folder picker; its bundle identifier and build are read from it. The
   // button answers the file chooser it opens.
