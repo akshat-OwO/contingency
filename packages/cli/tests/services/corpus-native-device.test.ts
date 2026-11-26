@@ -1,12 +1,16 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
+import { fillsScreen } from "../../src/services/ios-foreground.ts";
 import {
   ANDROID_WIDGET_APP,
   ANDROID_WIDGET_SCRIPT,
+  IOS_WIDGET_APP,
+  IOS_WIDGET_PERMISSION_ALERT,
   IOS_WIDGET_SCRIPT,
   corpusAndroidSelection,
   corpusIosSimulator,
+  loadCorpusCapture,
   makeCorpusNativeBackend,
 } from "../helpers/corpus-native-device.ts";
 
@@ -214,7 +218,7 @@ describe("corpus-backed fake native device", () => {
         yield* fake.backend.activate(continueButton?.target ?? "");
 
         const permissionAlert = yield* fake.backend.capture();
-        // system-permission-alert.json has a 320x326 alert frame inside the
+        // The permission alert has a 320x326 alert frame inside the
         // 402x874 window; iosWindowViewport keeps the outer window geometry.
         expect(permissionAlert.frame).toEqual({ height: 874, width: 402 });
         const png = Buffer.from(permissionAlert.screenshot.image, "base64");
@@ -228,12 +232,48 @@ describe("corpus-backed fake native device", () => {
 
         // Allow Once is rect x=57 y=438 288x48 in window points; centered in the
         // 402x874 window it must stay on screen, not 462/326 off the bottom.
-        const allowOnce = fake.controlCenter("system-permission-alert", {
+        const allowOnce = fake.controlCenter(IOS_WIDGET_PERMISSION_ALERT, {
           name: "Allow Once",
           role: "button",
         });
         expect(allowOnce.x).toBeCloseTo((57 + 144) / 402);
         expect(allowOnce.y).toBeCloseTo(462 / 874);
+      })
+  );
+
+  it.effect(
+    "presents the permission alert over the widget app, which the real foreground rule keeps in front",
+    () =>
+      Effect.gen(function* verifyIosAlertOwnership() {
+        // The real runtime binds Springboard when the bound app's root stops
+        // filling the screen, except for an Alert root (fillsScreen).
+        const [root] = loadCorpusCapture(
+          "ios",
+          IOS_WIDGET_PERMISSION_ALERT
+        ).nodes;
+        expect(root?.type).toBe("Alert");
+        expect(fillsScreen(root, { height: 874 * 3, width: 402 * 3 })).toBe(
+          true
+        );
+
+        const fake = makeCorpusNativeBackend({
+          device: iosDevice,
+          platform: "ios",
+          script: IOS_WIDGET_SCRIPT,
+        });
+        const controls = yield* fake.backend.capture({ image: false });
+        const continueButton = controls.nodes.find(
+          (node) => node.role === "button" && node.name === "Continue"
+        );
+        yield* fake.backend.activate(continueButton?.target ?? "");
+        const permissionAlert = yield* fake.backend.capture({ image: false });
+        expect(permissionAlert.appId).toBe(IOS_WIDGET_APP);
+        expect(
+          new Set(permissionAlert.nodes.map((node) => node.packageName))
+        ).toEqual(new Set([IOS_WIDGET_APP]));
+        expect(permissionAlert.nodes.map((node) => node.name)).toContain(
+          "Allow “Contingency Widgets” to use your location?"
+        );
       })
   );
 

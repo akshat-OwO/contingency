@@ -240,6 +240,38 @@ const readCaptureFile = (
   return capture;
 };
 
+export const IOS_WIDGET_APP = "dev.contingency.ioswidgets";
+
+/** The location permission alert presented over the widget app. */
+export const IOS_WIDGET_PERMISSION_ALERT = "widget-permission-alert";
+
+/**
+ * `system-permission-alert` was captured over Calendar. iOS presents a
+ * permission alert inside the app that asked for it, and the bound app's tree
+ * then arrives with the alert as its root, so the app stays in front
+ * (`fillsScreen`). This re-homes that alert on the widget app: only the owning
+ * app and the app named in the title change. The usage text stays Calendar's.
+ */
+const widgetPermissionAlert = (): CorpusCapture => {
+  const calendar = readCaptureFile("ios", "system-permission-alert");
+  if (calendar === undefined) {
+    throw new Error('Corpus capture "system-permission-alert" is missing.');
+  }
+  return {
+    ...calendar,
+    id: IOS_WIDGET_PERMISSION_ALERT,
+    nodes: calendar.nodes.map((node) =>
+      node.label === undefined
+        ? node
+        : {
+            ...node,
+            label: node.label.replace("“Calendar”", "“Contingency Widgets”"),
+          }
+    ),
+    source: { app: IOS_WIDGET_APP, corpus: false, screen: "permission-alert" },
+  };
+};
+
 /**
  * Loads one capture from `tests/fixtures/native-snapshots/{platform}`.
  * Accepts either the file id (e.g. `corpus-controls`) or the widget corpus
@@ -249,6 +281,9 @@ export const loadCorpusCapture = (
   platform: NativeAppPlatform,
   idOrScreen: string
 ): CorpusCapture => {
+  if (platform === "ios" && idOrScreen === IOS_WIDGET_PERMISSION_ALERT) {
+    return widgetPermissionAlert();
+  }
   const direct = readCaptureFile(platform, idOrScreen);
   if (direct !== undefined) {
     return direct;
@@ -783,8 +818,6 @@ export const makeCorpusAndroidWorkspaceLayer = (options: {
   }).pipe(Layer.provide(runtimeFactory));
 };
 
-export const IOS_WIDGET_APP = "dev.contingency.ioswidgets";
-
 export const IOS_WIDGET_SCRIPT: CorpusScript = {
   start: "controls",
   transitions: [
@@ -811,15 +844,15 @@ export const IOS_WIDGET_SCRIPT: CorpusScript = {
     {
       from: "controls",
       on: { action: "activate", name: "Continue", role: "button" },
-      to: "system-permission-alert",
+      to: IOS_WIDGET_PERMISSION_ALERT,
     },
     {
-      from: "system-permission-alert",
+      from: IOS_WIDGET_PERMISSION_ALERT,
       on: { action: "activate", name: "Allow Once", role: "button" },
       to: "controls",
     },
     {
-      from: "system-permission-alert",
+      from: IOS_WIDGET_PERMISSION_ALERT,
       on: {
         action: "activate",
         name: "Allow While Using App",
@@ -828,7 +861,7 @@ export const IOS_WIDGET_SCRIPT: CorpusScript = {
       to: "controls",
     },
     {
-      from: "system-permission-alert",
+      from: IOS_WIDGET_PERMISSION_ALERT,
       on: { action: "activate", name: "Don’t Allow", role: "button" },
       to: "controls",
     },
