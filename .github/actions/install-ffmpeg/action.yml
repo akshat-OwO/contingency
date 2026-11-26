@@ -27,8 +27,8 @@ runs:
     # Each attempt refreshes again, because a mirror can lag the pool it
     # indexes. A failed refresh only warns: the old index may still work.
     # Only the refresh and download are bounded and retried, never dpkg itself,
-    # and together they share one 9-minute budget so retries cannot crowd out
-    # the job's tests. Each attempt keeps its partial files, so a retry resumes
+    # and together they share one 6-minute budget, which leaves the 15-minute
+    # job its slowest shard's tests (about 7 minutes) even after a late retry. Each attempt keeps its partial files, so a retry resumes
     # rather than restarts.
     - name: Install ffmpeg packages
       shell: bash
@@ -45,7 +45,7 @@ runs:
           -o APT::Get::List-Cleanup=0
           update)
         apt=(sudo apt-get -y -o Dir::Cache::Archives="$archives")
-        deadline=$((SECONDS + 540))
+        deadline=$((SECONDS + 360))
         for attempt in 1 2 3; do
           left=$((deadline - SECONDS))
           [ "$left" -gt 0 ] || break
