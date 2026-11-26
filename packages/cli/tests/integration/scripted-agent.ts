@@ -585,6 +585,22 @@ const connectToMcp = Effect.gen(function* connectToServedMcp() {
   return executeProgram(request);
 });
 
+/**
+ * Programs on a single tool served over this process, each answering with
+ * how it ended instead of settling it, so a journey can assert that a
+ * program stops at an intervention and that repeating its operation id
+ * completes.
+ */
+export const unsettledPrograms = Effect.gen(function* serveUnsettledPrograms() {
+  const context = yield* Layer.build(mcpServer);
+  const { address } = Context.get(context, HttpServer.HttpServer);
+  if (address._tag === "UnixPathAddress") {
+    return yield* Effect.die("Expected a TCP server.");
+  }
+  const { request } = yield* connectMcp(`http://127.0.0.1:${address.port}`);
+  return mcpProgram(request);
+});
+
 const httpAgent = (recorder: Recorder, demo: boolean) =>
   Layer.effect(
     ScriptedAgent,
