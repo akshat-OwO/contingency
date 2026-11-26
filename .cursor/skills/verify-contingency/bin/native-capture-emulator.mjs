@@ -1,9 +1,11 @@
+/* oxlint-disable eslint/no-await-in-loop -- The boot wait polls the device one probe at a time. */
 import assert from "node:assert/strict";
 import { spawn as nodeSpawn } from "node:child_process";
 import { once } from "node:events";
 import { setTimeout as sleep } from "node:timers/promises";
 
 const BOOT_TIMEOUT_MS = 600_000;
+const PROBE_TIMEOUT_MS = 30_000;
 
 // Boots one proof-owned Android emulator and returns a cleanup that stops that
 // instance and nothing else. The emulator runs in its own process group, so the
@@ -16,10 +18,12 @@ export const startEmulator = async ({
   adb,
   apk,
   avd,
+  bootTimeoutMs = BOOT_TIMEOUT_MS,
   emulatorBinary,
   execute,
   graceMs = 10_000,
   killGroup = (pid, signal) => process.kill(-pid, signal),
+  pollMs = 1000,
   port,
   spawn = nodeSpawn,
   track,
@@ -109,23 +113,39 @@ export const startEmulator = async ({
     await exited;
     throw new Error(`Emulator ${serial} exited before it finished booting`);
   })();
-  const wait = (args) =>
-    execute(adb, ["-s", serial, ...args], {
-      signal: boot.signal,
-      timeout: BOOT_TIMEOUT_MS,
+  const bootWait = AbortSignal.any([
+    boot.signal,
+    AbortSignal.timeout(bootTimeoutMs),
+  ]);
+  // A booting emulator reports offline, and adb shell exits 255 until it
+  // connects, so a failed probe is another attempt and only the deadline ends
+  // the wait.
+  const waitForBoot = async () => {
+    await execute(adb, ["-s", serial, "wait-for-device"], {
+      signal: bootWait,
     });
+    for (;;) {
+      bootWait.throwIfAborted();
+      try {
+        const { stdout } = await execute(
+          adb,
+          ["-s", serial, "shell", "getprop", "sys.boot_completed"],
+          { signal: bootWait, timeout: PROBE_TIMEOUT_MS }
+        );
+        if (stdout.trim() === "1") {
+          return;
+        }
+      } catch (error) {
+        if (bootWait.aborted) {
+          throw error;
+        }
+      }
+      await sleep(pollMs, undefined, { signal: bootWait });
+    }
+  };
   try {
-    await Promise.race([
-      (async () => {
-        await wait(["wait-for-device"]);
-        // Boot completion is a device property, so this waits on the device's own signal.
-        await wait([
-          "shell",
-          'while [ "$(getprop sys.boot_completed)" != 1 ]; do sleep 1; done',
-        ]);
-      })(),
-      earlyExit,
-    ]);
+    // Boot completion is a device property, so this waits on the device's own signal.
+    await Promise.race([waitForBoot(), earlyExit]);
     if (apk !== undefined) {
       await execute(adb, ["-s", serial, "install", "-r", apk]);
     }

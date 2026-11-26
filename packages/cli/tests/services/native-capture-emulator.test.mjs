@@ -71,6 +71,8 @@ const hangUntilAborted = async ({ signal }) => {
   throw signal.reason;
 };
 
+const bootedShell = () => Promise.resolve({ stdout: "1\n" });
+
 const offlineShell = () =>
   Promise.reject(
     Object.assign(new Error("adb: device offline"), { code: 255 })
@@ -84,8 +86,12 @@ it("stops the emulator it launched when the boot wait fails", async () => {
   const tracked = [];
 
   await expect(
-    proof.start({ track: (cleanup) => tracked.push(cleanup) })
-  ).rejects.toThrow("device offline");
+    proof.start({
+      bootTimeoutMs: 1,
+      pollMs: 0,
+      track: (cleanup) => tracked.push(cleanup),
+    })
+  ).rejects.toThrow();
 
   expect(tracked).toHaveLength(1);
   expect(proof.launches[0].options.detached).toBe(true);
@@ -111,7 +117,7 @@ it("asks the instance to exit and does not signal it when that works", async () 
     },
   });
 
-  await expect(proof.start()).rejects.toThrow("device offline");
+  await expect(proof.start({ bootTimeoutMs: 1, pollMs: 0 })).rejects.toThrow();
 
   expect(proof.calls).toContain("-s emulator-5590 emu kill");
   expect(proof.signals).toEqual([]);
@@ -139,7 +145,7 @@ it("stops the emulator when it exits before it finishes booting", async () => {
 it("stops the emulator when installing the build fails", async () => {
   const proof = harness({
     apkInstall: () => Promise.reject(new Error("INSTALL_FAILED")),
-    bootShell: () => Promise.resolve({ stdout: "" }),
+    bootShell: bootedShell,
     emuKill: (_serial, emulator) => {
       emulator.exitCode = 0;
       emulator.emit("exit", 0, null);
@@ -171,7 +177,7 @@ it("stops a booting emulator once when a signal calls the tracked cleanup", asyn
 
 it("stops the emulator through the returned cleanup after a good boot", async () => {
   const proof = harness({
-    bootShell: () => Promise.resolve({ stdout: "" }),
+    bootShell: bootedShell,
     emuKill: (_serial, emulator) => {
       emulator.exitCode = 0;
       emulator.emit("exit", 0, null);
@@ -195,4 +201,25 @@ it("refuses to launch over an existing emulator on the port", async () => {
     })
   ).rejects.toThrow("already exists");
   expect(proof.launches).toEqual([]);
+});
+
+it("keeps waiting while the device reports offline, then boots", async () => {
+  const replies = [
+    offlineShell,
+    offlineShell,
+    offlineShell,
+    () => Promise.resolve({ stdout: "0\n" }),
+    bootedShell,
+  ];
+  const proof = harness({
+    bootShell: () => replies.shift()(),
+  });
+
+  const device = await proof.start({ pollMs: 0 });
+
+  expect(replies).toEqual([]);
+  expect(proof.calls.filter((call) => call.includes("shell"))).toHaveLength(5);
+  expect(proof.calls.some((call) => call.includes("emu kill"))).toBe(false);
+  expect(proof.signals).toEqual([]);
+  expect(device).toMatchObject({ pid: OWNED_PID, serial: "emulator-5590" });
 });
