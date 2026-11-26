@@ -30,7 +30,7 @@ const waitReply = async (page, before, tag = "ios.workspace.command") => {
 };
 /**
  * Picks a simulator on the Teach on iOS start card: the `Simulator` combobox,
- * then the option that reads `<name> · iOS <version>`. The card shows no
+ * then the option whose whole name reads `<name> · iOS <version>`. The card shows no
  * button for a simulator.
  */
 export const chooseSimulator = async (control, device) => {
@@ -48,8 +48,7 @@ export const chooseSimulator = async (control, device) => {
     "--role",
     "option",
     "--name",
-    `${device.name} · iOS ${device.runtimeVersion}`,
-    "--partial"
+    `${device.name} · iOS ${device.runtimeVersion}`
   );
 };
 /** Click a Workspace button; `region` scopes it, as each decision has its own Allow. */
