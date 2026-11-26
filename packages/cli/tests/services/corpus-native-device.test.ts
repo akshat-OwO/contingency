@@ -200,6 +200,15 @@ describe("corpus-backed fake native device", () => {
             (node) => node.role === "button" && node.name === "Allow Once"
           )
         ).toBe(true);
+
+        // Allow Once is rect x=57 y=438 288x48 in window points; centered in the
+        // 402x874 window it must stay on screen, not 462/326 off the bottom.
+        const allowOnce = fake.controlCenter("system-permission-alert", {
+          name: "Allow Once",
+          role: "button",
+        });
+        expect(allowOnce.x).toBeCloseTo((57 + 144) / 402);
+        expect(allowOnce.y).toBeCloseTo(462 / 874);
       })
   );
 

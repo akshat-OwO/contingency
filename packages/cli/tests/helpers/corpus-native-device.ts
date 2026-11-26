@@ -603,9 +603,16 @@ export function makeCorpusNativeBackend(
           `Control ${control.role} "${control.name}" has no bounds in capture "${captureId}".`
         );
       }
+      const viewport =
+        options.platform === "ios"
+          ? iosWindowViewport(
+              { nodes: screen.nodes, viewport: screen.viewport },
+              cachedWindow
+            )
+          : screen.viewport;
       return {
-        x: (found.bounds.x + found.bounds.width / 2) / screen.viewport.width,
-        y: (found.bounds.y + found.bounds.height / 2) / screen.viewport.height,
+        x: (found.bounds.x + found.bounds.width / 2) / viewport.width,
+        y: (found.bounds.y + found.bounds.height / 2) / viewport.height,
       };
     },
     currentCapture: () => currentId,
