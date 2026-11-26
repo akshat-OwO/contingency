@@ -26,8 +26,10 @@ runs:
     # refresh reads Ubuntu's sources alone and keeps the other lists as they are.
     # Each attempt refreshes again, because a mirror can lag the pool it
     # indexes. A failed refresh only warns: the old index may still work.
-    # Only the download is bounded and retried, never dpkg itself. Each attempt
-    # keeps its partial files, so a retry resumes rather than restarts.
+    # Only the refresh and download are bounded and retried, never dpkg itself,
+    # and together they share one 9-minute budget so retries cannot crowd out
+    # the job's tests. Each attempt keeps its partial files, so a retry resumes
+    # rather than restarts.
     - name: Install ffmpeg packages
       shell: bash
       run: |
@@ -43,9 +45,14 @@ runs:
           -o APT::Get::List-Cleanup=0
           update)
         apt=(sudo apt-get -y -o Dir::Cache::Archives="$archives")
+        deadline=$((SECONDS + 540))
         for attempt in 1 2 3; do
-          timeout 120 "${refresh[@]}" || echo "::warning::apt index refresh $attempt did not finish"
-          if timeout 180 "${apt[@]}" install --download-only ffmpeg; then
+          left=$((deadline - SECONDS))
+          [ "$left" -gt 0 ] || break
+          timeout "$((left < 60 ? left : 60))" "${refresh[@]}" || echo "::warning::apt index refresh $attempt did not finish"
+          left=$((deadline - SECONDS))
+          [ "$left" -gt 0 ] || break
+          if timeout "$((left < 180 ? left : 180))" "${apt[@]}" install --download-only ffmpeg; then
             "${apt[@]}" install ffmpeg
             sudo chown -R "$(id -u):$(id -g)" "$archives"
             exit 0
