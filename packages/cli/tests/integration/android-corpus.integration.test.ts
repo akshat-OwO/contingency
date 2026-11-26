@@ -16,7 +16,12 @@ import {
   makeCorpusAndroidWorkspaceLayer,
   makeCorpusNativeBackend,
 } from "../helpers/corpus-native-device.ts";
-import { call, journey, scriptedProcess } from "./scripted-agent.ts";
+import {
+  call,
+  journey,
+  scriptedProcess,
+  unsettledPrograms,
+} from "./scripted-agent.ts";
 
 const op = OperationId.make;
 
@@ -682,17 +687,39 @@ journey(
         })
       );
       const showAlert = findAndroidNode(initial, "button", "SHOW ALERT");
+      const programs = yield* unsettledPrograms;
+      // The first program ends at the new Confirmation. The agent's repeated
+      // program, with the same operation id, completes only because list()
+      // carries that Confirmation in preparation.pending, so it reads as one
+      // the agent has already met.
       const activateShowAlert = (operationId: string) =>
-        call("agent_device_workspace", {
-          command: {
-            _tag: "input",
-            action: { _tag: "activate", target: showAlert.target },
-            irreversible: true,
-            observationId: initial.observation?.id ?? "",
-            operationId: op(operationId),
-            sessionId: dryRunSessionId,
-          },
-          platform: "android",
+        Effect.gen(function* activateIrreversibly() {
+          const input = {
+            command: {
+              _tag: "input",
+              action: { _tag: "activate", target: showAlert.target },
+              irreversible: true,
+              observationId: initial.observation?.id ?? "",
+              operationId,
+              sessionId: dryRunSessionId,
+            },
+            platform: "android",
+          };
+          const first = yield* programs.executeOperation(
+            "agent_device_workspace",
+            input
+          );
+          expect(first.status).toBe("intervention");
+          expect(first.intervention?.operation).toBe("agent_device_workspace");
+          expect(first.intervention?.reasons).toEqual(["device_preparation"]);
+          expect(first.intervention?.sessionId).toBe(dryRunSessionId);
+          const repeated = yield* programs.executeOperation(
+            "agent_device_workspace",
+            input
+          );
+          expect(repeated.status).toBe("completed");
+          expect(repeated.intervention).toBeUndefined();
+          return repeated.value;
         });
       const listedPending = Effect.map(
         workspace.list(),
@@ -700,9 +727,6 @@ journey(
           sessions.find(({ id }) => id === dryRunSessionId)?.preparation.pending
       );
 
-      // The first program ends at the new Confirmation. The agent's repeated
-      // program settles only because list() carries that Confirmation in
-      // preparation.pending, so it reads as one the agent has already seen.
       const pausedForRefusal = decodeAndroidSnapshot(
         yield* activateShowAlert("confirm-dry-refused")
       );
