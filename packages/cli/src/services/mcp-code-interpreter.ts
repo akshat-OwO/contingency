@@ -535,8 +535,8 @@ export const newBrowserWaits = (
 
 /**
  * Whether a native device command left its session waiting on the user. A
- * Variable request, preparation consent, or the user holding control all
- * end the program.
+ * Variable request, preparation consent, a Confirmation's Pending Decision,
+ * or the user holding control all end the program.
  */
 export const androidIntervention = (
   input: Schema.Json,
@@ -558,8 +558,12 @@ export const androidIntervention = (
       onSome: (summary) => summary.preparation.pending.map((step) => step.id),
     })
   );
-  if (preparation.pending.some((step) => !earlier.has(step.id))) {
-    reasons.add("device_preparation");
+  for (const step of preparation.pending) {
+    if (!earlier.has(step.id)) {
+      reasons.add(
+        step.kind === "confirmation" ? "pending_decision" : "device_preparation"
+      );
+    }
   }
   const wasUser = Option.exists(
     before,

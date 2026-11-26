@@ -713,7 +713,7 @@ journey(
           );
           expect(first.status).toBe("intervention");
           expect(first.intervention?.operation).toBe("agent_device_workspace");
-          expect(first.intervention?.reasons).toEqual(["device_preparation"]);
+          expect(first.intervention?.reasons).toEqual(["pending_decision"]);
           expect(first.intervention?.sessionId).toBe(dryRunSessionId);
           const repeated = yield* programs.executeOperation(
             "agent_device_workspace",
