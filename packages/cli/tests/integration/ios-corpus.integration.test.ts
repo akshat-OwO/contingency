@@ -607,16 +607,15 @@ journey(
       );
       expect(onAlert.observation?.width).toBe(402);
       expect(onAlert.observation?.height).toBe(874);
-      const allowOnceNode = findIosNode(onAlert, "button", "Allow Once");
-      if (allowOnceNode.bounds === undefined) {
-        return yield* Effect.die("Expected bounds on Allow Once.");
-      }
+      expect(findIosNode(onAlert, "button", "Allow Once").bounds).toBeDefined();
       yield* workspace.forward(
         {
-          inputs: tap({
-            x: (allowOnceNode.bounds.x + allowOnceNode.bounds.width / 2) / 402,
-            y: (allowOnceNode.bounds.y + allowOnceNode.bounds.height / 2) / 874,
-          }),
+          inputs: tap(
+            device.controlCenter("system-permission-alert", {
+              name: "Allow Once",
+              role: "button",
+            })
+          ),
           sessionId: started.id,
         },
         "user"
