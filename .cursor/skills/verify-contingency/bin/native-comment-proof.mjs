@@ -22,6 +22,7 @@ import {
   nativeComment,
   openAndroidStartCard,
 } from "./android-ui.mjs";
+import { chooseSimulator } from "./ios-ui.mjs";
 import { iosRpc } from "./ios-workspace-rpc.mjs";
 
 // `ios-workspace-attempt.sh` runs a proof without arguments.
@@ -166,16 +167,7 @@ const startIos = async () => {
   const devices = await iosRpc(instance.mcpUrl, "ios.devices.list", {});
   const device = devices.find((entry) => entry.udid === selected);
   assert.ok(device, "The proof-owned simulator must be discovered.");
-  await control(
-    "browser",
-    "click",
-    "--role",
-    "button",
-    "--name",
-    device.name,
-    "--partial",
-    "true"
-  );
+  await chooseSimulator(control, device);
   await control(
     "browser",
     "set-input-files",
