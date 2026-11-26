@@ -688,23 +688,25 @@ journey(
       );
       const showAlert = findAndroidNode(initial, "button", "SHOW ALERT");
       const programs = yield* unsettledPrograms;
+      const activation = (operationId: string) => ({
+        command: {
+          _tag: "input" as const,
+          action: { _tag: "activate" as const, target: showAlert.target },
+          irreversible: true,
+          observationId: initial.observation?.id ?? "",
+          operationId,
+          sessionId: dryRunSessionId,
+        },
+        platform: "android" as const,
+      });
       // The first program ends at the new Confirmation. The agent's repeated
       // program, with the same operation id, completes only because list()
       // carries that Confirmation in preparation.pending, so it reads as one
-      // the agent has already met.
-      const activateShowAlert = (operationId: string) =>
+      // the agent has already met. Raw programs show both endings; call()
+      // below settles the same way on this journey's own adapter.
+      const activateUnsettled = (operationId: string) =>
         Effect.gen(function* activateIrreversibly() {
-          const input = {
-            command: {
-              _tag: "input",
-              action: { _tag: "activate", target: showAlert.target },
-              irreversible: true,
-              observationId: initial.observation?.id ?? "",
-              operationId,
-              sessionId: dryRunSessionId,
-            },
-            platform: "android",
-          };
+          const input = activation(operationId);
           const first = yield* programs.executeOperation(
             "agent_device_workspace",
             input
@@ -728,7 +730,7 @@ journey(
       );
 
       const pausedForRefusal = decodeAndroidSnapshot(
-        yield* activateShowAlert("confirm-dry-refused")
+        yield* activateUnsettled("confirm-dry-refused")
       );
       const refusedDecisionId =
         pausedForRefusal.pendingDecision?.pendingDecisionId ?? "";
@@ -760,7 +762,10 @@ journey(
 
       // A fresh attempt gets a fresh Confirmation; approving it runs the tap.
       const pausedForApproval = decodeAndroidSnapshot(
-        yield* activateShowAlert("confirm-dry-approved")
+        yield* call(
+          "agent_device_workspace",
+          activation("confirm-dry-approved")
+        )
       );
       const approvedDecisionId =
         pausedForApproval.pendingDecision?.pendingDecisionId ?? "";
