@@ -10,6 +10,8 @@ import { Effect, FileSystem, Schema } from "effect";
 
 import { IosWorkspace } from "../../src/services/ios-workspace.ts";
 import {
+  IOS_WIDGET_APP,
+  IOS_WIDGET_PERMISSION_ALERT,
   IOS_WIDGET_SCRIPT,
   corpusIosSelection,
   corpusIosSimulator,
@@ -539,7 +541,7 @@ journey(
 );
 
 journey(
-  "handles an iOS system permission alert through iosWindowViewport, refusal, and confirmation",
+  "keeps the widget app in front under its permission alert through iosWindowViewport, refusal, and confirmation (fake backend: no Springboard following or session validation)",
   { singleTool: true },
   Effect.gen(function* iosSystemPermissionAlertJourney() {
     const fs = yield* FileSystem.FileSystem;
@@ -560,7 +562,7 @@ journey(
     yield* Effect.gen(function* runPermissionJourney() {
       const workspace = yield* IosWorkspace;
 
-      // Teach controls -> Continue -> system-permission-alert -> Allow Once -> controls.
+      // Teach controls -> Continue -> permission alert over the widget app -> Allow Once -> controls.
       const started = yield* workspace.execute(
         {
           _tag: "start",
@@ -611,7 +613,7 @@ journey(
       yield* workspace.forward(
         {
           inputs: tap(
-            device.controlCenter("system-permission-alert", {
+            device.controlCenter(IOS_WIDGET_PERMISSION_ALERT, {
               name: "Allow Once",
               role: "button",
             })
@@ -662,11 +664,26 @@ journey(
         claimOperationId: claimOp,
         recordingId,
       });
-      const recordedSteps = timeline.entries
-        .filter((entry) => entry._tag === "action")
-        .map((entry) => entry.description);
-      expect(recordedSteps).toContain("Activate button Continue");
-      expect(recordedSteps).toContain("Activate button Allow Once");
+      const actions = timeline.entries.filter(
+        (entry) => entry._tag === "action"
+      );
+      expect(actions.map((entry) => entry.description)).toEqual(
+        expect.arrayContaining([
+          "Activate button Continue",
+          "Activate button Allow Once",
+        ])
+      );
+      // iOS presents the alert inside the app that asked, so every observation
+      // while it is up still names the widget app as the app in front.
+      const openedAlert = actions.find(
+        (entry) => entry.description === "Activate button Continue"
+      );
+      const answeredAlert = actions.find(
+        (entry) => entry.description === "Activate button Allow Once"
+      );
+      expect(openedAlert?.after.title).toBe(IOS_WIDGET_APP);
+      expect(answeredAlert?.before.title).toBe(IOS_WIDGET_APP);
+      expect(answeredAlert?.target?.context).toEqual([IOS_WIDGET_APP]);
       yield* call("agent_flow_save", {
         claimOperationId: claimOp,
         files: [
@@ -782,7 +799,7 @@ journey(
           platform: "ios",
         })
       );
-      expect(device.currentCapture()).toBe("system-permission-alert");
+      expect(device.currentCapture()).toBe(IOS_WIDGET_PERMISSION_ALERT);
       const refusedDecisionId = pendingDecisionIdOf(pausedForConfirm);
 
       // Refusing the confirmation leaves the permission alert on screen.
@@ -799,7 +816,7 @@ journey(
         })
       );
       expect(afterRefuse.pendingDecision).toBeNull();
-      expect(device.currentCapture()).toBe("system-permission-alert");
+      expect(device.currentCapture()).toBe(IOS_WIDGET_PERMISSION_ALERT);
 
       // A fresh irreversible attempt on Allow Once pauses, and approval dismisses the alert.
       const pausedAllowOnce = decodeIosSnapshot(
