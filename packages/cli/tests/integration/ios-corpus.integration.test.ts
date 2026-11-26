@@ -610,12 +610,15 @@ journey(
       expect(device.observeOnlyAlertRefusals()).toBeGreaterThan(0);
       expect(onAlert.observation?.width).toBe(402);
       expect(onAlert.observation?.height).toBe(874);
-      expect(findIosNode(onAlert, "button", "Allow Once").bounds).toBeDefined();
+      expect(
+        findIosNode(onAlert, "button", "Allow While Using App").covered
+      ).toBe(false);
+      expect(findIosNode(onAlert, "button", "Don’t Allow").covered).toBe(false);
       yield* workspace.forward(
         {
           inputs: tap(
             device.controlCenter(IOS_WIDGET_PERMISSION_ALERT, {
-              name: "Allow Once",
+              name: "Don’t Allow",
               role: "button",
             })
           ),
@@ -669,22 +672,14 @@ journey(
         (entry) => entry._tag === "action"
       );
       expect(actions.map((entry) => entry.description)).toEqual(
-        expect.arrayContaining([
-          "Activate button Continue",
-          "Activate button Allow Once",
-        ])
+        expect.arrayContaining(["Activate button Continue"])
       );
       // iOS presents the alert inside the app that asked, so every observation
       // while it is up still names the widget app as the app in front.
       const openedAlert = actions.find(
         (entry) => entry.description === "Activate button Continue"
       );
-      const answeredAlert = actions.find(
-        (entry) => entry.description === "Activate button Allow Once"
-      );
       expect(openedAlert?.after.title).toBe(IOS_WIDGET_APP);
-      expect(answeredAlert?.before.title).toBe(IOS_WIDGET_APP);
-      expect(answeredAlert?.target?.context).toEqual([IOS_WIDGET_APP]);
       yield* call("agent_flow_save", {
         claimOperationId: claimOp,
         files: [
@@ -765,7 +760,7 @@ journey(
         "button",
         "Allow While Using App"
       );
-      const allowOnce = findIosNode(alertScreen, "button", "Allow Once");
+      const dontAllow = findIosNode(alertScreen, "button", "Don’t Allow");
 
       // Action policy refuses filling a non-editable permission button.
       const refusedFill = yield* Effect.flip(
@@ -774,7 +769,7 @@ journey(
             _tag: "input",
             action: {
               _tag: "fill",
-              target: allowOnce.target,
+              target: dontAllow.target,
               text: "not-editable",
             },
             observationId: alertObservationId,
@@ -819,21 +814,22 @@ journey(
       expect(afterRefuse.pendingDecision).toBeNull();
       expect(device.currentCapture()).toBe(IOS_WIDGET_PERMISSION_ALERT);
 
-      // A fresh irreversible attempt on Allow Once pauses, and approval dismisses the alert.
-      const pausedAllowOnce = decodeIosSnapshot(
+      // A fresh irreversible attempt on Don’t Allow pauses, and approval
+      // dismisses the alert through the non-activating `alert dismiss` path.
+      const pausedDontAllow = decodeIosSnapshot(
         yield* call("agent_device_workspace", {
           command: {
             _tag: "input",
-            action: { _tag: "activate", target: allowOnce.target },
+            action: { _tag: "activate", target: dontAllow.target },
             irreversible: true,
             observationId: alertObservationId,
-            operationId: op("perm-dry-allow-once"),
+            operationId: op("perm-dry-dont-allow"),
             sessionId: dryRunSessionId,
           },
           platform: "ios",
         })
       );
-      const approveDecisionId = pendingDecisionIdOf(pausedAllowOnce);
+      const approveDecisionId = pendingDecisionIdOf(pausedDontAllow);
 
       const afterApprove = decodeIosSnapshot(
         yield* call("agent_device_workspace", {

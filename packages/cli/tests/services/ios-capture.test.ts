@@ -6,6 +6,8 @@ import { TestClock } from "effect/testing";
 import {
   IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
   canSkipIosScreenshot,
+  iosAlertButtonActions,
+  iosAlertNodes,
   isIosSystemAlertObservationUnavailable,
   makeIosSessionAccess,
   iosAgentDeviceFailure,
@@ -299,12 +301,21 @@ it("identifies OBSERVATION_UNAVAILABLE carrying agent-device's system-alert hint
 });
 
 it.effect(
-  "reads a presented system alert via a regular snapshot when observeOnly rejects with the system-alert hint and appState confirms the bound app is runningForeground",
+  "reads a presented system alert via non-activating alert get when observeOnly rejects with the system-alert hint and appState confirms the bound app is runningForeground",
   () =>
     Effect.gen(function* systemAlertOverBoundApp() {
       const snapshotCalls: unknown[] = [];
+      const alertCalls: unknown[] = [];
       let appStateCalls = 0;
       const access = makeIosSessionAccess({
+        alert: (options) => {
+          alertCalls.push(options);
+          return Promise.resolve({
+            items: ["Don’t Allow", "Allow"],
+            message:
+              "“Contingency Public Login” Would Like to Send You Notifications",
+          });
+        },
         appState: () => {
           appStateCalls += 1;
           return Promise.resolve({
@@ -327,35 +338,41 @@ it.effect(
         }),
         snapshot: (options) => {
           snapshotCalls.push(options);
-          if (options.observeOnly === true) {
-            return Promise.reject(
-              new AppError(
-                "OBSERVATION_UNAVAILABLE",
-                "The session app cannot be observed without activation.",
-                {
-                  dispatched: "no",
-                  hint: IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
-                  runner: {
-                    error: {
-                      code: "OBSERVATION_UNAVAILABLE",
-                      hint: IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
-                      message:
-                        "The session app cannot be observed without activation.",
-                    },
-                    ok: false,
+          return Promise.reject(
+            new AppError(
+              "OBSERVATION_UNAVAILABLE",
+              "The session app cannot be observed without activation.",
+              {
+                dispatched: "no",
+                hint: IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
+                runner: {
+                  error: {
+                    code: "OBSERVATION_UNAVAILABLE",
+                    hint: IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
+                    message:
+                      "The session app cannot be observed without activation.",
                   },
-                  runnerErrorCode: "OBSERVATION_UNAVAILABLE",
-                }
-              )
-            );
-          }
-          return Promise.resolve("alert-tree");
+                  ok: false,
+                },
+                runnerErrorCode: "OBSERVATION_UNAVAILABLE",
+              }
+            )
+          );
         },
       });
       expect(yield* access.snapshot("dev.contingency.ioslogin")).toEqual(
-        Option.some("alert-tree")
+        Option.some({
+          _tag: "alert",
+          alert: {
+            identifiers: undefined,
+            items: ["Don’t Allow", "Allow"],
+            message:
+              "“Contingency Public Login” Would Like to Send You Notifications",
+          },
+        })
       );
       expect(appStateCalls).toBe(1);
+      // Never invokes a non-observeOnly snapshot that could call target.activate().
       expect(snapshotCalls).toEqual([
         expect.objectContaining({
           interactiveOnly: false,
@@ -363,10 +380,11 @@ it.effect(
           observeOnly: true,
           udid: "session-simulator",
         }),
+      ]);
+      expect(alertCalls).toEqual([
         expect.objectContaining({
-          interactiveOnly: false,
-          noRecord: true,
-          observeOnly: false,
+          action: "get",
+          platform: "ios",
           udid: "session-simulator",
         }),
       ]);
@@ -374,12 +392,17 @@ it.effect(
 );
 
 it.effect(
-  "returns none without calling a regular snapshot on genuine cross-app backgrounding",
+  "returns none without calling alert get or a regular snapshot on genuine cross-app backgrounding",
   () =>
     Effect.gen(function* genuineCrossAppBackgrounding() {
       const snapshotCalls: unknown[] = [];
+      let alertCalls = 0;
       let appStateCalls = 0;
       const access = makeIosSessionAccess({
+        alert: () => {
+          alertCalls += 1;
+          return Promise.resolve({ items: ["Allow"], message: "Alert" });
+        },
         appState: () => {
           appStateCalls += 1;
           return Promise.resolve({
@@ -417,6 +440,7 @@ it.effect(
         Option.isNone(yield* access.snapshot("dev.contingency.ioslogin"))
       ).toBe(true);
       expect(appStateCalls).toBe(1);
+      expect(alertCalls).toBe(0);
       expect(snapshotCalls).toEqual([
         expect.objectContaining({
           noRecord: true,
@@ -435,13 +459,101 @@ const systemAlertUnavailableError = () =>
   );
 
 it.effect(
-  "withholds regular snapshot when system-alert hint races with backgrounding or passive appState",
+  "preserves a new foreground app without activating the bound app when backgrounding happens after appState and before alert get",
+  () =>
+    Effect.gen(function* backgroundedBetweenAppStateAndAlertRead() {
+      const snapshotCalls: unknown[] = [];
+      let alertCalls = 0;
+      let appStateCalls = 0;
+      let boundAppBackgrounded = false;
+      const access = makeIosSessionAccess({
+        alert: () => {
+          alertCalls += 1;
+          // Between appState and alert get, the alert disappeared and another
+          // app took the foreground; non-activating alert get reports absent
+          // without ever activating the bound app.
+          boundAppBackgrounded = true;
+          return Promise.reject(
+            new AppError("COMMAND_FAILED", "alert not found", {
+              reason: "alert-not-found",
+              runnerErrorCode: "ALERT_NOT_FOUND",
+            })
+          );
+        },
+        appState: () => {
+          appStateCalls += 1;
+          return Promise.resolve({
+            appBundleId: "dev.contingency.ioslogin",
+            appName: "dev.contingency.ioslogin",
+            device_udid: "session-simulator",
+            platform: "ios" as const,
+            source: "runner" as const,
+            state: boundAppBackgrounded
+              ? ("runningBackground" as const)
+              : ("runningForeground" as const),
+            surface: "app" as const,
+          });
+        },
+        open: () => {
+          throw new Error("Must never activate or open the bound app");
+        },
+        options: () => ({
+          platform: "ios",
+          requestId: "capture",
+          udid: "session-simulator",
+        }),
+        snapshot: (options) => {
+          snapshotCalls.push(options);
+          if (options.observeOnly !== true) {
+            throw new Error(
+              "Must never issue a regular snapshot that can call target.activate()"
+            );
+          }
+          return Promise.reject(
+            boundAppBackgrounded
+              ? new AppError(
+                  "OBSERVATION_UNAVAILABLE",
+                  "The session app cannot be observed without activation.",
+                  {
+                    hint: "XCUIApplication must report runningForeground before and after capture. This state report does not prove screen ownership (#2696).",
+                  }
+                )
+              : systemAlertUnavailableError()
+          );
+        },
+      });
+      // Attempt 1 sees ALERT_NOT_FOUND -> observation_stale (alert-dismissed).
+      // settleIosCapture retries 250ms later; Attempt 2 observes runningBackground
+      // and returns Option.none() so foreground following takes over cleanly.
+      const fiber = yield* Effect.forkChild(
+        settleIosCapture(access.snapshot("dev.contingency.ioslogin"))
+      );
+      yield* TestClock.adjust("1 second");
+      const settled = yield* Fiber.join(fiber);
+      expect(Option.isNone(settled)).toBe(true);
+      expect(appStateCalls).toBe(2);
+      expect(alertCalls).toBe(1);
+      expect(snapshotCalls).toHaveLength(2);
+      expect(snapshotCalls).toEqual([
+        expect.objectContaining({ observeOnly: true }),
+        expect.objectContaining({ observeOnly: true }),
+      ]);
+    })
+);
+
+it.effect(
+  "withholds alert read when system-alert hint races with backgrounding or passive appState",
   () =>
     Effect.gen(function* systemAlertRaces() {
       // Alert dismissed and another app took foreground before appState ran:
-      // never call a non-observeOnly snapshot that could reactivate the bound app.
+      // never call alert get or a non-observeOnly snapshot.
       const backgroundCalls: unknown[] = [];
+      let backgroundAlertCalls = 0;
       const backgrounded = makeIosSessionAccess({
+        alert: () => {
+          backgroundAlertCalls += 1;
+          return Promise.resolve({ items: ["Allow"], message: "Alert" });
+        },
         appState: () =>
           Promise.resolve({
             appBundleId: "dev.contingency.ioslogin",
@@ -467,11 +579,17 @@ it.effect(
         Option.isNone(yield* backgrounded.snapshot("dev.contingency.ioslogin"))
       ).toBe(true);
       expect(backgroundCalls).toHaveLength(1);
+      expect(backgroundAlertCalls).toBe(0);
 
       // Passive session metadata on a system-alert hint fails as observation_stale
       // so settleIosCapture retries rather than pausing with foreground_app_unknown.
       const passiveCalls: unknown[] = [];
+      let passiveAlertCalls = 0;
       const passive = makeIosSessionAccess({
+        alert: () => {
+          passiveAlertCalls += 1;
+          return Promise.resolve({ items: ["Allow"], message: "Alert" });
+        },
         appState: () =>
           Promise.resolve({
             appBundleId: "dev.contingency.ioslogin",
@@ -498,8 +616,95 @@ it.effect(
       expect(passiveFailure.code).toBe("observation_stale");
       expect(passiveFailure.message).toContain("app-state-unverified");
       expect(passiveCalls).toHaveLength(1);
+      expect(passiveAlertCalls).toBe(0);
     })
 );
+
+it("maps alert get buttons to unambiguous accept/dismiss actions matching RunnerAlertButtonChoice", () => {
+  // Two-button notifications alert: both buttons are unambiguously selectable.
+  const notifications = iosAlertNodes(
+    {
+      items: ["Don’t Allow", "Allow"],
+      message:
+        "“Contingency Public Login” Would Like to Send You Notifications",
+    },
+    "dev.contingency.ioslogin",
+    3
+  );
+  expect([...notifications.actions.entries()]).toEqual([
+    ["@alert-1~a3", "dismiss"],
+    ["@alert-2~a3", "accept"],
+  ]);
+  expect(notifications.nodes).toEqual([
+    expect.objectContaining({
+      covered: false,
+      hittable: false,
+      name: "“Contingency Public Login” Would Like to Send You Notifications",
+      packageName: "dev.contingency.ioslogin",
+      role: "alert",
+      target: "@alert-0~a3",
+    }),
+    expect.objectContaining({
+      covered: false,
+      hittable: true,
+      name: "Don’t Allow",
+      role: "button",
+      target: "@alert-1~a3",
+    }),
+    expect.objectContaining({
+      covered: false,
+      hittable: true,
+      name: "Allow",
+      role: "button",
+      target: "@alert-2~a3",
+    }),
+  ]);
+
+  // Three-button location alert: accept chooses Allow While Using App, dismiss
+  // chooses Don’t Allow; Allow Once stays visible but non-hittable so
+  // activating it cannot silently press Allow While Using App.
+  const location = iosAlertNodes(
+    {
+      items: ["Allow Once", "Allow While Using App", "Don’t Allow"],
+      message: "Allow “Contingency Widgets” to use your location?",
+    },
+    "dev.contingency.ioswidgets",
+    4
+  );
+  expect([...location.actions.entries()]).toEqual([
+    ["@alert-2~a4", "accept"],
+    ["@alert-3~a4", "dismiss"],
+  ]);
+  expect(location.nodes[1]).toMatchObject({
+    covered: true,
+    hittable: false,
+    name: "Allow Once",
+    role: "button",
+    target: "@alert-1~a4",
+  });
+  expect(location.nodes[2]).toMatchObject({
+    covered: false,
+    hittable: true,
+    name: "Allow While Using App",
+    role: "button",
+    target: "@alert-2~a4",
+  });
+  expect(location.nodes[3]).toMatchObject({
+    covered: false,
+    hittable: true,
+    name: "Don’t Allow",
+    role: "button",
+    target: "@alert-3~a4",
+  });
+
+  // Two-button once-only alert: Allow Once is uniquely matched by accept.
+  expect([
+    ...iosAlertButtonActions(["Allow Once", "Don’t Allow"]).entries(),
+  ]).toEqual([
+    [0, "accept"],
+    [1, "dismiss"],
+  ]);
+});
 
 it("observes again when the bound app leaves the front mid-capture", () => {
   expect(
@@ -531,7 +736,9 @@ it.effect("binds the session to an app without relaunching it", () =>
         udid: "session-simulator",
       }),
     ]);
-    expect(yield* access.snapshot()).toEqual(Option.some("observed"));
+    expect(yield* access.snapshot()).toEqual(
+      Option.some({ _tag: "snapshot", snapshot: "observed" })
+    );
   })
 );
 

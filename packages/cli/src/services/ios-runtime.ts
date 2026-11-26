@@ -9,10 +9,12 @@ import type {
 import { createAgentDeviceClient, isAgentDeviceError } from "agent-device";
 import type {
   AgentDeviceIdentifiers,
+  AlertCommandOptions,
   AppErrorDetails,
   AppOpenOptions,
   AppStateCommandOptions,
   CaptureSnapshotOptions,
+  CommandRequestResult,
 } from "agent-device";
 import {
   Clock,
@@ -149,6 +151,7 @@ export const iosCaptureFailure = (
     | "app-state-unverified"
     | "png-header"
     | "settle-deadline"
+    | "alert-dismissed"
 ): PlatformRuntimeError => ({
   ...iosRuntimeError(code),
   message: `iOS ${code} during ${operation} (${reason}). Inspect this session and explicitly recover before input.`,
@@ -477,6 +480,213 @@ const verifyIosAlertOverBoundApp = (input: {
     return false;
   });
 
+/** Presented system alert read through agent-device's non-activating `alert get` path. */
+export interface IosPresentedAlert {
+  readonly message: string;
+  readonly items: readonly string[];
+  readonly identifiers?: AgentDeviceIdentifiers | undefined;
+}
+
+/** One non-activating observation read of the bound iOS app or a system alert over it. */
+export type IosSessionRead<A> =
+  | { readonly _tag: "snapshot"; readonly snapshot: A }
+  | { readonly _tag: "alert"; readonly alert: IosPresentedAlert };
+
+export type IosAlertAction = "accept" | "dismiss";
+
+/**
+ * Button label preferences matching `RunnerAlertButtonChoice` in
+ * `agent-device@0.21.41` so Contingency exposes only buttons that
+ * `alert accept` or `alert dismiss` will unambiguously press.
+ */
+const ALERT_ACCEPT_PATTERNS = [
+  /^allow while using (?:the )?app$/iu,
+  /^while using the app$/iu,
+  /^allow all$/iu,
+  /^always allow$/iu,
+  /^allow all the time$/iu,
+  /^allow notifications$/iu,
+  /^allow$/iu,
+  /^ok$/iu,
+  /^yes$/iu,
+  /^continue$/iu,
+  /^save$/iu,
+  /^confirm/iu,
+  /^turn on$/iu,
+  /^open settings$/iu,
+  /^done$/iu,
+  /^open$/iu,
+  /^allow once$/iu,
+  /^only this time$/iu,
+] as const;
+
+const ALERT_DISMISS_PATTERNS = [
+  /^cancel$/iu,
+  /^deny$/iu,
+  /^don.?t allow$/iu,
+  /^not now$/iu,
+  /^no$/iu,
+  /^dismiss$/iu,
+  /^close$/iu,
+  /^close app$/iu,
+  /^later$/iu,
+  /^skip$/iu,
+  /^ask app not to track$/iu,
+  /^keep browsing$/iu,
+] as const;
+
+const matchAlertButtonIndex = (
+  items: readonly string[],
+  patterns: readonly RegExp[]
+): number | null => {
+  for (const pattern of patterns) {
+    const matches: number[] = [];
+    for (const [index, label] of items.entries()) {
+      if (pattern.test(label.trim())) {
+        matches.push(index);
+      }
+    }
+    if (matches.length > 1) {
+      return null;
+    }
+    if (matches.length === 1 && matches[0] !== undefined) {
+      return matches[0];
+    }
+  }
+  return null;
+};
+
+/**
+ * Maps each `alert get` item index that `alert accept` or `alert dismiss` will
+ * unambiguously activate to that action.
+ */
+export const iosAlertButtonActions = (
+  items: readonly string[]
+): ReadonlyMap<number, IosAlertAction> => {
+  const actions = new Map<number, IosAlertAction>();
+  const acceptIndex = matchAlertButtonIndex(items, ALERT_ACCEPT_PATTERNS);
+  if (acceptIndex !== null) {
+    actions.set(acceptIndex, "accept");
+  }
+  const dismissIndex = matchAlertButtonIndex(items, ALERT_DISMISS_PATTERNS);
+  if (dismissIndex !== null && !actions.has(dismissIndex)) {
+    actions.set(dismissIndex, "dismiss");
+  }
+  return actions;
+};
+
+/**
+ * Builds observation nodes and non-activating `alert` action targets from an
+ * `alert get` result. Buttons that neither `accept` nor `dismiss` selects stay
+ * visible in the tree as non-hittable so activating them never presses another
+ * button by mistake.
+ */
+export const iosAlertNodes = (
+  alert: IosPresentedAlert,
+  app: string,
+  generation: number
+) => {
+  const buttonActions = iosAlertButtonActions(alert.items);
+  const actions = new Map<string, IosAlertAction>();
+  const nodes: IosObservation["nodes"][number][] = [
+    {
+      covered: false,
+      editable: false,
+      hittable: false,
+      name: alert.message,
+      packageName: app,
+      password: false,
+      role: "alert",
+      target: `@alert-0~a${generation}`,
+    },
+  ];
+  for (const [index, label] of alert.items.entries()) {
+    const action = buttonActions.get(index);
+    const target = `@alert-${index + 1}~a${generation}`;
+    if (action !== undefined) {
+      actions.set(target, action);
+    }
+    nodes.push({
+      covered: action === undefined,
+      editable: false,
+      hittable: action !== undefined,
+      name: label,
+      packageName: app,
+      password: false,
+      role: "button",
+      target,
+    });
+  }
+  return { actions, nodes };
+};
+
+const isIosAlertAbsentError = (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- A rejected SDK promise is unknown by definition.
+  cause: unknown
+): boolean => {
+  if (!isAgentDeviceError(cause)) {
+    return false;
+  }
+  const runnerCode = cause.details?.runnerErrorCode;
+  const reason = cause.details?.reason;
+  return (
+    cause.code === "ALERT_NOT_FOUND" ||
+    cause.code === "ALERT_UNRESOLVED" ||
+    runnerCode === "ALERT_NOT_FOUND" ||
+    runnerCode === "ALERT_UNRESOLVED" ||
+    reason === "alert-not-found"
+  );
+};
+
+const readAlertIdentifiers = (
+  raw: CommandRequestResult
+): AgentDeviceIdentifiers | undefined => {
+  const value = raw.identifiers;
+  if (!Predicate.isObject(value)) {
+    return undefined;
+  }
+  const session = Predicate.isString(value.session) ? value.session : undefined;
+  const udid = Predicate.isString(value.udid) ? value.udid : undefined;
+  if (session !== undefined && udid !== undefined) {
+    return { session, udid };
+  }
+  if (session !== undefined) {
+    return { session };
+  }
+  if (udid !== undefined) {
+    return { udid };
+  }
+  return undefined;
+};
+
+const parseIosPresentedAlert = (
+  raw: CommandRequestResult
+): IosPresentedAlert | null => {
+  const rawItems = raw.items;
+  if (!Array.isArray(rawItems)) {
+    return null;
+  }
+  const items = rawItems.flatMap((entry) => {
+    if (!Predicate.isString(entry)) {
+      return [];
+    }
+    const trimmed = entry.trim();
+    return trimmed === "" ? [] : [trimmed];
+  });
+  if (items.length === 0) {
+    return null;
+  }
+  const message =
+    Predicate.isString(raw.message) && raw.message.trim() !== ""
+      ? raw.message.trim()
+      : "System Alert";
+  return {
+    identifiers: readAlertIdentifiers(raw),
+    items,
+    message,
+  };
+};
+
 /** Session-bound SDK access shared by Teaching, Dry Runs, and Runs. */
 export const makeIosSessionAccess = <A, B>(input: {
   readonly snapshot: (options: CaptureSnapshotOptions) => Promise<A>;
@@ -484,13 +694,41 @@ export const makeIosSessionAccess = <A, B>(input: {
   readonly appState?: (
     options: AppStateCommandOptions
   ) => Promise<IosSessionAppState>;
+  readonly alert?: (
+    options: AlertCommandOptions
+  ) => Promise<CommandRequestResult>;
   readonly options: () => {
     readonly platform: "ios";
     readonly udid: string;
     readonly requestId: string;
   };
-}) => {
-  const readSnapshot = (observeOnly: boolean) =>
+}) => ({
+  /**
+   * Binds the session to an app without relaunching it. Binding activates
+   * the app, so callers bind only to the app already in front.
+   */
+  bind: (app: string) =>
+    io(
+      (signal) =>
+        input.open({
+          ...input.options(),
+          app,
+          noRecord: true,
+          relaunch: false,
+          signal,
+        }),
+      "open"
+    ).pipe(Effect.asVoid),
+  /**
+   * The bound app's tree, a presented system alert over it, or none when
+   * another app is in front. Every read path here is non-activating: snapshots
+   * always pass `observeOnly: true`, and system alerts are read through
+   * `alert get` (`launchPolicy: .presentedSurface`), never a regular snapshot
+   * that could call `target.activate()` if the bound app backgrounds mid-read.
+   */
+  snapshot: (
+    boundApp?: string
+  ): Effect.Effect<Option.Option<IosSessionRead<A>>, PlatformRuntimeError> =>
     Effect.tryPromise({
       catch: (cause) => cause,
       try: (signal) =>
@@ -498,76 +736,74 @@ export const makeIosSessionAccess = <A, B>(input: {
           ...input.options(),
           interactiveOnly: false,
           noRecord: true,
-          observeOnly,
+          observeOnly: true,
           signal,
         }),
-    });
-
-  return {
-    /**
-     * Binds the session to an app without relaunching it. Binding activates
-     * the app, so callers bind only to the app already in front.
-     */
-    bind: (app: string) =>
-      io(
-        (signal) =>
-          input.open({
-            ...input.options(),
-            app,
-            noRecord: true,
-            relaunch: false,
-            signal,
-          }),
-        "open"
-      ).pipe(Effect.asVoid),
-    /**
-     * The bound app's tree, or none when another app is in front. When
-     * `observeOnly` raises `OBSERVATION_UNAVAILABLE` for a system alert over the
-     * bound foreground app, reads the alert with a regular snapshot instead of
-     * treating the bound app as backgrounded.
-     */
-    snapshot: (boundApp?: string) =>
-      readSnapshot(true).pipe(
-        Effect.map(Option.some),
-        // Another app in front is not a failure: the caller follows it.
-        // Anything else is the SDK's own failure: name it by reference.
-        Effect.catchIf(
-          (cause) =>
-            isAgentDeviceError(cause) &&
-            cause.code === "OBSERVATION_UNAVAILABLE",
-          (cause) =>
-            Effect.gen(function* handleObservationUnavailable() {
-              const systemAlertHint =
-                isIosSystemAlertObservationUnavailable(cause);
-              const readAppState = input.appState;
-              const canReadAlert =
-                readAppState === undefined
-                  ? systemAlertHint
-                  : yield* verifyIosAlertOverBoundApp({
-                      appState: readAppState,
-                      boundApp,
-                      request: input.options(),
-                      systemAlertHint,
-                    });
-              if (!canReadAlert) {
-                return Option.none<A>();
-              }
-              return yield* readSnapshot(false).pipe(
-                Effect.map(Option.some),
-                Effect.catchIf(
-                  (regularCause) =>
-                    isAgentDeviceError(regularCause) &&
-                    regularCause.code === "OBSERVATION_UNAVAILABLE",
-                  () => Effect.succeed(Option.none<A>()),
-                  snapshotRejection
+    }).pipe(
+      Effect.map((snapshot) =>
+        Option.some<IosSessionRead<A>>({ _tag: "snapshot", snapshot })
+      ),
+      // Another app in front is not a failure: the caller follows it.
+      // Anything else is the SDK's own failure: name it by reference.
+      Effect.catchIf(
+        (cause) =>
+          isAgentDeviceError(cause) && cause.code === "OBSERVATION_UNAVAILABLE",
+        (cause) =>
+          Effect.gen(function* handleObservationUnavailable() {
+            const systemAlertHint =
+              isIosSystemAlertObservationUnavailable(cause);
+            const readAppState = input.appState;
+            const canReadAlert =
+              readAppState === undefined
+                ? systemAlertHint
+                : yield* verifyIosAlertOverBoundApp({
+                    appState: readAppState,
+                    boundApp,
+                    request: input.options(),
+                    systemAlertHint,
+                  });
+            const readAlert = input.alert;
+            if (!canReadAlert || readAlert === undefined) {
+              return Option.none<IosSessionRead<A>>();
+            }
+            const rawAlert = yield* Effect.tryPromise({
+              catch: (alertCause) => alertCause,
+              try: (signal) =>
+                readAlert({
+                  ...input.options(),
+                  action: "get",
+                  signal,
+                }),
+            }).pipe(
+              Effect.catchIf(
+                isIosAlertAbsentError,
+                () =>
+                  Effect.fail(
+                    iosCaptureFailure(
+                      "observation_stale",
+                      "capture",
+                      "alert-dismissed"
+                    )
+                  ),
+                snapshotRejection
+              )
+            );
+            const alert = parseIosPresentedAlert(rawAlert);
+            if (alert === null) {
+              return yield* Effect.fail(
+                iosCaptureFailure(
+                  "observation_stale",
+                  "capture",
+                  "alert-dismissed"
                 )
               );
-            }),
-          snapshotRejection
-        )
-      ),
-  };
-};
+            }
+            return Option.some<IosSessionRead<A>>({ _tag: "alert", alert });
+          }),
+        snapshotRejection
+      )
+    ),
+});
 
 interface IosScreen {
   readonly nodes: readonly Pick<
@@ -639,6 +875,7 @@ const startIosRuntime = (
           }
         });
       const access = makeIosSessionAccess({
+        alert: client.command.alert.bind(client.command),
         appState: client.command.appState.bind(client.command),
         open: client.apps.open.bind(client.apps),
         options,
@@ -650,9 +887,15 @@ const startIosRuntime = (
         readonly sx: number;
         readonly sy: number;
       } | null>(null);
+      // Presented system-alert buttons, by synthetic target, dispatched via non-activating `alert accept|dismiss`.
+      const alertActions = yield* Ref.make<ReadonlyMap<string, IosAlertAction>>(
+        new Map()
+      );
+      let alertGeneration = 0;
       const clearGeometryCache = Ref.set(window, null).pipe(
         Effect.andThen(Ref.set(screenPixels, null)),
-        Effect.andThen(Ref.set(pixelScale, null))
+        Effect.andThen(Ref.set(pixelScale, null)),
+        Effect.andThen(Ref.set(alertActions, new Map()))
       );
       // Preparation opened the session on the Target App, now in front.
       const bound = yield* Ref.make(input.targetApp);
@@ -671,6 +914,139 @@ const startIosRuntime = (
       const activationPoints = yield* Ref.make<
         ReadonlyMap<string, { readonly x: number; readonly y: number }>
       >(new Map());
+      const captureAlertObservation = (
+        step: IosCaptureStep,
+        app: string,
+        includeImage: boolean,
+        alert: IosPresentedAlert
+      ) =>
+        Effect.gen(function* observeAlert() {
+          yield* identities(alert.identifiers, udid, session);
+          if (alert.identifiers === undefined) {
+            yield* step("session-check", validate());
+          }
+          const id = randomUUID();
+          const cachedWindow = yield* Ref.get(window);
+          const cachedPixels = yield* Ref.get(screenPixels);
+          const cachedScale = yield* Ref.get(pixelScale);
+          const needScreenshot =
+            includeImage ||
+            cachedPixels === null ||
+            cachedScale === null ||
+            cachedWindow === null;
+          let width: number;
+          let height: number;
+          let encodedImage = "";
+          if (needScreenshot) {
+            const filename = path.join(
+              prepared.directory,
+              `observation-${id}.png`
+            );
+            const screenshot = yield* step(
+              "screenshot",
+              io(
+                (signal) =>
+                  client.capture.screenshot({
+                    ...options(),
+                    path: filename,
+                    signal,
+                  }),
+                "screenshot"
+              )
+            );
+            yield* identities(screenshot.identifiers, udid, session);
+            const bytes = yield* step(
+              "read-png",
+              io(() => readFile(filename), "host-io")
+            );
+            if (
+              bytes.length < 24 ||
+              !bytes
+                .subarray(0, 8)
+                .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))
+            ) {
+              return yield* Effect.fail(
+                iosCaptureFailure(
+                  "capture_incomplete",
+                  "screenshot",
+                  "png-header"
+                )
+              );
+            }
+            width = bytes.readUInt32BE(16);
+            height = bytes.readUInt32BE(20);
+            const appState = yield* step(
+              "app-state",
+              io(
+                (signal) => client.command.appState({ ...options(), signal }),
+                "session-check"
+              )
+            );
+            const stateProblem = iosAppStateProblem(appState, udid);
+            if (stateProblem !== null) {
+              return yield* Effect.fail(
+                stateProblem === "observation_stale"
+                  ? iosCaptureFailure(
+                      stateProblem,
+                      "session-check",
+                      "app-state-unverified"
+                    )
+                  : iosRuntimeError(stateProblem)
+              );
+            }
+            if (
+              cachedWindow !== null &&
+              Math.sign(width - height) !==
+                Math.sign(cachedWindow.width - cachedWindow.height)
+            ) {
+              return yield* Effect.fail(iosRuntimeError("observation_stale"));
+            }
+            encodedImage = bytes.toString("base64");
+          } else {
+            const appState = yield* step(
+              "app-state",
+              io(
+                (signal) => client.command.appState({ ...options(), signal }),
+                "session-check"
+              )
+            );
+            const stateProblem = iosAppStateProblem(appState, udid);
+            if (stateProblem !== null) {
+              return yield* Effect.fail(
+                stateProblem === "observation_stale"
+                  ? iosCaptureFailure(
+                      stateProblem,
+                      "session-check",
+                      "app-state-unverified"
+                    )
+                  : iosRuntimeError(stateProblem)
+              );
+            }
+            ({ width, height } = cachedPixels);
+          }
+          alertGeneration += 1;
+          const built = iosAlertNodes(alert, app, alertGeneration);
+          yield* Ref.set(activationPoints, new Map());
+          yield* Ref.set(alertActions, built.actions);
+          const observation: IosObservation = {
+            appId: app,
+            backendSessionId: session,
+            device: prepared.device,
+            frame: { height, width },
+            generation: alertGeneration,
+            id,
+            nodes: built.nodes,
+            platform: "ios",
+            screenshot: {
+              capturedAt: new Date().toISOString(),
+              encoding: "base64",
+              format: "png",
+              image: encodedImage,
+            },
+          };
+          yield* Ref.set(lost, false);
+          return observedStep(observation);
+        });
       /**
        * One observation of the bound app, or the app to follow when another
        * one is in front (ADR 0083). The runtime validates the session on its
@@ -696,7 +1072,15 @@ const startIosRuntime = (
             }
             return followStep(front);
           }
-          const snapshot = read.value;
+          if (read.value._tag === "alert") {
+            return yield* captureAlertObservation(
+              step,
+              app,
+              includeImage,
+              read.value.alert
+            );
+          }
+          const { snapshot } = read.value;
           yield* identities(snapshot.identifiers, udid, session);
           if (snapshot.identifiers === undefined) {
             yield* step("session-check", validate());
@@ -856,6 +1240,7 @@ const startIosRuntime = (
             ref === undefined
               ? ""
               : `@${ref.replace(/^@/u, "")}~s${snapshot.refsGeneration}`;
+          yield* Ref.set(alertActions, new Map());
           yield* Ref.set(
             activationPoints,
             new Map(
@@ -940,21 +1325,31 @@ const startIosRuntime = (
       return yield* adaptNativeAppRuntime({
         backend: {
           activate: (target) =>
-            Ref.get(activationPoints).pipe(
-              Effect.flatMap((points) => {
-                const point = points.get(target);
-                return io(
+            Effect.gen(function* activateIos() {
+              const alertAction = (yield* Ref.get(alertActions)).get(target);
+              if (alertAction !== undefined) {
+                yield* io(
                   (signal) =>
-                    client.interactions.click(
-                      point === undefined
-                        ? { ...options(), ref: target, signal }
-                        : { ...options(), ...point, signal }
-                    ),
+                    client.command.alert({
+                      ...options(),
+                      action: alertAction,
+                      signal,
+                    }),
                   "activate"
                 );
-              }),
-              Effect.asVoid
-            ),
+                return;
+              }
+              const point = (yield* Ref.get(activationPoints)).get(target);
+              yield* io(
+                (signal) =>
+                  client.interactions.click(
+                    point === undefined
+                      ? { ...options(), ref: target, signal }
+                      : { ...options(), ...point, signal }
+                  ),
+                "activate"
+              );
+            }),
           capture,
           close: () => Scope.close(resources, Exit.void),
           fill: (target, text) =>
