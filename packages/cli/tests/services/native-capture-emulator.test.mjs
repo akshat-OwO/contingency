@@ -223,3 +223,15 @@ it("keeps waiting while the device reports offline, then boots", async () => {
   expect(proof.signals).toEqual([]);
   expect(device).toMatchObject({ pid: OWNED_PID, serial: "emulator-5590" });
 });
+
+it("signals the process group when the emulator console never answers", async () => {
+  const proof = harness({
+    bootShell: offlineShell,
+    emuKill: () => Promise.withResolvers().promise,
+  });
+
+  await expect(proof.start({ bootTimeoutMs: 1, pollMs: 0 })).rejects.toThrow();
+
+  expect(proof.calls).toContain("-s emulator-5590 emu kill");
+  expect(proof.signals).toEqual([[OWNED_PID, "SIGTERM"]]);
+});

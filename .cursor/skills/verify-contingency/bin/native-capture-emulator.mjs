@@ -7,6 +7,19 @@ import { setTimeout as sleep } from "node:timers/promises";
 const BOOT_TIMEOUT_MS = 600_000;
 const PROBE_TIMEOUT_MS = 30_000;
 
+const within = async (milliseconds, pending) => {
+  const timer = new AbortController();
+  const expired = (async () => {
+    try {
+      await sleep(milliseconds, undefined, { signal: timer.signal });
+    } catch {
+      // Aborted because the awaited work finished first.
+    }
+  })();
+  await Promise.race([pending, expired]);
+  timer.abort();
+};
+
 // Boots one proof-owned Android emulator and returns a cleanup that stops that
 // instance and nothing else. The emulator runs in its own process group, so the
 // cleanup can reach the launcher and everything it started by the PID this
@@ -61,18 +74,6 @@ export const startEmulator = async ({
       // The launcher never started, so there is nothing left to wait for.
     }
   })();
-  const exitedWithin = async (milliseconds) => {
-    const timer = new AbortController();
-    const expired = (async () => {
-      try {
-        await sleep(milliseconds, undefined, { signal: timer.signal });
-      } catch {
-        // Aborted because the emulator exited first.
-      }
-    })();
-    await Promise.race([exited, expired]);
-    timer.abort();
-  };
   const signalGroup = (signal) => {
     try {
       killGroup(emulator.pid, signal);
@@ -90,14 +91,18 @@ export const startEmulator = async ({
       return;
     }
     try {
-      await execute(adb, ["-s", serial, "emu", "kill"]);
-      await exitedWithin(graceMs);
+      // A console that never answers must not hold back the signals below.
+      await within(
+        graceMs,
+        execute(adb, ["-s", serial, "emu", "kill"], { timeout: graceMs })
+      );
+      await within(graceMs, exited);
     } catch {
       // An offline device cannot take the request; the signals below follow.
     }
     if (!hasExited()) {
       signalGroup("SIGTERM");
-      await exitedWithin(graceMs);
+      await within(graceMs, exited);
     }
     if (!hasExited()) {
       signalGroup("SIGKILL");
