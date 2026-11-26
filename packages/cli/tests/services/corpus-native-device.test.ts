@@ -134,6 +134,31 @@ describe("corpus-backed fake native device", () => {
   );
 
   it.effect(
+    "names Android nodes with the real androidNodeName, so a row without a label takes its children's text",
+    () =>
+      Effect.gen(function* verifyAndroidNodeNames() {
+        const fake = makeCorpusNativeBackend({
+          device: androidDevice,
+          platform: "android",
+          script: { start: "list", transitions: [] },
+        });
+
+        const capture = yield* fake.backend.capture({ image: false });
+        const rows = capture.nodes.filter(
+          (node) =>
+            node.role === "group" && node.hittable && node.name.includes("$")
+        );
+        expect(rows.map((node) => node.name)).toEqual([
+          "Anvil, $7.00",
+          "Rocket skates, $14.00",
+        ]);
+        expect(capture.nodes.find((node) => node.role === "list")?.name).toBe(
+          ""
+        );
+      })
+  );
+
+  it.effect(
     "maps iOS corpus captures with the real iOS interaction and naming rules",
     () =>
       Effect.gen(function* verifyIosCorpusBackend() {
