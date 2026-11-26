@@ -6,6 +6,9 @@ import { startEmulator } from "../../../../.cursor/skills/verify-contingency/bin
 
 const OWNED_PID = 4242;
 
+const timers = () =>
+  process.getActiveResourcesInfo().filter((name) => name === "Timeout").length;
+
 // A launcher that never starts a process: it records the emulator the proof
 // asked for and exits it only when something stops that exact PID.
 const harness = ({
@@ -234,4 +237,18 @@ it("signals the process group when the emulator console never answers", async ()
 
   expect(proof.calls).toContain("-s emulator-5590 emu kill");
   expect(proof.signals).toEqual([[OWNED_PID, "SIGTERM"]]);
+});
+
+it("leaves no grace timer behind when the emulator console refuses at once", async () => {
+  const before = timers();
+  const proof = harness({
+    bootShell: offlineShell,
+    emuKill: () => Promise.reject(new Error("adb: device offline")),
+  });
+
+  await expect(
+    proof.start({ bootTimeoutMs: 1, graceMs: 60_000, pollMs: 0 })
+  ).rejects.toThrow();
+
+  expect(timers()).toBe(before);
 });

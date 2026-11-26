@@ -16,8 +16,11 @@ const within = async (milliseconds, pending) => {
       // Aborted because the awaited work finished first.
     }
   })();
-  await Promise.race([pending, expired]);
-  timer.abort();
+  try {
+    await Promise.race([pending, expired]);
+  } finally {
+    timer.abort();
+  }
 };
 
 // Boots one proof-owned Android emulator and returns a cleanup that stops that
