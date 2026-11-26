@@ -541,7 +541,7 @@ journey(
 );
 
 journey(
-  "keeps the widget app in front under its permission alert through iosWindowViewport, refusal, and confirmation (fake backend: no Springboard following or session validation)",
+  "reads a system permission alert after observeOnly raises OBSERVATION_UNAVAILABLE, keeping the widget app in front through iosWindowViewport, refusal, and confirmation",
   { singleTool: true },
   Effect.gen(function* iosSystemPermissionAlertJourney() {
     const fs = yield* FileSystem.FileSystem;
@@ -607,6 +607,7 @@ journey(
         { _tag: "observe", image: false, sessionId: started.id },
         "user"
       );
+      expect(device.observeOnlyAlertRefusals()).toBeGreaterThan(0);
       expect(onAlert.observation?.width).toBe(402);
       expect(onAlert.observation?.height).toBe(874);
       expect(findIosNode(onAlert, "button", "Allow Once").bounds).toBeDefined();

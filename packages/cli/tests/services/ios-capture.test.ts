@@ -4,7 +4,9 @@ import { Effect, Fiber, Logger, Option } from "effect";
 import { TestClock } from "effect/testing";
 
 import {
+  IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
   canSkipIosScreenshot,
+  isIosSystemAlertObservationUnavailable,
   makeIosSessionAccess,
   iosAgentDeviceFailure,
   iosAppStateProblem,
@@ -225,6 +227,277 @@ it.effect(
           udid: "session-simulator",
         }),
       ]);
+    })
+);
+
+it("identifies OBSERVATION_UNAVAILABLE carrying agent-device's system-alert hint", () => {
+  expect(
+    isIosSystemAlertObservationUnavailable(
+      new AppError(
+        "OBSERVATION_UNAVAILABLE",
+        "The session app cannot be observed without activation.",
+        {
+          dispatched: "no",
+          hint: IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
+          runner: {
+            error: {
+              code: "OBSERVATION_UNAVAILABLE",
+              hint: IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
+              message: "The session app cannot be observed without activation.",
+            },
+            ok: false,
+          },
+          runnerErrorCode: "OBSERVATION_UNAVAILABLE",
+        }
+      )
+    )
+  ).toBe(true);
+  // Nested runner.error.hint alone still classifies as a system alert.
+  expect(
+    isIosSystemAlertObservationUnavailable(
+      new AppError(
+        "OBSERVATION_UNAVAILABLE",
+        "The session app cannot be observed without activation.",
+        {
+          runner: {
+            error: {
+              code: "OBSERVATION_UNAVAILABLE",
+              hint: IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
+            },
+          },
+        }
+      )
+    )
+  ).toBe(true);
+  // Default backgrounded hint and non-alert codes do not match.
+  expect(
+    isIosSystemAlertObservationUnavailable(
+      new AppError(
+        "OBSERVATION_UNAVAILABLE",
+        "The session app cannot be observed without activation.",
+        {
+          hint: "XCUIApplication must report runningForeground before and after capture. This state report does not prove screen ownership (#2696).",
+        }
+      )
+    )
+  ).toBe(false);
+  expect(
+    isIosSystemAlertObservationUnavailable(
+      new AppError("OBSERVATION_UNAVAILABLE", "session app is backgrounded")
+    )
+  ).toBe(false);
+  expect(
+    isIosSystemAlertObservationUnavailable(
+      new AppError("COMMAND_FAILED", "other failure", {
+        hint: IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
+      })
+    )
+  ).toBe(false);
+  expect(isIosSystemAlertObservationUnavailable(new Error("plain"))).toBe(
+    false
+  );
+});
+
+it.effect(
+  "reads a presented system alert via a regular snapshot when observeOnly rejects with the system-alert hint and appState confirms the bound app is runningForeground",
+  () =>
+    Effect.gen(function* systemAlertOverBoundApp() {
+      const snapshotCalls: unknown[] = [];
+      let appStateCalls = 0;
+      const access = makeIosSessionAccess({
+        appState: () => {
+          appStateCalls += 1;
+          return Promise.resolve({
+            appBundleId: "dev.contingency.ioslogin",
+            appName: "dev.contingency.ioslogin",
+            device_udid: "session-simulator",
+            platform: "ios" as const,
+            source: "runner" as const,
+            state: "runningForeground" as const,
+            surface: "app" as const,
+          });
+        },
+        open: () => {
+          throw new Error("Reading a system alert must never call open");
+        },
+        options: () => ({
+          platform: "ios",
+          requestId: "capture",
+          udid: "session-simulator",
+        }),
+        snapshot: (options) => {
+          snapshotCalls.push(options);
+          if (options.observeOnly === true) {
+            return Promise.reject(
+              new AppError(
+                "OBSERVATION_UNAVAILABLE",
+                "The session app cannot be observed without activation.",
+                {
+                  dispatched: "no",
+                  hint: IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
+                  runner: {
+                    error: {
+                      code: "OBSERVATION_UNAVAILABLE",
+                      hint: IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
+                      message:
+                        "The session app cannot be observed without activation.",
+                    },
+                    ok: false,
+                  },
+                  runnerErrorCode: "OBSERVATION_UNAVAILABLE",
+                }
+              )
+            );
+          }
+          return Promise.resolve("alert-tree");
+        },
+      });
+      expect(yield* access.snapshot("dev.contingency.ioslogin")).toEqual(
+        Option.some("alert-tree")
+      );
+      expect(appStateCalls).toBe(1);
+      expect(snapshotCalls).toEqual([
+        expect.objectContaining({
+          interactiveOnly: false,
+          noRecord: true,
+          observeOnly: true,
+          udid: "session-simulator",
+        }),
+        expect.objectContaining({
+          interactiveOnly: false,
+          noRecord: true,
+          observeOnly: false,
+          udid: "session-simulator",
+        }),
+      ]);
+    })
+);
+
+it.effect(
+  "returns none without calling a regular snapshot on genuine cross-app backgrounding",
+  () =>
+    Effect.gen(function* genuineCrossAppBackgrounding() {
+      const snapshotCalls: unknown[] = [];
+      let appStateCalls = 0;
+      const access = makeIosSessionAccess({
+        appState: () => {
+          appStateCalls += 1;
+          return Promise.resolve({
+            appBundleId: "dev.contingency.ioslogin",
+            appName: "dev.contingency.ioslogin",
+            device_udid: "session-simulator",
+            platform: "ios" as const,
+            source: "runner" as const,
+            state: "runningBackground" as const,
+            surface: "app" as const,
+          });
+        },
+        open: () => {
+          throw new Error("Backgrounded observation must never call open");
+        },
+        options: () => ({
+          platform: "ios",
+          requestId: "capture",
+          udid: "session-simulator",
+        }),
+        snapshot: (options) => {
+          snapshotCalls.push(options);
+          return Promise.reject(
+            new AppError(
+              "OBSERVATION_UNAVAILABLE",
+              "The session app cannot be observed without activation.",
+              {
+                hint: "XCUIApplication must report runningForeground before and after capture. This state report does not prove screen ownership (#2696).",
+              }
+            )
+          );
+        },
+      });
+      expect(
+        Option.isNone(yield* access.snapshot("dev.contingency.ioslogin"))
+      ).toBe(true);
+      expect(appStateCalls).toBe(1);
+      expect(snapshotCalls).toEqual([
+        expect.objectContaining({
+          noRecord: true,
+          observeOnly: true,
+          udid: "session-simulator",
+        }),
+      ]);
+    })
+);
+
+const systemAlertUnavailableError = () =>
+  new AppError(
+    "OBSERVATION_UNAVAILABLE",
+    "The session app cannot be observed without activation.",
+    { hint: IOS_SYSTEM_ALERT_UNAVAILABLE_HINT }
+  );
+
+it.effect(
+  "withholds regular snapshot when system-alert hint races with backgrounding or passive appState",
+  () =>
+    Effect.gen(function* systemAlertRaces() {
+      // Alert dismissed and another app took foreground before appState ran:
+      // never call a non-observeOnly snapshot that could reactivate the bound app.
+      const backgroundCalls: unknown[] = [];
+      const backgrounded = makeIosSessionAccess({
+        appState: () =>
+          Promise.resolve({
+            appBundleId: "dev.contingency.ioslogin",
+            appName: "dev.contingency.ioslogin",
+            device_udid: "session-simulator",
+            platform: "ios" as const,
+            source: "runner" as const,
+            state: "runningBackgroundSuspended" as const,
+            surface: "app" as const,
+          }),
+        open: () => Promise.resolve({}),
+        options: () => ({
+          platform: "ios",
+          requestId: "capture",
+          udid: "session-simulator",
+        }),
+        snapshot: (options) => {
+          backgroundCalls.push(options);
+          return Promise.reject(systemAlertUnavailableError());
+        },
+      });
+      expect(
+        Option.isNone(yield* backgrounded.snapshot("dev.contingency.ioslogin"))
+      ).toBe(true);
+      expect(backgroundCalls).toHaveLength(1);
+
+      // Passive session metadata on a system-alert hint fails as observation_stale
+      // so settleIosCapture retries rather than pausing with foreground_app_unknown.
+      const passiveCalls: unknown[] = [];
+      const passive = makeIosSessionAccess({
+        appState: () =>
+          Promise.resolve({
+            appBundleId: "dev.contingency.ioslogin",
+            appName: "dev.contingency.ioslogin",
+            device_udid: "session-simulator",
+            platform: "ios" as const,
+            source: "session" as const,
+            surface: "app" as const,
+          }),
+        open: () => Promise.resolve({}),
+        options: () => ({
+          platform: "ios",
+          requestId: "capture",
+          udid: "session-simulator",
+        }),
+        snapshot: (options) => {
+          passiveCalls.push(options);
+          return Promise.reject(systemAlertUnavailableError());
+        },
+      });
+      const passiveFailure = yield* Effect.flip(
+        passive.snapshot("dev.contingency.ioslogin")
+      );
+      expect(passiveFailure.code).toBe("observation_stale");
+      expect(passiveFailure.message).toContain("app-state-unverified");
+      expect(passiveCalls).toHaveLength(1);
     })
 );
 

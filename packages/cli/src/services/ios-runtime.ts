@@ -9,8 +9,10 @@ import type {
 import { createAgentDeviceClient, isAgentDeviceError } from "agent-device";
 import type {
   AgentDeviceIdentifiers,
-  CaptureSnapshotOptions,
+  AppErrorDetails,
   AppOpenOptions,
+  AppStateCommandOptions,
+  CaptureSnapshotOptions,
 } from "agent-device";
 import {
   Clock,
@@ -387,34 +389,108 @@ const snapshotRejection = (
 const hostFailure = (failure: IosError) =>
   failFromTyped(iosRuntimeError(failure.code), failure);
 
+/** Hint agent-device's iOS runner emits when observeOnly refuses to substitute a presented system alert. */
+export const IOS_SYSTEM_ALERT_UNAVAILABLE_HINT =
+  "A system alert is presented over the session app. Resolve it with alert, or read it with a regular snapshot.";
+
+const readErrorHint = (
+  details: AppErrorDetails | undefined
+): string | undefined => {
+  if (details === undefined) {
+    return undefined;
+  }
+  if (Predicate.isString(details.hint)) {
+    return details.hint;
+  }
+  const { runner } = details;
+  if (
+    Predicate.isObject(runner) &&
+    Predicate.isObject(runner.error) &&
+    Predicate.isString(runner.error.hint)
+  ) {
+    return runner.error.hint;
+  }
+  return undefined;
+};
+
+/**
+ * agent-device's observe-only snapshot refuses to substitute a Springboard
+ * system alert for the bound app's tree, returning `OBSERVATION_UNAVAILABLE`
+ * with a system-alert hint even though the bound app is still in front.
+ */
+export const isIosSystemAlertObservationUnavailable = (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- A rejected SDK promise is unknown by definition.
+  cause: unknown
+): boolean => {
+  if (!isAgentDeviceError(cause) || cause.code !== "OBSERVATION_UNAVAILABLE") {
+    return false;
+  }
+  const hint = readErrorHint(cause.details);
+  return hint !== undefined && /\bsystem alert\b/iu.test(hint);
+};
+
+/**
+ * Confirms whether `OBSERVATION_UNAVAILABLE` on an observe-only snapshot means
+ * a system alert is presented over the bound foreground app rather than another
+ * app having taken the foreground.
+ */
+const verifyIosAlertOverBoundApp = (input: {
+  readonly appState: (
+    options: AppStateCommandOptions
+  ) => Promise<IosSessionAppState>;
+  readonly boundApp: string | undefined;
+  readonly request: {
+    readonly platform: "ios";
+    readonly udid: string;
+    readonly requestId: string;
+  };
+  readonly systemAlertHint: boolean;
+}) =>
+  Effect.gen(function* verifyAlertForeground() {
+    const state = yield* io(
+      (signal) => input.appState({ ...input.request, signal }),
+      "session-check"
+    );
+    if (state.platform !== "ios" || state.device_udid !== input.request.udid) {
+      return yield* Effect.fail(iosRuntimeError("device_mismatch"));
+    }
+    const stateProblem = iosAppStateProblem(state, input.request.udid);
+    if (stateProblem === null) {
+      return (
+        input.boundApp === undefined ||
+        state.appBundleId === undefined ||
+        state.appBundleId === input.boundApp
+      );
+    }
+    if (
+      input.systemAlertHint &&
+      (state.source !== "runner" || state.state === undefined)
+    ) {
+      return yield* Effect.fail(
+        iosCaptureFailure(
+          "observation_stale",
+          "session-check",
+          "app-state-unverified"
+        )
+      );
+    }
+    return false;
+  });
+
 /** Session-bound SDK access shared by Teaching, Dry Runs, and Runs. */
 export const makeIosSessionAccess = <A, B>(input: {
   readonly snapshot: (options: CaptureSnapshotOptions) => Promise<A>;
   readonly open: (options: AppOpenOptions) => Promise<B>;
+  readonly appState?: (
+    options: AppStateCommandOptions
+  ) => Promise<IosSessionAppState>;
   readonly options: () => {
     readonly platform: "ios";
     readonly udid: string;
     readonly requestId: string;
   };
-}) => ({
-  /**
-   * Binds the session to an app without relaunching it. Binding activates
-   * the app, so callers bind only to the app already in front.
-   */
-  bind: (app: string) =>
-    io(
-      (signal) =>
-        input.open({
-          ...input.options(),
-          app,
-          noRecord: true,
-          relaunch: false,
-          signal,
-        }),
-      "open"
-    ).pipe(Effect.asVoid),
-  /** The bound app's tree, or none when another app is in front. */
-  snapshot: () =>
+}) => {
+  const readSnapshot = (observeOnly: boolean) =>
     Effect.tryPromise({
       catch: (cause) => cause,
       try: (signal) =>
@@ -422,21 +498,76 @@ export const makeIosSessionAccess = <A, B>(input: {
           ...input.options(),
           interactiveOnly: false,
           noRecord: true,
-          observeOnly: true,
+          observeOnly,
           signal,
         }),
-    }).pipe(
-      Effect.map(Option.some),
-      // Another app in front is not a failure: the caller follows it.
-      // Anything else is the SDK's own failure: name it by reference.
-      Effect.catchIf(
-        (cause) =>
-          isAgentDeviceError(cause) && cause.code === "OBSERVATION_UNAVAILABLE",
-        () => Effect.succeed(Option.none<A>()),
-        snapshotRejection
-      )
-    ),
-});
+    });
+
+  return {
+    /**
+     * Binds the session to an app without relaunching it. Binding activates
+     * the app, so callers bind only to the app already in front.
+     */
+    bind: (app: string) =>
+      io(
+        (signal) =>
+          input.open({
+            ...input.options(),
+            app,
+            noRecord: true,
+            relaunch: false,
+            signal,
+          }),
+        "open"
+      ).pipe(Effect.asVoid),
+    /**
+     * The bound app's tree, or none when another app is in front. When
+     * `observeOnly` raises `OBSERVATION_UNAVAILABLE` for a system alert over the
+     * bound foreground app, reads the alert with a regular snapshot instead of
+     * treating the bound app as backgrounded.
+     */
+    snapshot: (boundApp?: string) =>
+      readSnapshot(true).pipe(
+        Effect.map(Option.some),
+        // Another app in front is not a failure: the caller follows it.
+        // Anything else is the SDK's own failure: name it by reference.
+        Effect.catchIf(
+          (cause) =>
+            isAgentDeviceError(cause) &&
+            cause.code === "OBSERVATION_UNAVAILABLE",
+          (cause) =>
+            Effect.gen(function* handleObservationUnavailable() {
+              const systemAlertHint =
+                isIosSystemAlertObservationUnavailable(cause);
+              const readAppState = input.appState;
+              const canReadAlert =
+                readAppState === undefined
+                  ? systemAlertHint
+                  : yield* verifyIosAlertOverBoundApp({
+                      appState: readAppState,
+                      boundApp,
+                      request: input.options(),
+                      systemAlertHint,
+                    });
+              if (!canReadAlert) {
+                return Option.none<A>();
+              }
+              return yield* readSnapshot(false).pipe(
+                Effect.map(Option.some),
+                Effect.catchIf(
+                  (regularCause) =>
+                    isAgentDeviceError(regularCause) &&
+                    regularCause.code === "OBSERVATION_UNAVAILABLE",
+                  () => Effect.succeed(Option.none<A>()),
+                  snapshotRejection
+                )
+              );
+            }),
+          snapshotRejection
+        )
+      ),
+  };
+};
 
 interface IosScreen {
   readonly nodes: readonly Pick<
@@ -508,6 +639,7 @@ const startIosRuntime = (
           }
         });
       const access = makeIosSessionAccess({
+        appState: client.command.appState.bind(client.command),
         open: client.apps.open.bind(client.apps),
         options,
         snapshot: client.capture.snapshot.bind(client.capture),
@@ -552,7 +684,7 @@ const startIosRuntime = (
       ) =>
         // oxlint-disable-next-line eslint/complexity
         Effect.gen(function* captureIos() {
-          const read = yield* step("snapshot", access.snapshot());
+          const read = yield* step("snapshot", access.snapshot(app));
           if (Option.isNone(read)) {
             // The bound app went to the background on its own, such as a
             // link that opened Safari. Follow only a clear guess among the

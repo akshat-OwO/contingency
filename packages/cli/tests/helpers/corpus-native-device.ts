@@ -7,7 +7,9 @@ import type {
   IosWorkspaceSelection,
   NativeInput,
 } from "@contingency/protocol";
-import { Effect, Layer, Schema, Stream } from "effect";
+import { AppError } from "agent-device";
+import type { CaptureSnapshotOptions } from "agent-device";
+import { Effect, Layer, Option, Schema, Stream } from "effect";
 
 import {
   androidNodeInteraction,
@@ -29,10 +31,13 @@ import {
   iosNodeName,
 } from "../../src/services/ios-observation.ts";
 import {
+  IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
   iosCapabilities,
+  iosForegroundUnknown,
   iosRuntimeError,
   iosSystemKeys,
   iosWindowViewport,
+  makeIosSessionAccess,
 } from "../../src/services/ios-runtime.ts";
 import type { IosObservation } from "../../src/services/ios-runtime.ts";
 import type { IosDeviceStream } from "../../src/services/ios-stream.ts";
@@ -141,6 +146,8 @@ export interface CorpusNativeDevice<
   readonly failNextCaptures: (count: number) => void;
   /** Applies Forwarded Input taps to the scripted screen graph. */
   readonly forwardInputs: (inputs: readonly NativeInput[]) => void;
+  /** Number of times an iOS `observeOnly` snapshot raised `OBSERVATION_UNAVAILABLE` for a system alert. */
+  readonly observeOnlyAlertRefusals: () => number;
   readonly recoveries: () => number;
   /** Returns the device to the script's start capture, as app restart does. */
   readonly reset: () => void;
@@ -246,11 +253,13 @@ export const IOS_WIDGET_APP = "dev.contingency.ioswidgets";
 export const IOS_WIDGET_PERMISSION_ALERT = "widget-permission-alert";
 
 /**
- * `system-permission-alert` was captured over Calendar. iOS presents a
- * permission alert inside the app that asked for it, and the bound app's tree
- * then arrives with the alert as its root, so the app stays in front
- * (`fillsScreen`). This re-homes that alert on the widget app: only the owning
- * app and the app named in the title change. The usage text stays Calendar's.
+ * `system-permission-alert` was captured over Calendar via a regular snapshot.
+ * On real iOS, `observeOnly` snapshots over a presented system permission alert
+ * reject with `OBSERVATION_UNAVAILABLE` and the system-alert hint while
+ * `appState` still reports the bound app `runningForeground`; a regular
+ * snapshot then returns the alert-rooted tree, and `fillsScreen` keeps the
+ * bound app in front. This re-homes Calendar's alert on the widget app so the
+ * fake exercises that real `makeIosSessionAccess` fallback path.
  */
 const widgetPermissionAlert = (): CorpusCapture => {
   const calendar = readCaptureFile("ios", "system-permission-alert");
@@ -429,6 +438,7 @@ export function makeCorpusNativeBackend(
   let currentId = options.script.start;
   let generation = 0;
   let captureCount = 0;
+  let observeOnlyAlertRefusalCount = 0;
   let recoveryCount = 0;
   let failRemaining = 0;
   let failUntilRecover = false;
@@ -445,6 +455,58 @@ export function makeCorpusNativeBackend(
     }
     return found;
   };
+
+  const iosSessionAccess =
+    options.platform === "ios"
+      ? makeIosSessionAccess({
+          appState: () =>
+            Promise.resolve({
+              appBundleId: currentCapture().source.app,
+              appName: currentCapture().source.app,
+              device_udid: options.device.udid,
+              platform: "ios" as const,
+              source: "runner" as const,
+              state: "runningForeground" as const,
+              surface: "app" as const,
+            }),
+          open: () => Promise.resolve({}),
+          options: () => ({
+            platform: "ios" as const,
+            requestId: `${sessionId}-req-${captureCount}`,
+            udid: options.device.udid,
+          }),
+          snapshot: (snapshotOptions: CaptureSnapshotOptions) => {
+            const screen = currentCapture();
+            if (
+              screen.nodes[0]?.type === "Alert" &&
+              snapshotOptions.observeOnly === true
+            ) {
+              observeOnlyAlertRefusalCount += 1;
+              return Promise.reject(
+                new AppError(
+                  "OBSERVATION_UNAVAILABLE",
+                  "The session app cannot be observed without activation.",
+                  {
+                    dispatched: "no",
+                    hint: IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
+                    runner: {
+                      error: {
+                        code: "OBSERVATION_UNAVAILABLE",
+                        hint: IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
+                        message:
+                          "The session app cannot be observed without activation.",
+                      },
+                      ok: false,
+                    },
+                    runnerErrorCode: "OBSERVATION_UNAVAILABLE",
+                  }
+                )
+              );
+            }
+            return Promise.resolve(screen);
+          },
+        })
+      : undefined;
 
   const transitionFor = (
     action: "activate" | "fill",
@@ -485,23 +547,30 @@ export function makeCorpusNativeBackend(
   const capture = (
     captureOptions?: NativeCaptureOptions
   ): Effect.Effect<AndroidObservation | IosObservation, PlatformRuntimeError> =>
-    Effect.suspend<
-      AndroidObservation | IosObservation,
-      PlatformRuntimeError,
-      never
-    >(() => {
+    Effect.gen(function* captureCorpus() {
       captureCount += 1;
       if (failUntilRecover || failRemaining > 0) {
         if (failRemaining > 0) {
           failRemaining -= 1;
         }
-        return Effect.fail({
+        return yield* Effect.fail({
           ...runtimeErrorFor(options.platform, "capture_incomplete"),
-          operation: "capture",
+          operation: "capture" as const,
         });
       }
+      let screen: CorpusCapture;
+      if (iosSessionAccess === undefined) {
+        screen = currentCapture();
+      } else {
+        const read = yield* iosSessionAccess.snapshot(
+          currentCapture().source.app
+        );
+        if (Option.isNone(read)) {
+          return yield* Effect.fail(iosForegroundUnknown());
+        }
+        screen = read.value;
+      }
       generation += 1;
-      const screen = currentCapture();
       const nodes = mapNodes(options.platform, screen, generation);
       activeNodes = new Map(
         nodes.flatMap((node) =>
@@ -550,7 +619,7 @@ export function makeCorpusNativeBackend(
           platform: "android",
           screenshot,
         };
-        return Effect.succeed(observation);
+        return observation;
       }
       const observation: IosObservation = {
         appId: screen.source.app,
@@ -563,7 +632,7 @@ export function makeCorpusNativeBackend(
         platform: "ios",
         screenshot,
       };
-      return Effect.succeed(observation);
+      return observation;
     });
 
   const activate = (target: string) =>
@@ -688,6 +757,7 @@ export function makeCorpusNativeBackend(
         }
       }
     },
+    observeOnlyAlertRefusals: () => observeOnlyAlertRefusalCount,
     recoveries: () => recoveryCount,
     reset: () => {
       currentId = options.script.start;
