@@ -3,9 +3,19 @@ import { Effect } from "effect";
 
 import {
   createIosRun,
+  iosCapabilities,
   iosRunDecisions,
+  iosRuntimeError,
+  iosSystemKeys,
 } from "../../src/services/ios-runtime.ts";
 import type { IosRunInput } from "../../src/services/ios-runtime.ts";
+import { nativeAppActionPolicy } from "../../src/services/native-app-action-policy.ts";
+import { adaptNativeAppRuntime } from "../../src/services/native-app-runtime.ts";
+import {
+  IOS_WIDGET_SCRIPT,
+  corpusIosSimulator,
+  makeCorpusNativeBackend,
+} from "../helpers/corpus-native-device.ts";
 
 const environment = {
   build: "1",
@@ -131,6 +141,56 @@ it.effect(
           { installedBuild: "3", kind: "app-installation" },
         ]);
         expect(lookups).toBe(2);
+      })
+    )
+);
+
+it.effect(
+  "restarts the prepared Target App through the injected restart dependency",
+  () =>
+    Effect.scoped(
+      Effect.gen(function* restartTargetApp() {
+        const input: IosRunInput = {
+          ...request(yield* Effect.scope),
+          device: corpusIosSimulator,
+          setup: { conditions: [], kind: "restart-app" },
+        };
+        const fake = makeCorpusNativeBackend({
+          device: corpusIosSimulator,
+          platform: "ios",
+          script: IOS_WIDGET_SCRIPT,
+        });
+        const restarts: IosRunInput[] = [];
+        const run = yield* createIosRun(input, {
+          installedBuild: () => Effect.succeed("1"),
+          preflight: () => Effect.void,
+          restart: (restarted) =>
+            Effect.sync(() => {
+              restarts.push(restarted);
+            }),
+          start: (startup) =>
+            adaptNativeAppRuntime({
+              backend: fake.backend,
+              capabilities: iosCapabilities,
+              error: iosRuntimeError,
+              policy: nativeAppActionPolicy(iosRuntimeError, iosSystemKeys),
+              startup,
+            }),
+        });
+
+        const beforePrepare = yield* Effect.flip(run.restart());
+        expect(beforePrepare.code).toBe("preparation_required");
+        expect(restarts).toEqual([]);
+
+        yield* run.prepare();
+        const restarted = yield* run.restart();
+        expect(restarted.platform).toBe("ios");
+        expect(restarts).toHaveLength(1);
+        expect(restarts[0]).toMatchObject({
+          device: { udid: corpusIosSimulator.udid },
+          setup: { conditions: [], kind: "restart-app" },
+          targetApp: environment.bundleId,
+        });
       })
     )
 );
