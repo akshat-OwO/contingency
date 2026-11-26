@@ -1,5 +1,5 @@
 name: Install ffmpeg
-description: Install ffmpeg from cached Ubuntu packages, bounding a slow mirror
+description: Install ffmpeg from cached Ubuntu packages, refreshing a stale index and bounding a slow mirror
 runs:
   using: composite
   steps:
@@ -18,9 +18,14 @@ runs:
         path: ~/.cache/apt-ffmpeg
         key: ${{ steps.key.outputs.key }}
 
-    # Skip apt-get update: the runner's cached Ubuntu index is enough for
-    # ffmpeg, and update also refreshes Google's Chrome repo, which has
-    # intermittently failed with hash-sum mismatches and blocked CI.
+    # Refresh only Ubuntu's own index. The runner image's cached index can name
+    # package versions the archive has since replaced (libpipewire 404ed for
+    # every mirror), and retrying a download against that index never succeeds.
+    # A plain `apt-get update` also refreshes Google's Chrome repo, which has
+    # intermittently failed with hash-sum mismatches and blocked CI, so the
+    # refresh reads Ubuntu's sources alone and keeps the other lists as they are.
+    # Each attempt refreshes again, because a mirror can lag the pool it
+    # indexes. A failed refresh only warns: the old index may still work.
     # Only the download is bounded and retried, never dpkg itself. Each attempt
     # keeps its partial files, so a retry resumes rather than restarts.
     - name: Install ffmpeg packages
@@ -28,8 +33,18 @@ runs:
       run: |
         archives="$HOME/.cache/apt-ffmpeg"
         mkdir -p "$archives/partial"
+        ubuntu_sources="$(mktemp -d)"
+        if [ -e /etc/apt/sources.list.d/ubuntu.sources ]; then
+          ln -s /etc/apt/sources.list.d/ubuntu.sources "$ubuntu_sources/"
+        fi
+        refresh=(sudo apt-get -y
+          -o Dir::Etc::sourcelist=/etc/apt/sources.list
+          -o Dir::Etc::sourceparts="$ubuntu_sources"
+          -o APT::Get::List-Cleanup=0
+          update)
         apt=(sudo apt-get -y -o Dir::Cache::Archives="$archives")
         for attempt in 1 2 3; do
+          timeout 120 "${refresh[@]}" || echo "::warning::apt index refresh $attempt did not finish"
           if timeout 180 "${apt[@]}" install --download-only ffmpeg; then
             "${apt[@]}" install ffmpeg
             sudo chown -R "$(id -u):$(id -g)" "$archives"
