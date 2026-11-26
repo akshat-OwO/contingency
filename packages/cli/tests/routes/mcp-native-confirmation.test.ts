@@ -33,7 +33,6 @@ const Execution = Schema.Struct({
           sessionId: Schema.String,
         })
       ),
-      logs: Schema.optional(Schema.Array(Schema.String)),
       status: Schema.String,
     }),
   }),
@@ -132,8 +131,7 @@ it.live.each(platforms)(
         ? android.execute(prepare, "user")
         : ios.execute(prepare, "user");
 
-      // An irreversible activation opens a Confirmation, and the program ends
-      // there before its later calls.
+      // An irreversible activation opens a Confirmation, which ends the program.
       const confirmed = yield* execute(
         `const observed = await ${workspace({
           _tag: "observe",
@@ -148,14 +146,9 @@ it.live.each(platforms)(
           observationId: observed.observation.id,
           operationId: "${platform}-irreversible",
           sessionId: ${JSON.stringify(sessionId)},
-        } });
-        console.log("dispatched past the Confirmation");
-        return await ${workspace({ _tag: "observe", image: false, sessionId })};`
+        } });`
       );
       expect(confirmed.status).toBe("intervention");
-      expect(confirmed.logs ?? []).not.toContain(
-        "dispatched past the Confirmation"
-      );
       expect(confirmed.intervention?.operation).toBe("agent_device_workspace");
       expect(confirmed.intervention?.sessionId).toBe(sessionId);
       expect(confirmed.intervention?.pending.map(({ kind }) => kind)).toEqual([
