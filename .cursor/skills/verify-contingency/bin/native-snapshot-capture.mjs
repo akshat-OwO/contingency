@@ -8,15 +8,18 @@
 //
 // iOS creates, boots, and deletes one proof-owned simulator by exact UDID.
 // Android boots one proof-owned emulator instance with -no-snapshot-save and
-// kills only that instance. Both refuse to touch an existing device.
+// stops only that instance, by its own PID and serial, on every exit path
+// including a failed boot wait and SIGINT, SIGTERM, or SIGHUP. Both refuse to
+// touch an existing device.
 import assert from "node:assert/strict";
-import { execFile, spawn } from "node:child_process";
-import { once } from "node:events";
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+
+import { startEmulator } from "./native-capture-emulator.mjs";
 
 const execute = promisify(execFile);
 const root = path.resolve(import.meta.dirname, "../../../..");
@@ -40,6 +43,17 @@ const out = path.join(
 const scratch = await mkdtemp(
   path.join(os.tmpdir(), `native-capture-${platform}-`)
 );
+const cleanups = [];
+for (const [name, code] of [
+  ["SIGHUP", 129],
+  ["SIGINT", 130],
+  ["SIGTERM", 143],
+]) {
+  process.once(name, async () => {
+    await Promise.allSettled(cleanups.map((cleanup) => cleanup()));
+    process.exit(code);
+  });
+}
 const ledger = { platform, resources: [], started: new Date().toISOString() };
 const evidence = path.join(skill, "artifacts/native-snapshots", platform);
 await mkdir(out, { recursive: true });
@@ -247,52 +261,22 @@ const adb = path.join(sdk, "platform-tools/adb");
 const androidSetup = async () => {
   const avd = flag("avd", "Pixel_9");
   const port = Number(flag("port", "5584"));
-  const serial = `emulator-${port}`;
-  const { stdout: devices } = await execute(adb, ["devices"]);
-  assert.ok(
-    !devices.includes(serial),
-    `${serial} already exists; pass another --port`
-  );
-  const emulator = spawn(
-    path.join(sdk, "emulator/emulator"),
-    [
-      "-avd",
-      avd,
-      "-port",
-      String(port),
-      "-no-snapshot-save",
-      "-no-boot-anim",
-      "-no-audio",
-      "-no-window",
-      "-read-only",
-    ],
-    { stdio: "ignore" }
-  );
-  ledger.resources.push({ kind: "emulator", pid: emulator.pid, serial });
-  await execute(adb, ["-s", serial, "wait-for-device"], { timeout: 600_000 });
-  // Boot completion is a device property, so this waits on the device's own signal.
-  await execute(
+  const { cleanup, pid, serial } = await startEmulator({
     adb,
-    [
-      "-s",
-      serial,
-      "shell",
-      'while [ "$(getprop sys.boot_completed)" != 1 ]; do sleep 1; done',
-    ],
-    { timeout: 600_000 }
-  );
-  const apk = flag("apk");
-  if (apk !== undefined) {
-    await execute(adb, ["-s", serial, "install", "-r", apk]);
-  }
+    apk: flag("apk"),
+    avd,
+    emulatorBinary: path.join(sdk, "emulator/emulator"),
+    execute,
+    port,
+    track: (stop) => cleanups.push(stop),
+  });
+  const resource = { kind: "emulator", pid, serial };
+  ledger.resources.push(resource);
   selection = { platform: "android", serial };
   return {
     cleanup: async () => {
-      await execute(adb, ["-s", serial, "emu", "kill"]).catch(() => null);
-      if (emulator.exitCode === null) {
-        await once(emulator, "exit");
-      }
-      ledger.resources.find((entry) => entry.serial === serial).stopped = true;
+      await cleanup();
+      resource.stopped = true;
     },
     device: { avd },
   };
