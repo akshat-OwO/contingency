@@ -164,30 +164,60 @@ export const iosCaptureFailure = (
 export const IOS_HANDOFF_READINGS = 20;
 export const IOS_HANDOFF_SPACING = "250 millis";
 
+/** The bound app's state as the runner reports it, or unverified without live runner evidence. */
+export type IosHandoffState = "front" | "left" | "unverified";
+
+/** Read the runner's live app state; session metadata alone proves nothing. */
+export const iosHandoffState = (state: IosSessionAppState): IosHandoffState => {
+  if (
+    state.platform !== "ios" ||
+    state.source !== "runner" ||
+    state.state === undefined
+  ) {
+    return "unverified";
+  }
+  return state.state === "runningForeground" ? "front" : "left";
+};
+
 /**
  * The runner refused the bound app because it is handing off the foreground.
  * Reading its tree again through XCTest can hold the runner for a minute, and
  * binding another app activates it, so wait on its app state instead. Once it
  * leaves the front, follow a clear guess, or none to report the foreground
- * unknown. A handoff that outlasts the readings once is read again, since an
- * alert being dismissed looks the same; one that outlasts them twice is the
- * App Switcher or Home, so follow the app in front or Springboard.
+ * unknown. A handoff the runner keeps verifying in front is read again once,
+ * since an alert being dismissed looks the same; a second one in a row is the
+ * App Switcher or Home, so follow the app in front or Springboard. A window
+ * that ends without live runner evidence is only read again.
  */
 export const followIosHandoff = <E>(input: {
-  readonly inFront: Effect.Effect<boolean, E>;
+  readonly state: Effect.Effect<IosHandoffState, E>;
   readonly guess: Effect.Effect<string | null, E>;
   readonly guessNow: Effect.Effect<string | null, E>;
-  readonly repeated: boolean;
+  readonly repeated: Ref.Ref<boolean>;
 }): Effect.Effect<ForegroundStep<never> | null, E | PlatformRuntimeError> =>
   Effect.gen(function* followHandoff() {
+    let last: IosHandoffState = "unverified";
     for (let reading = 0; reading < IOS_HANDOFF_READINGS; reading += 1) {
-      if (!(yield* input.inFront)) {
+      last = yield* input.state;
+      if (last === "left") {
+        yield* Ref.set(input.repeated, false);
         const front = yield* input.guess;
         return front === null ? null : followStep(front);
       }
       yield* Effect.sleep(IOS_HANDOFF_SPACING);
     }
-    if (input.repeated) {
+    if (last === "unverified") {
+      yield* Ref.set(input.repeated, false);
+      return yield* Effect.fail(
+        iosCaptureFailure(
+          "observation_stale",
+          "session-check",
+          "app-state-unverified"
+        )
+      );
+    }
+    if (yield* Ref.getAndSet(input.repeated, true)) {
+      yield* Ref.set(input.repeated, false);
       return followStep((yield* input.guessNow) ?? SPRINGBOARD);
     }
     return yield* Effect.fail(
@@ -1248,29 +1278,19 @@ const startIosRuntime = (
             return followStep(front);
           }
           if (read.value._tag === "handoff") {
-            const repeated = yield* Ref.getAndSet(handedOff, true);
             const front = yield* followIosHandoff({
               guess: guess(app),
               guessNow: guess.now(app),
-              inFront: io(
+              repeated: handedOff,
+              state: io(
                 (signal) => client.command.appState({ ...options(), signal }),
                 "session-check"
-              ).pipe(
-                Effect.map(
-                  (state) =>
-                    state.platform !== "ios" ||
-                    state.source !== "runner" ||
-                    state.state === undefined ||
-                    state.state === "runningForeground"
-                )
-              ),
-              repeated,
+              ).pipe(Effect.map(iosHandoffState)),
             });
             if (front === null) {
               yield* Ref.set(lost, true);
               return yield* Effect.fail(iosForegroundUnknown());
             }
-            yield* Ref.set(handedOff, false);
             return front;
           }
           yield* Ref.set(handedOff, false);

@@ -1,6 +1,6 @@
 import { expect, it } from "@effect/vitest";
 import { AppError } from "agent-device";
-import { Effect, Fiber, Logger, Option, Result } from "effect";
+import { Effect, Fiber, Logger, Option, Ref, Result } from "effect";
 import { TestClock } from "effect/testing";
 
 import { SPRINGBOARD } from "../../src/services/ios-foreground.ts";
@@ -11,6 +11,7 @@ import {
   canSkipIosAlertScreenshot,
   canSkipIosScreenshot,
   followIosHandoff,
+  iosHandoffState,
   iosAlertActivateFailure,
   iosAlertNodes,
   isIosForegroundHandoffObservationUnavailable,
@@ -28,6 +29,7 @@ import {
   observeIosPostAction,
   settleIosCapture,
 } from "../../src/services/ios-runtime.ts";
+import type { IosHandoffState } from "../../src/services/ios-runtime.ts";
 import type { PlatformRuntimeError } from "../../src/services/platform-runtime.ts";
 
 const sequence = (
@@ -565,40 +567,69 @@ it.effect(
 );
 
 const handoff = (input: {
-  readonly leavesAfter: number | null;
+  readonly states: readonly IosHandoffState[];
   readonly guess: string | null;
   readonly guessNow: string | null;
   readonly repeated: boolean;
-}) => {
-  let readings = 0;
-  return followIosHandoff({
-    guess: Effect.succeed(input.guess),
-    guessNow: Effect.succeed(input.guessNow),
-    inFront: Effect.sync(() => {
-      readings += 1;
-      return input.leavesAfter === null || readings <= input.leavesAfter;
-    }),
-    repeated: input.repeated,
-  }).pipe(
-    Effect.result,
-    Effect.map((result) => ({ readings, result }))
-  );
+}) =>
+  Effect.gen(function* runHandoff() {
+    const repeated = yield* Ref.make(input.repeated);
+    let readings = 0;
+    const fiber = yield* Effect.forkChild(
+      followIosHandoff({
+        guess: Effect.succeed(input.guess),
+        guessNow: Effect.succeed(input.guessNow),
+        repeated,
+        state: Effect.sync(() => {
+          const state =
+            input.states[Math.min(readings, input.states.length - 1)] ??
+            "unverified";
+          readings += 1;
+          return state;
+        }),
+      }).pipe(Effect.result)
+    );
+    yield* TestClock.adjust("10 seconds");
+    const result = yield* Fiber.join(fiber);
+    return { readings, repeated: yield* Ref.get(repeated), result };
+  });
+
+const appState = (
+  source: "runner" | "session",
+  state?: "runningForeground" | "runningBackground"
+) => {
+  const read = {
+    appBundleId: "dev.contingency.ioslogin",
+    appName: "dev.contingency.ioslogin",
+    device_udid: "session-simulator",
+    platform: "ios" as const,
+    source,
+    surface: "app" as const,
+  };
+  return state === undefined ? read : { ...read, state };
 };
+
+it("reads only the runner's live app state as proof of a handoff's progress", () => {
+  expect(iosHandoffState(appState("runner", "runningForeground"))).toBe(
+    "front"
+  );
+  expect(iosHandoffState(appState("runner", "runningBackground"))).toBe("left");
+  expect(iosHandoffState(appState("runner"))).toBe("unverified");
+  expect(iosHandoffState(appState("session", "runningForeground"))).toBe(
+    "unverified"
+  );
+});
 
 it.effect(
   "follows the guessed app once a handing-off app leaves the front",
   () =>
     Effect.gen(function* followsAfterLeaving() {
-      const fiber = yield* Effect.forkChild(
-        handoff({
-          guess: "com.apple.Preferences",
-          guessNow: null,
-          leavesAfter: 3,
-          repeated: false,
-        })
-      );
-      yield* TestClock.adjust("1 second");
-      const { readings, result } = yield* Fiber.join(fiber);
+      const { readings, result } = yield* handoff({
+        guess: "com.apple.Preferences",
+        guessNow: null,
+        repeated: false,
+        states: ["front", "front", "front", "left"],
+      });
       expect(readings).toBe(4);
       expect(result).toStrictEqual(
         Result.succeed({ _tag: "follow", app: "com.apple.Preferences" })
@@ -613,8 +644,8 @@ it.effect(
       const { result } = yield* handoff({
         guess: null,
         guessNow: "com.apple.Preferences",
-        leavesAfter: 0,
         repeated: false,
+        states: ["left"],
       });
       expect(result).toStrictEqual(Result.succeed(null));
     })
@@ -624,17 +655,14 @@ it.effect(
   "reads the bound app again when it stays in front, as while an alert is dismissed, without following any app",
   () =>
     Effect.gen(function* rereadsAfterAlert() {
-      const fiber = yield* Effect.forkChild(
-        handoff({
-          guess: "com.apple.Preferences",
-          guessNow: "com.apple.Preferences",
-          leavesAfter: null,
-          repeated: false,
-        })
-      );
-      yield* TestClock.adjust("10 seconds");
-      const { readings, result } = yield* Fiber.join(fiber);
+      const { readings, repeated, result } = yield* handoff({
+        guess: "com.apple.Preferences",
+        guessNow: "com.apple.Preferences",
+        repeated: false,
+        states: ["front"],
+      });
       expect(readings).toBe(IOS_HANDOFF_READINGS);
+      expect(repeated).toBe(true);
       expect(result).toStrictEqual(
         Result.fail(
           iosCaptureFailure(
@@ -648,21 +676,41 @@ it.effect(
 );
 
 it.effect(
-  "follows Springboard when a handoff outlasts its readings twice and no other app is in front, as in the App Switcher",
+  "follows Springboard when the runner keeps a handoff in front twice and no other app is in front, as in the App Switcher",
   () =>
     Effect.gen(function* followsSpringboard() {
-      const fiber = yield* Effect.forkChild(
-        handoff({
-          guess: null,
-          guessNow: null,
-          leavesAfter: null,
-          repeated: true,
-        })
-      );
-      yield* TestClock.adjust("10 seconds");
-      const { result } = yield* Fiber.join(fiber);
+      const { repeated, result } = yield* handoff({
+        guess: null,
+        guessNow: null,
+        repeated: true,
+        states: ["front"],
+      });
+      expect(repeated).toBe(false);
       expect(result).toStrictEqual(
         Result.succeed({ _tag: "follow", app: SPRINGBOARD })
+      );
+    })
+);
+
+it.effect(
+  "never follows an app on a second handoff whose readings carry only session metadata",
+  () =>
+    Effect.gen(function* unverifiedHandoff() {
+      const { repeated, result } = yield* handoff({
+        guess: null,
+        guessNow: null,
+        repeated: true,
+        states: ["unverified"],
+      });
+      expect(repeated).toBe(false);
+      expect(result).toStrictEqual(
+        Result.fail(
+          iosCaptureFailure(
+            "observation_stale",
+            "session-check",
+            "app-state-unverified"
+          )
+        )
       );
     })
 );
