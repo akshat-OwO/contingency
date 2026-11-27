@@ -68,9 +68,9 @@ export const performNativeAppFill = (
         error.backendReason === "android_text_input_unverified" ||
         error.backendReason === "input_unverified" ||
         error.backendReason === "text_entry_mismatch",
-      (error) =>
+      (failure) =>
         Effect.logDebug("Fill entered without a matching read-back").pipe(
-          Effect.annotateLogs({ backendReason: error.backendReason }),
+          Effect.annotateLogs({ backendReason: failure.backendReason }),
           Effect.as({
             confirmation: "unconfirmed" as const,
             outcome: "entered" as const,
