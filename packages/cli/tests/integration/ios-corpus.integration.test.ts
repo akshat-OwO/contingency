@@ -6,6 +6,7 @@ import {
 } from "@contingency/protocol";
 import type { NativeInput } from "@contingency/protocol";
 import { expect } from "@effect/vitest";
+import { AppError } from "agent-device";
 import { Effect, FileSystem, Schema } from "effect";
 
 import { IosWorkspace } from "../../src/services/ios-workspace.ts";
@@ -611,6 +612,319 @@ journey(
         recordingId,
       });
       expect(verified.lifecycle).toBe("verified");
+    }).pipe(
+      Effect.provide(
+        scriptedProcess(root, {
+          iosWorkspace: makeCorpusIosWorkspaceLayer({
+            device,
+            root: () => root,
+          }),
+        })
+      ),
+      Effect.scoped
+    );
+  })
+);
+
+journey(
+  "keeps an iOS Dry Run going when a fill reads back mismatched (dropped characters)",
+  { singleTool: true },
+  Effect.gen(function* iosFillMismatchJourney() {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped({
+      prefix: "contingency-ios-fill-mismatch-",
+    });
+    const selection = corpusIosSelection({
+      conditions: [{ name: "Show alert", role: "button" }],
+      outcomes: [{ name: "Remove", role: "button" }],
+    });
+    const device = makeCorpusNativeBackend({
+      device: corpusIosSimulator,
+      platform: "ios",
+      script: IOS_WIDGET_SCRIPT,
+    });
+    const flowName = FlowName.make("ios-fill-mismatch");
+
+    yield* Effect.gen(function* runIosFillMismatchJourney() {
+      const workspace = yield* IosWorkspace;
+      const started = yield* workspace.execute(
+        {
+          _tag: "start",
+          flowName,
+          kind: "teaching",
+          operationId: op("ios-mismatch-teach-start"),
+          recordingId: null,
+          selection,
+        },
+        "user"
+      );
+      yield* workspace.execute(
+        {
+          _tag: "prepare",
+          operationId: op("ios-mismatch-teach-prepare"),
+          sessionId: started.id,
+        },
+        "user"
+      );
+      yield* workspace.execute(
+        {
+          _tag: "record",
+          operationId: op("ios-mismatch-teach-record"),
+          sessionId: started.id,
+          start: true,
+        },
+        "user"
+      );
+      yield* workspace.forward(
+        {
+          inputs: tap(
+            device.controlCenter("controls", {
+              name: "Show alert",
+              role: "button",
+            })
+          ),
+          sessionId: started.id,
+        },
+        "user"
+      );
+      const stopped = yield* workspace.execute(
+        {
+          _tag: "record",
+          operationId: op("ios-mismatch-teach-stop"),
+          sessionId: started.id,
+          start: false,
+        },
+        "user"
+      );
+      yield* workspace.execute(
+        {
+          _tag: "close",
+          operationId: op("ios-mismatch-teach-close"),
+          sessionId: started.id,
+        },
+        "user"
+      );
+      const { recordingId } = stopped;
+      if (recordingId === null) {
+        return yield* Effect.die("Teaching must produce a recording.");
+      }
+      const claimOp = op("ios-mismatch-claim");
+      yield* call("agent_teaching_recording_claim", {
+        action: "take",
+        operationId: claimOp,
+        recordingId,
+      });
+      yield* call("agent_flow_save", {
+        claimOperationId: claimOp,
+        files: [
+          {
+            content: [
+              "---",
+              `name: ${flowName}`,
+              "description: Enter an email, then open the remove alert on iOS.",
+              "inputs:",
+              "---",
+              "",
+              "# Open alert",
+              "",
+              "1. Activate button Show alert. Done when: Remove is visible.",
+              "",
+            ].join("\n"),
+            path: "flow.md",
+          },
+        ],
+        nativeConditions: {
+          outcomes: [{ name: "Remove", role: "button" }],
+          starting: [{ name: "Show alert", role: "button" }],
+        },
+        recordingId,
+      });
+
+      const startIntervention = yield* Effect.flip(
+        call("agent_device_workspace", {
+          command: {
+            _tag: "start",
+            flowName,
+            kind: "dry-run",
+            operationId: op("ios-mismatch-dry-start"),
+            recordingId,
+            selection,
+          },
+          platform: "ios",
+        })
+      );
+      const dryRunSessionId = AgentSessionId.make(
+        startIntervention.intervention?.sessionId ?? ""
+      );
+      yield* workspace.execute(
+        {
+          _tag: "prepare",
+          operationId: op("ios-mismatch-dry-prepare"),
+          sessionId: dryRunSessionId,
+        },
+        "user"
+      );
+      const initial = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: { _tag: "read", sessionId: dryRunSessionId },
+          platform: "ios",
+        })
+      );
+      const email = initial.observation?.nodes.find(
+        (node) => node.name === "Email"
+      );
+      if (email === undefined) {
+        return yield* Effect.die("The controls screen must show Email.");
+      }
+
+      // The runner typed the text, but a keystroke was lost under load.
+      device.rejectNextFill(
+        new AppError("TEXT_ENTRY_MISMATCH", "read-back did not match", {
+          runnerErrorCode: "TEXT_ENTRY_MISMATCH",
+        })
+      );
+      const afterFill = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "input",
+            action: {
+              _tag: "fill",
+              target: email.target,
+              text: "Test Shopper",
+            },
+            observationId: observationIdOf(initial),
+            operationId: op("ios-mismatch-dry-fill"),
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(device.fills()).toBe(1);
+      expect(afterFill.phase).toBe("running");
+      expect(afterFill.inputConfirmation).toBe("unconfirmed");
+      expect(afterFill.failureReference ?? null).toBeNull();
+      expect(afterFill.captureGaps).toEqual([]);
+
+      // The answer says the entry is unconfirmed, so the agent fills again from the fresh observation.
+      const refilled = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "input",
+            action: {
+              _tag: "fill",
+              target: findIosNode(afterFill, email.role, "Email").target,
+              text: "Test Shopper",
+            },
+            observationId: observationIdOf(afterFill),
+            operationId: op("ios-mismatch-dry-refill"),
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(device.fills()).toBe(2);
+      expect(refilled.phase).toBe("running");
+      expect(refilled.inputConfirmation).toBe("confirmed");
+
+      // A fill still awaiting Confirmation entered nothing, so its answer
+      // carries no status, not the previous fill's.
+      const pending = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "input",
+            action: {
+              _tag: "fill",
+              target: findIosNode(refilled, email.role, "Email").target,
+              text: "Test Shopper",
+            },
+            irreversible: true,
+            observationId: observationIdOf(refilled),
+            operationId: op("ios-mismatch-dry-pending-fill"),
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(device.fills()).toBe(2);
+      expect(pending.inputConfirmation).toBeUndefined();
+      yield* call("agent_device_workspace", {
+        command: {
+          _tag: "decide",
+          allow: false,
+          decisionId: pendingDecisionIdOf(pending),
+          operationId: op("ios-mismatch-dry-pending-refuse"),
+          sessionId: dryRunSessionId,
+        },
+        platform: "ios",
+      });
+
+      // Replaying the mismatched fill answers for that attempt, not the later one.
+      const replayed = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "input",
+            action: {
+              _tag: "fill",
+              target: email.target,
+              text: "Test Shopper",
+            },
+            observationId: observationIdOf(initial),
+            operationId: op("ios-mismatch-dry-fill"),
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(device.fills()).toBe(2);
+      expect(replayed.inputConfirmation).toBe("unconfirmed");
+      const fresh = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "observe",
+            image: false,
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(fresh.inputConfirmation).toBeUndefined();
+
+      const afterAlert = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "input",
+            action: {
+              _tag: "activate",
+              target: findIosNode(fresh, "button", "Show alert").target,
+            },
+            observationId: observationIdOf(fresh),
+            operationId: op("ios-mismatch-dry-alert"),
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(afterAlert.inputConfirmation).toBeUndefined();
+      const completed = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "complete",
+            assessment: {
+              explanation: "The email was refilled and the iOS alert opened.",
+              observationId: observationIdOf(afterAlert),
+              outcome: "working",
+            },
+            operationId: op("ios-mismatch-dry-complete"),
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(completed.phase).toBe("completed");
+      const listed = yield* call("agent_teaching_recordings_list", {
+        recordingId,
+      });
+      expect(listed.recordings[0]?.lifecycle).toBe("dry-run-passed");
     }).pipe(
       Effect.provide(
         scriptedProcess(root, {

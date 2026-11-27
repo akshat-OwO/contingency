@@ -76,6 +76,7 @@ import type { IosDeviceStream } from "./ios-stream.ts";
 import { recordCaptureGap, recordCaptureRepair } from "./metrics.ts";
 import { NativeAgentTouches } from "./native-agent-touch.ts";
 import { checkNativeAppConfirmation } from "./native-app-confirmation.ts";
+import { answerInput } from "./native-app-fill.ts";
 import { relayedDecisionAllowed } from "./native-app-run.ts";
 import { makeNativeAppTeachingCapture } from "./native-app-teaching-capture.ts";
 import {
@@ -2178,6 +2179,7 @@ export const makeIosWorkspaceLayer = (options: {
             );
             yield* keyframe(session, after, actionId);
           }
+          return fillResult?.confirmation;
         });
       /**
        * Changes the simulator's Emulation for the controller. While
@@ -2500,13 +2502,17 @@ export const makeIosWorkspaceLayer = (options: {
                 );
               const attempt = state(session).pendingInput;
               update(session, (value) => ({ ...value, pendingInput: null }));
-              if (command.allow && attempt !== null) {
-                yield* session.video.action(
-                  inputWorkspace(session, attempt, "agent", undefined, true)
-                );
-              }
+              const confirmation =
+                command.allow && attempt !== null
+                  ? yield* session.video.action(
+                      inputWorkspace(session, attempt, "agent", undefined, true)
+                    )
+                  : undefined;
               yield* persist(session);
-              return yield* snapshot(session, source === "user");
+              return answerInput(
+                yield* snapshot(session, source === "user"),
+                confirmation
+              );
             }
             if (
               source !== "user" &&
@@ -2759,9 +2765,14 @@ export const makeIosWorkspaceLayer = (options: {
             }));
           } else if (command._tag === "input") {
             // An agent action plays at real speed in the condensed video.
-            yield* source === "agent"
+            const confirmation = yield* source === "agent"
               ? session.video.action(inputWorkspace(session, command, source))
               : inputWorkspace(session, command, source);
+            yield* persist(session);
+            return answerInput(
+              yield* snapshot(session, source === "user"),
+              confirmation
+            );
           } else if (command._tag === "complete") {
             yield* completeWorkspace(session, command, source);
           }
@@ -2877,9 +2888,15 @@ export const makeIosWorkspaceLayer = (options: {
                       "This operationId already names another iOS attempt."
                     );
                   }
-                  return yield* Result.isSuccess(receipt.result)
-                    ? snapshot(session)
-                    : Effect.fail(receipt.result.failure);
+                  // A replay observes afresh but answers for its own attempt.
+                  if (Result.isFailure(receipt.result)) {
+                    return yield* Effect.fail(receipt.result.failure);
+                  }
+                  const { inputConfirmation } = receipt.result.success;
+                  return answerInput(
+                    yield* snapshot(session),
+                    inputConfirmation
+                  );
                 }
                 if (operationId !== null) {
                   session.receipts.set(operationId, {

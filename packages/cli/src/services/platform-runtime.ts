@@ -101,7 +101,8 @@ export interface PlatformRuntimeError {
     | "device_not_found"
     | "request_canceled"
     | "android_text_input_unverified"
-    | "input_unverified";
+    | "input_unverified"
+    | "text_entry_mismatch";
   readonly code:
     | "host_unsupported"
     | "xcode_missing"
