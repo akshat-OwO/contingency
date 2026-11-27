@@ -231,20 +231,31 @@ const uncoveredPoint = (
 /**
  * The point to tap for a switch or stepper button whose reported frame is wider
  * than the control UIKit draws, or for a node a peer partly covers, in
- * snapshot points. Every other node, and a control whose frame fits it, keeps
+ * snapshot points, and the node whose frame holds it (`index`), which the tap
+ * targets by ref. A stretched stepper's buttons split its row in half, so the
+ * drawn increment lies in the decrement's frame and is tapped through that
+ * button's ref; agent-device refuses the stepper's own ref because its buttons
+ * cover it. Every other node, and a control whose frame fits it, keeps
  * agent-device's frame-center tap (null).
  */
 export const iosActivationPoint = (
   nodes: readonly ActivatedNode[],
   target: ActivatedNode
-): { readonly x: number; readonly y: number } | null => {
+): {
+  readonly index: number;
+  readonly x: number;
+  readonly y: number;
+} | null => {
   const { rect } = target;
   if (rect === undefined) {
     return null;
   }
   if (target.kind === "switch") {
     return rect.width > SWITCH.fits
-      ? leadingPoint(rect, SWITCH.drawn, SWITCH.drawn.width / 2)
+      ? {
+          index: target.index,
+          ...leadingPoint(rect, SWITCH.drawn, SWITCH.drawn.width / 2),
+        }
       : null;
   }
   const stepper = nodes.find((node) => node.index === target.parentIndex);
@@ -254,7 +265,8 @@ export const iosActivationPoint = (
     stepper.rect === undefined ||
     stepper.rect.width <= STEPPER.fits
   ) {
-    return uncoveredPoint(nodes, target, rect);
+    const point = uncoveredPoint(nodes, target, rect);
+    return point === null ? null : { index: target.index, ...point };
   }
   const buttons = nodes.filter(
     (node) => node.parentIndex === stepper.index && node.kind === "button"
@@ -263,9 +275,55 @@ export const iosActivationPoint = (
     target.identifier === "Increment" ||
     (target.identifier !== "Decrement" && buttons.at(-1) === target);
   // Each half of the stepper is one button: decrement leading, increment trailing.
-  return leadingPoint(
+  const point = leadingPoint(
     stepper.rect,
     STEPPER.drawn,
     (STEPPER.drawn.width / 4) * (increment ? 3 : 1)
   );
+  const holder = buttons.find(
+    (button) => button.rect !== undefined && contains(button.rect, point)
+  );
+  return { index: (holder ?? target).index, ...point };
 };
+
+/**
+ * A ref click at a point inside the ref's frame. agent-device refuses a stale
+ * ref, and a point outside the ref's frame, before it dispatches the tap.
+ */
+export interface IosActivationClick {
+  readonly ref: string;
+  readonly point: { readonly x: number; readonly y: number };
+}
+
+/**
+ * The ref click that activates each target {@link iosActivationPoint} moves
+ * off its frame's center, by target. `target` mints a node's target from its
+ * ref, or "" for a node without one.
+ */
+export const iosActivationClicks = (
+  nodes: readonly (ActivatedNode & { readonly ref?: string })[],
+  target: (ref: string | undefined) => string
+): ReadonlyMap<string, IosActivationClick> => {
+  const refs = new Map(nodes.map((node) => [node.index, target(node.ref)]));
+  return new Map(
+    nodes.flatMap((node) => {
+      const own = target(node.ref);
+      const point = own === "" ? null : iosActivationPoint(nodes, node);
+      const ref = point === null ? "" : (refs.get(point.index) ?? "");
+      return point === null || ref === ""
+        ? []
+        : [[own, { point: { x: point.x, y: point.y }, ref }]];
+    })
+  );
+};
+
+/**
+ * What iOS activate passes to agent-device's `click` for `target`: a ref click
+ * at the point UIKit draws the control when {@link iosActivationClicks} moved
+ * it, otherwise the plain ref, which agent-device taps at its frame's center.
+ */
+export const iosActivationRequest = (
+  clicks: ReadonlyMap<string, IosActivationClick>,
+  target: string
+): { readonly ref: string; readonly point?: IosActivationClick["point"] } =>
+  clicks.get(target) ?? { ref: target };

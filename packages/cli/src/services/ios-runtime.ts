@@ -14,6 +14,7 @@ import type {
   AppOpenOptions,
   AppStateCommandOptions,
   CaptureSnapshotOptions,
+  ClickOptions,
   CommandRequestResult,
 } from "agent-device";
 import {
@@ -47,10 +48,12 @@ import {
 import type { ForegroundStep } from "./ios-foreground.ts";
 import { verifyIosFramebufferRelease } from "./ios-framebuffer-release.ts";
 import {
-  iosActivationPoint,
+  iosActivationClicks,
+  iosActivationRequest,
   iosNodeInteraction,
   iosNodeName,
 } from "./ios-observation.ts";
+import type { IosActivationClick } from "./ios-observation.ts";
 import { makeIosPreparation, restartIosTargetApp } from "./ios-preparation.ts";
 import { iosSimctlHost } from "./ios-simctl.ts";
 import { nativeAppActionPolicy } from "./native-app-action-policy.ts";
@@ -864,6 +867,52 @@ const parseIosPresentedAlert = (
 };
 
 /** Session-bound SDK access shared by Teaching, Dry Runs, and Runs. */
+/**
+ * Activates an observed target: an alert action with `alert press`, anything
+ * else with a ref click, at the point UIKit draws the control when observation
+ * found it away from its frame's center.
+ */
+export const makeIosActivation =
+  <A, B>(input: {
+    readonly alert: (options: AlertCommandOptions) => Promise<A>;
+    readonly click: (options: ClickOptions) => Promise<B>;
+    readonly options: () => {
+      readonly platform: "ios";
+      readonly udid: string;
+      readonly requestId: string;
+    };
+  }) =>
+  (
+    target: string,
+    alerts: ReadonlyMap<string, IosAlertTarget>,
+    clicks: ReadonlyMap<string, IosActivationClick>
+  ): Effect.Effect<void, PlatformRuntimeError> => {
+    const alertTarget = alerts.get(target);
+    if (alertTarget !== undefined) {
+      return tryBackend(
+        (signal) =>
+          input.alert({
+            ...input.options(),
+            action: "press",
+            buttonIndex: alertTarget.buttonIndex,
+            buttonLabel: alertTarget.buttonLabel,
+            expectedMessage: alertTarget.expectedMessage,
+            signal,
+          }),
+        iosAlertActivateFailure
+      ).pipe(Effect.asVoid);
+    }
+    return io(
+      (signal) =>
+        input.click({
+          ...input.options(),
+          ...iosActivationRequest(clicks, target),
+          signal,
+        }),
+      "activate"
+    ).pipe(Effect.asVoid);
+  };
+
 export const makeIosSessionAccess = <A, B>(input: {
   readonly snapshot: (options: CaptureSnapshotOptions) => Promise<A>;
   readonly open: (options: AppOpenOptions) => Promise<B>;
@@ -1091,9 +1140,14 @@ const startIosRuntime = (
       // Set while the last read of the bound app was a handoff still in front.
       const handedOff = yield* Ref.make(false);
       const fillPublic = client.interactions.fill.bind(client.interactions);
-      // Tap points, by target, for controls UIKit draws away from their frame's center.
-      const activationPoints = yield* Ref.make<
-        ReadonlyMap<string, { readonly x: number; readonly y: number }>
+      const activateTarget = makeIosActivation({
+        alert: client.command.alert.bind(client.command),
+        click: client.interactions.click.bind(client.interactions),
+        options,
+      });
+      // Ref clicks at a point, by target, for controls UIKit draws away from their frame's center.
+      const activationClicks = yield* Ref.make<
+        ReadonlyMap<string, IosActivationClick>
       >(new Map());
       const captureAlertObservation = (
         step: IosCaptureStep,
@@ -1231,7 +1285,7 @@ const startIosRuntime = (
           }
           alertGeneration += 1;
           const built = iosAlertNodes(alert, app, alertGeneration, scale);
-          yield* Ref.set(activationPoints, new Map());
+          yield* Ref.set(activationClicks, new Map());
           yield* Ref.set(alertActions, built.actions);
           const observation: IosObservation = {
             appId: app,
@@ -1467,15 +1521,8 @@ const startIosRuntime = (
               : `@${ref.replace(/^@/u, "")}~s${snapshot.refsGeneration}`;
           yield* Ref.set(alertActions, new Map());
           yield* Ref.set(
-            activationPoints,
-            new Map(
-              snapshot.nodes.flatMap((node) => {
-                const ref = target(node.ref);
-                const point =
-                  ref === "" ? null : iosActivationPoint(snapshot.nodes, node);
-                return point === null ? [] : [[ref, point]];
-              })
-            )
+            activationClicks,
+            iosActivationClicks(snapshot.nodes, target)
           );
           const observation: IosObservation = {
             // An observe-only snapshot may not name its app; the bound app is
@@ -1551,31 +1598,10 @@ const startIosRuntime = (
         backend: {
           activate: (target) =>
             Effect.gen(function* activateIos() {
-              const alertTarget = (yield* Ref.get(alertActions)).get(target);
-              if (alertTarget !== undefined) {
-                yield* tryBackend(
-                  (signal) =>
-                    client.command.alert({
-                      ...options(),
-                      action: "press",
-                      buttonIndex: alertTarget.buttonIndex,
-                      buttonLabel: alertTarget.buttonLabel,
-                      expectedMessage: alertTarget.expectedMessage,
-                      signal,
-                    }),
-                  iosAlertActivateFailure
-                );
-                return;
-              }
-              const point = (yield* Ref.get(activationPoints)).get(target);
-              yield* io(
-                (signal) =>
-                  client.interactions.click(
-                    point === undefined
-                      ? { ...options(), ref: target, signal }
-                      : { ...options(), ...point, signal }
-                  ),
-                "activate"
+              yield* activateTarget(
+                target,
+                yield* Ref.get(alertActions),
+                yield* Ref.get(activationClicks)
               );
             }),
           capture,
