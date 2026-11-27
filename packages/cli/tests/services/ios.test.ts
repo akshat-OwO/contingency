@@ -34,7 +34,10 @@ import {
   makeIosPreparation,
   restartIosTargetApp,
 } from "../../src/services/ios-preparation.ts";
-import { iosRunnerArguments } from "../../src/services/ios-runner.ts";
+import {
+  iosRunnerArguments,
+  iosRunnerStartBudgetMs,
+} from "../../src/services/ios-runner.ts";
 import { iosSimctlHost } from "../../src/services/ios-simctl.ts";
 import type { IosSimctlService } from "../../src/services/ios-simctl.ts";
 
@@ -427,6 +430,25 @@ it.effect(
           "ios-runner",
         ])
       ).toContain(`contingency-ios-${session}`);
+    })
+);
+
+it.effect(
+  "gives only runner preparation a start budget beyond the 45 s connect default",
+  () =>
+    Effect.sync(() => {
+      const prepare = iosRunnerArguments("/private/session-state", session, [
+        "prepare",
+        "ios-runner",
+      ]);
+      expect(prepare.slice(2, 4)).toEqual([
+        "--timeout",
+        String(iosRunnerStartBudgetMs),
+      ]);
+      expect(iosRunnerStartBudgetMs).toBeGreaterThan(45_000);
+      expect(
+        iosRunnerArguments("/private/session-state", session, ["open", "app"])
+      ).not.toContain("--timeout");
     })
 );
 

@@ -1300,8 +1300,11 @@ export const makeCorpusIosWorkspaceLayer = (options: {
   readonly device: CorpusNativeDevice<NativeAppRuntimeBackend<IosObservation>>;
   readonly installedBuild?: string;
   readonly root: () => string;
-}) =>
-  makeIosWorkspaceLayer({
+  /** Runtime starts that fail as a runner that never connected does. */
+  readonly failedStarts?: number;
+}) => {
+  let failedStarts = options.failedStarts ?? 0;
+  return makeIosWorkspaceLayer({
     acquireStream: () => Effect.succeed(makeCorpusIosStream()),
     booted: () => Effect.succeed(true),
     makeHid: () =>
@@ -1320,21 +1323,23 @@ export const makeCorpusIosWorkspaceLayer = (options: {
           options.device.reset();
         }),
       start: (startup) =>
-        Effect.sync(() => {
+        Effect.suspend(() => {
+          if (failedStarts > 0) {
+            failedStarts -= 1;
+            return Effect.fail(iosRuntimeError("preparation_failed"));
+          }
           options.device.reset();
-        }).pipe(
-          Effect.andThen(
-            adaptNativeAppRuntime({
-              backend: options.device.backend,
-              capabilities: iosCapabilities,
-              error: iosRuntimeError,
-              foreground: (observation) => observation.appId ?? undefined,
-              policy: nativeAppActionPolicy(iosRuntimeError, iosSystemKeys),
-              startup,
-            })
-          )
-        ),
+          return adaptNativeAppRuntime({
+            backend: options.device.backend,
+            capabilities: iosCapabilities,
+            error: iosRuntimeError,
+            foreground: (observation) => observation.appId ?? undefined,
+            policy: nativeAppActionPolicy(iosRuntimeError, iosSystemKeys),
+            startup,
+          });
+        }),
     },
     simctl: (args) =>
       Effect.succeed(args.at(0) === "ui" && args.length < 4 ? "light" : ""),
   });
+};

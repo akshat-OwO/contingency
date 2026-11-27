@@ -173,8 +173,9 @@ const quiet = (
   tone,
 });
 
-export const hasPreparedAndroidSession = (session: AndroidWorkspaceSnapshot) =>
-  session.preparation.evidence.some((event) => event.type === "observation");
+export const hasPreparedAndroidSession = (
+  session: Pick<AndroidWorkspaceSnapshot, "preparation">
+) => session.preparation.evidence.some((event) => event.type === "observation");
 
 const pausedPreparationAction = (session: AndroidWorkspaceSnapshot) =>
   hasPreparedAndroidSession(session)

@@ -75,6 +75,7 @@ import {
   probeNativeInput,
 } from "./first-response-probe";
 import {
+  hasPreparedIosSession,
   iosDockPresentation,
   iosFlowsSessionView,
   iosRailEnabled,
@@ -155,6 +156,11 @@ const iosLockedReason = (session: IosWorkspaceSnapshot) =>
     ? "The agent is driving. Take control to use the simulator."
     : undefined;
 
+/** A session mirrors only once preparation reached the simulator. */
+const mirrorsIosSession = (session: IosWorkspaceSnapshot) =>
+  hasPreparedIosSession(session) &&
+  (session.phase === "running" || session.phase === "paused");
+
 /** What the glass says while the mirror connects or its transport is lost. */
 const IosMirrorVeil = ({
   connecting,
@@ -230,7 +236,7 @@ const IosMirror = ({
   const [frame, setFrame] = useState(DEFAULT_IOS_FRAME);
   const [reconnect, setReconnect] = useState(0);
   const stats = useRef<NativeStreamStats>(emptyNativeStreamStats);
-  const live = session.phase === "running" || session.phase === "paused";
+  const live = mirrorsIosSession(session);
   useEffect(() => {
     if (!live) {
       return;
@@ -989,6 +995,9 @@ const IosTopBar = ({
 
 /** What the simulator glass says while nothing is mirrored. */
 const glassText = (session: IosWorkspaceSnapshot) => {
+  if (session.phase === "paused" && !hasPreparedIosSession(session)) {
+    return "Preparation failed. Retry preparation from the dock.";
+  }
   if (session.phase === "pending") {
     return "Prepare the simulator to mirror it here.";
   }
