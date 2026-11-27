@@ -2,14 +2,29 @@ import assert from "node:assert/strict";
 
 import { iosRpc } from "./ios-workspace-rpc.mjs";
 
-const waitReply = async (page, before, tag = "ios.workspace.command") => {
+/**
+ * Preparation may build the runner and gives it a 240 s start budget, under
+ * the product's 300 s hang guard, so its click waits past that guard (#673).
+ */
+const PREPARATION_WAIT_MS = 330_000;
+const PREPARATIONS = new Set([
+  "Prepare selected simulator",
+  "Retry preparation",
+]);
+
+const waitReply = async (
+  page,
+  before,
+  tag = "ios.workspace.command",
+  timeout = 180_000
+) => {
   await page.waitForFunction(
     ([index, expected]) =>
       globalThis.__workspaceCommandReplies
         .slice(index)
         .some((reply) => reply.tag === expected),
     [before, tag],
-    { timeout: 180_000 }
+    { timeout }
   );
   const replies = await page.evaluate(
     (index) => globalThis.__workspaceCommandReplies.slice(index),
@@ -62,7 +77,12 @@ export const clickIos = async (page, name, region) => {
       : page.getByRole("region", { exact: true, name: region });
   await scope.getByRole("button", { exact: true, name }).click();
   const clickedAt = new Date().toISOString();
-  await waitReply(page, before);
+  await waitReply(
+    page,
+    before,
+    undefined,
+    PREPARATIONS.has(name) ? PREPARATION_WAIT_MS : undefined
+  );
   return { action: name, clickedAt };
 };
 /** Aim the real mouse from observation evidence; only Workspace resolves and sends input. */

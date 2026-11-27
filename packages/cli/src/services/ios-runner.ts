@@ -37,13 +37,26 @@ export const recognizeAgentDevice = ({
       reason: error.details?.reason,
     }),
   });
-/** daemon is process-scoped; --session is invalid for that command. */
+/**
+ * The runner's start budget: build, launch, and connect. Without one,
+ * agent-device gives the connect 45 s, and a healthy runner on a simulator
+ * still busy after boot can need more (#857). It stays under the child's
+ * hang guard.
+ */
+export const iosRunnerStartBudgetMs = 240_000;
+/**
+ * daemon is process-scoped; --session is invalid for that command. Only
+ * prepare starts the runner, so only it carries the start budget.
+ */
 export const iosRunnerArguments = (
   directory: string,
   udid: string,
   args: readonly string[]
 ) => [
   ...args,
+  ...(args[0] === "prepare"
+    ? ["--timeout", String(iosRunnerStartBudgetMs)]
+    : []),
   "--state-dir",
   directory,
   ...(args[0] === "daemon" ? [] : ["--session", `contingency-ios-${udid}`]),

@@ -65,6 +65,91 @@ const pendingDecisionIdOf = (snapshot: typeof IosWorkspaceSnapshot.Type) => {
 };
 
 journey(
+  "retries a failed first iOS preparation in the same session",
+  {},
+  Effect.gen(function* iosRetryPreparationJourney() {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped({
+      prefix: "contingency-ios-retry-",
+    });
+    const device = makeCorpusNativeBackend({
+      device: corpusIosSimulator,
+      platform: "ios",
+      script: IOS_WIDGET_SCRIPT,
+    });
+    yield* Effect.gen(function* retryPreparation() {
+      const workspace = yield* IosWorkspace;
+      const started = yield* workspace.execute(
+        {
+          _tag: "start",
+          flowName: FlowName.make("ios-retry-preparation"),
+          kind: "teaching",
+          operationId: op("ios-retry-start"),
+          recordingId: null,
+          selection: corpusIosSelection(),
+        },
+        "user"
+      );
+      const failure = yield* Effect.flip(
+        workspace.execute(
+          {
+            _tag: "prepare",
+            operationId: op("ios-retry-first"),
+            sessionId: started.id,
+          },
+          "user"
+        )
+      );
+      expect(failure.code).toBe("preparation_failed");
+      const failed = yield* workspace.execute(
+        { _tag: "read", sessionId: started.id },
+        "user"
+      );
+      expect(failed.phase).toBe("paused");
+      expect(
+        failed.preparation.evidence.some(
+          (event) => event.type === "observation"
+        )
+      ).toBe(false);
+      // Nothing was prepared, so Recover has no runtime to carry on with.
+      yield* Effect.flip(
+        workspace.execute(
+          {
+            _tag: "recover",
+            operationId: op("ios-retry-recover"),
+            sessionId: started.id,
+          },
+          "user"
+        )
+      );
+      const ready = yield* workspace.execute(
+        {
+          _tag: "prepare",
+          operationId: op("ios-retry-again"),
+          sessionId: started.id,
+        },
+        "user"
+      );
+      expect(ready.id).toBe(started.id);
+      expect(ready.phase).toBe("running");
+      expect(ready.error).toBeNull();
+      expect(ready.observation).not.toBeNull();
+    }).pipe(
+      Effect.provide(
+        scriptedProcess(root, {
+          iosWorkspace: makeCorpusIosWorkspaceLayer({
+            device,
+            failedStarts: 1,
+            root: () => root,
+          }),
+        })
+      ),
+      Effect.scoped
+    );
+  })
+);
+
+journey(
   "teaches an iOS flow via Forwarded Input, runs a corpus-backed Dry Run, and verifies it",
   { singleTool: true },
   Effect.gen(function* iosActionSheetJourney() {

@@ -15,6 +15,8 @@ if [[ $STAGE == setup ]]; then
   { memory_pressure; sysctl vm.swapusage; } > $A/memory.txt
   xcrun simctl list devices -j > $A/devices-before.json
   ps -axo pid=,ppid=,lstart=,comm= > $A/processes-before.txt
+  # No agent-device daemon belongs to this attempt yet, so any running one is stray.
+  ps -axo pid=,ppid=,lstart=,command= | grep '[a]gent-device' > $A/agent-device-daemons-before.txt || true
   lsof -nP -iTCP -sTCP:LISTEN > $A/listeners-before.txt
   sh .cursor/skills/verify-contingency/fixtures/ios-login/build.sh $A/fixture > $A/fixture-build.log 2>&1 || exit 3
   xcrun simctl create "contingency-selected-attempt$(basename $A | tr -cd '0-9')" "$DEVICE_TYPE" "$RUNTIME" > $A/selected || exit 4
@@ -28,8 +30,29 @@ if [[ $STAGE == setup ]]; then
   exit 0
 fi
 SELECTED=$(cat $A/selected)
+# The product keeps each runner's agent-device state in a private directory
+# under TMPDIR and deletes it when preparation fails or the session ends.
+# A short attempt-owned TMPDIR keeps socket paths short and names those
+# directories; their logs are hard-linked here so they outlive the deletion.
+# Logs only: traces, screenshots, and recordings stay behind.
+RUNNER_TMP=$(mktemp -d /tmp/contingency-attempt.XXXXXX)
+echo $RUNNER_TMP > $A/runner-tmpdir
+keep_runner_logs() {
+  local file kept
+  for file in $RUNNER_TMP/contingency-ios-*/**/*.log(N); do
+    kept=$A/runner-logs/${file#$RUNNER_TMP/}
+    [[ $file -ef $kept ]] && continue
+    mkdir -p ${kept:h}
+    ln -f $file $kept 2>/dev/null || cp $file $kept 2>/dev/null || true
+  done
+}
+{ while :; do keep_runner_logs; sleep 1; done } &
+KEEPER=$!
 cleanup() {
   set +e
+  kill $KEEPER 2>/dev/null
+  wait $KEEPER 2>/dev/null
+  keep_runner_logs
   node $CONTROL mcp stop > $A/cleanup.log 2>&1
   node $CONTROL cleanup >> $A/cleanup.log 2>&1
   echo "cleanup exit=$?" >> $A/cleanup.log
@@ -38,14 +61,14 @@ cleanup() {
   echo "selected shutdown exit=$?" >> $A/cleanup.log
   xcrun simctl delete "$SELECTED" >> $A/cleanup.log 2>&1
   echo "selected delete exit=$?" >> $A/cleanup.log
-  rm -rf $A/fixture
+  rm -rf $A/fixture $RUNNER_TMP
   xcrun simctl list devices -j > $A/devices-after.json
   ps -axo pid=,ppid=,lstart=,comm= > $A/processes-after.txt
   lsof -nP -iTCP -sTCP:LISTEN > $A/listeners-after.txt
   { memory_pressure; sysctl vm.swapusage; } > $A/memory-after.txt
 }
 trap cleanup EXIT
-export CONTINGENCY_IOS_SELECTED=$SELECTED CONTINGENCY_IOS_FIXTURE=$A/fixture/IosLogin.app
+export TMPDIR=$RUNNER_TMP/ CONTINGENCY_IOS_SELECTED=$SELECTED CONTINGENCY_IOS_FIXTURE=$A/fixture/IosLogin.app
 unset CONTINGENCY_IOS_WORKSPACE_INTERNAL
 export CONTINGENCY_VERIFY_DIR=$A/verify
 export CONTINGENCY_IOS_PROOF_ARTIFACTS=.cursor/skills/verify-contingency/artifacts/$ART

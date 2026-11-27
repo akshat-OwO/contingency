@@ -8,6 +8,7 @@ import type { IosWorkspaceSnapshot } from "@contingency/protocol";
 import {
   AGENT_RUNNING_SENTENCE,
   ENDED_RUN_SENTENCE,
+  hasPreparedAndroidSession,
   isEndedNativeRun,
 } from "@/components/agent/android-dock-state";
 import { teachingRecordingPresentation } from "@/components/agent/teaching-recording-state";
@@ -41,6 +42,9 @@ export const iosFlowsSessionView = (
         dryRun: session.kind === "dry-run",
         flowNames: [session.flowName],
       };
+
+/** Whether preparation reached the simulator's first observation. */
+export const hasPreparedIosSession = hasPreparedAndroidSession;
 
 /** Whether the session still owns its simulator. */
 export const isLiveIosSession = (
@@ -212,6 +216,36 @@ const teachingPresentation = (
   }
 };
 
+const pausedPresentation = (
+  session: IosWorkspaceSnapshot
+): IosDockPresentation => {
+  if (session.refusal?.recovery === "go-home") {
+    // The observer follows any app in front; it pauses only when it
+    // cannot tell which one that is (ADR 0083).
+    return {
+      ...quiet(
+        "Paused",
+        "Contingency cannot tell which app is in front, so nothing was sent. Go Home to carry on from the Home Screen; recording continues.",
+        "attention"
+      ),
+      action: action("recover", "Go Home", "Go Home and carry on"),
+    };
+  }
+  // A failed first preparation has no runtime to recover; as on Android, it
+  // prepares again.
+  return {
+    ...quiet(
+      "Paused",
+      session.error ??
+        "The simulator stopped mirroring. Recover the same simulator to carry on.",
+      "attention"
+    ),
+    action: hasPreparedIosSession(session)
+      ? action("recover", "Recover selected simulator")
+      : action("prepare", "Retry preparation"),
+  };
+};
+
 const controlPresentation = (
   session: IosWorkspaceSnapshot
 ): IosDockPresentation => {
@@ -296,27 +330,7 @@ export const iosDockPresentation = (
       };
     }
     case "paused": {
-      if (session.refusal?.recovery === "go-home") {
-        // The observer follows any app in front; it pauses only when it
-        // cannot tell which one that is (ADR 0083).
-        return {
-          ...quiet(
-            "Paused",
-            "Contingency cannot tell which app is in front, so nothing was sent. Go Home to carry on from the Home Screen; recording continues.",
-            "attention"
-          ),
-          action: action("recover", "Go Home", "Go Home and carry on"),
-        };
-      }
-      return {
-        ...quiet(
-          "Paused",
-          session.error ??
-            "The simulator stopped mirroring. Recover the same simulator to carry on.",
-          "attention"
-        ),
-        action: action("recover", "Recover selected simulator"),
-      };
+      return pausedPresentation(session);
     }
     case "refused": {
       return quiet(
