@@ -1,14 +1,20 @@
 import { expect, it } from "@effect/vitest";
 import { AppError } from "agent-device";
-import { Effect, Fiber, Logger, Option } from "effect";
+import { Effect, Fiber, Logger, Option, Ref, Result } from "effect";
 import { TestClock } from "effect/testing";
 
+import { SPRINGBOARD } from "../../src/services/ios-foreground.ts";
 import {
+  IOS_FOREGROUND_HANDOFF_UNAVAILABLE_HINT,
+  IOS_HANDOFF_READINGS,
   IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
   canSkipIosAlertScreenshot,
   canSkipIosScreenshot,
+  followIosHandoff,
+  iosHandoffState,
   iosAlertActivateFailure,
   iosAlertNodes,
+  isIosForegroundHandoffObservationUnavailable,
   isIosSystemAlertObservationUnavailable,
   makeIosSessionAccess,
   iosAgentDeviceFailure,
@@ -23,6 +29,7 @@ import {
   observeIosPostAction,
   settleIosCapture,
 } from "../../src/services/ios-runtime.ts";
+import type { IosHandoffState } from "../../src/services/ios-runtime.ts";
 import type { PlatformRuntimeError } from "../../src/services/platform-runtime.ts";
 
 const sequence = (
@@ -301,6 +308,113 @@ it("identifies OBSERVATION_UNAVAILABLE carrying agent-device's system-alert hint
   );
 });
 
+it("identifies OBSERVATION_UNAVAILABLE carrying the foreground-handoff hint", () => {
+  expect(
+    isIosForegroundHandoffObservationUnavailable(
+      new AppError(
+        "OBSERVATION_UNAVAILABLE",
+        "The session app cannot be observed without activation.",
+        {
+          hint: IOS_FOREGROUND_HANDOFF_UNAVAILABLE_HINT,
+        }
+      )
+    )
+  ).toBe(true);
+  expect(
+    isIosForegroundHandoffObservationUnavailable(
+      new AppError(
+        "OBSERVATION_UNAVAILABLE",
+        "The session app cannot be observed without activation.",
+        {
+          runner: {
+            error: {
+              code: "OBSERVATION_UNAVAILABLE",
+              hint: IOS_FOREGROUND_HANDOFF_UNAVAILABLE_HINT,
+            },
+          },
+        }
+      )
+    )
+  ).toBe(true);
+  expect(
+    isIosForegroundHandoffObservationUnavailable(
+      new AppError(
+        "OBSERVATION_UNAVAILABLE",
+        "The session app cannot be observed without activation.",
+        { hint: IOS_SYSTEM_ALERT_UNAVAILABLE_HINT }
+      )
+    )
+  ).toBe(false);
+  expect(
+    isIosForegroundHandoffObservationUnavailable(
+      new AppError(
+        "OBSERVATION_UNAVAILABLE",
+        "The session app cannot be observed without activation.",
+        {
+          hint: "XCUIApplication must report runningForeground before and after capture. This state report does not prove screen ownership (#2696).",
+        }
+      )
+    )
+  ).toBe(false);
+  expect(
+    isIosForegroundHandoffObservationUnavailable(
+      new AppError("COMMAND_FAILED", "other", {
+        hint: IOS_FOREGROUND_HANDOFF_UNAVAILABLE_HINT,
+      })
+    )
+  ).toBe(false);
+});
+
+it.effect(
+  "reads a foreground-handoff OBSERVATION_UNAVAILABLE as a handoff without consulting appState or alert get",
+  () =>
+    Effect.gen(function* fastForegroundHandoff() {
+      let appStateCalls = 0;
+      let alertCalls = 0;
+      const access = makeIosSessionAccess({
+        alert: () => {
+          alertCalls += 1;
+          return Promise.resolve({ items: ["Allow"], message: "Alert" });
+        },
+        appState: () => {
+          appStateCalls += 1;
+          return Promise.resolve({
+            appBundleId: "dev.contingency.ioslogin",
+            appName: "dev.contingency.ioslogin",
+            device_udid: "session-simulator",
+            platform: "ios" as const,
+            source: "runner" as const,
+            state: "runningForeground" as const,
+            surface: "app" as const,
+          });
+        },
+        open: () => {
+          throw new Error("Foreground handoff must never activate an app");
+        },
+        options: () => ({
+          platform: "ios",
+          requestId: "capture",
+          udid: "session-simulator",
+        }),
+        snapshot: () =>
+          Promise.reject(
+            new AppError(
+              "OBSERVATION_UNAVAILABLE",
+              "The session app cannot be observed without activation.",
+              {
+                hint: IOS_FOREGROUND_HANDOFF_UNAVAILABLE_HINT,
+              }
+            )
+          ),
+      });
+      expect(yield* access.snapshot("dev.contingency.ioslogin")).toStrictEqual(
+        Option.some({ _tag: "handoff" })
+      );
+      expect(appStateCalls).toBe(0);
+      expect(alertCalls).toBe(0);
+    })
+);
+
 it.effect(
   "reads a presented system alert via non-activating alert get when observeOnly rejects with the system-alert hint and appState confirms the bound app is runningForeground",
   () =>
@@ -449,6 +563,155 @@ it.effect(
           udid: "session-simulator",
         }),
       ]);
+    })
+);
+
+const handoff = (input: {
+  readonly states: readonly IosHandoffState[];
+  readonly guess: string | null;
+  readonly guessNow: string | null;
+  readonly repeated: boolean;
+}) =>
+  Effect.gen(function* runHandoff() {
+    const repeated = yield* Ref.make(input.repeated);
+    let readings = 0;
+    const fiber = yield* Effect.forkChild(
+      followIosHandoff({
+        guess: Effect.succeed(input.guess),
+        guessNow: Effect.succeed(input.guessNow),
+        repeated,
+        state: Effect.sync(() => {
+          const state =
+            input.states[Math.min(readings, input.states.length - 1)] ??
+            "unverified";
+          readings += 1;
+          return state;
+        }),
+      }).pipe(Effect.result)
+    );
+    yield* TestClock.adjust("10 seconds");
+    const result = yield* Fiber.join(fiber);
+    return { readings, repeated: yield* Ref.get(repeated), result };
+  });
+
+const appState = (
+  source: "runner" | "session",
+  state?: "runningForeground" | "runningBackground"
+) => {
+  const read = {
+    appBundleId: "dev.contingency.ioslogin",
+    appName: "dev.contingency.ioslogin",
+    device_udid: "session-simulator",
+    platform: "ios" as const,
+    source,
+    surface: "app" as const,
+  };
+  return state === undefined ? read : { ...read, state };
+};
+
+it("reads only the runner's live app state as proof of a handoff's progress", () => {
+  expect(iosHandoffState(appState("runner", "runningForeground"))).toBe(
+    "front"
+  );
+  expect(iosHandoffState(appState("runner", "runningBackground"))).toBe("left");
+  expect(iosHandoffState(appState("runner"))).toBe("unverified");
+  expect(iosHandoffState(appState("session", "runningForeground"))).toBe(
+    "unverified"
+  );
+});
+
+it.effect(
+  "follows the guessed app once a handing-off app leaves the front",
+  () =>
+    Effect.gen(function* followsAfterLeaving() {
+      const { readings, result } = yield* handoff({
+        guess: "com.apple.Preferences",
+        guessNow: null,
+        repeated: false,
+        states: ["front", "front", "front", "left"],
+      });
+      expect(readings).toBe(4);
+      expect(result).toStrictEqual(
+        Result.succeed({ _tag: "follow", app: "com.apple.Preferences" })
+      );
+    })
+);
+
+it.effect(
+  "reports no app when a handing-off app leaves the front and nothing is clearly in front",
+  () =>
+    Effect.gen(function* noGuessAfterLeaving() {
+      const { result } = yield* handoff({
+        guess: null,
+        guessNow: "com.apple.Preferences",
+        repeated: false,
+        states: ["left"],
+      });
+      expect(result).toStrictEqual(Result.succeed(null));
+    })
+);
+
+it.effect(
+  "reads the bound app again when it stays in front, as while an alert is dismissed, without following any app",
+  () =>
+    Effect.gen(function* rereadsAfterAlert() {
+      const { readings, repeated, result } = yield* handoff({
+        guess: "com.apple.Preferences",
+        guessNow: "com.apple.Preferences",
+        repeated: false,
+        states: ["front"],
+      });
+      expect(readings).toBe(IOS_HANDOFF_READINGS);
+      expect(repeated).toBe(true);
+      expect(result).toStrictEqual(
+        Result.fail(
+          iosCaptureFailure(
+            "observation_stale",
+            "capture",
+            "foreground-handoff"
+          )
+        )
+      );
+    })
+);
+
+it.effect(
+  "follows Springboard when the runner keeps a handoff in front twice and no other app is in front, as in the App Switcher",
+  () =>
+    Effect.gen(function* followsSpringboard() {
+      const { repeated, result } = yield* handoff({
+        guess: null,
+        guessNow: null,
+        repeated: true,
+        states: ["front"],
+      });
+      expect(repeated).toBe(false);
+      expect(result).toStrictEqual(
+        Result.succeed({ _tag: "follow", app: SPRINGBOARD })
+      );
+    })
+);
+
+it.effect(
+  "never follows an app on a second handoff whose readings carry only session metadata",
+  () =>
+    Effect.gen(function* unverifiedHandoff() {
+      const { repeated, result } = yield* handoff({
+        guess: null,
+        guessNow: null,
+        repeated: true,
+        states: ["unverified"],
+      });
+      expect(repeated).toBe(false);
+      expect(result).toStrictEqual(
+        Result.fail(
+          iosCaptureFailure(
+            "observation_stale",
+            "session-check",
+            "app-state-unverified"
+          )
+        )
+      );
     })
 );
 

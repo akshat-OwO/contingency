@@ -525,6 +525,19 @@ index b94e17d155d79817f7a3f23d0e9c50f0bbe04bbf..8f981d418daff35000b70b789cd07703
      case .timedOut:
        code = "ALERT_DEADLINE_EXCEEDED"
        message = "alert \(action) exhausted its deadline"
+diff --git a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+CommandDispatch.swift b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+CommandDispatch.swift
+index 8a8fc4df2d8e8bd55ee9f0ecd3b26a4cb74a1607..d8a3acaf9f60e93ad76750d7107433d107c7d2f5 100644
+--- a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+CommandDispatch.swift
++++ b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+CommandDispatch.swift
+@@ -162,7 +162,7 @@ extension RunnerTests {
+     )
+   }
+ 
+-  private func runnerUnavailableResponse(command: Command) -> Response? {
++  func runnerUnavailableResponse(command: Command) -> Response? {
+     switch currentMainThreadBusyState() {
+     case .idle:
+       return nil
 diff --git a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+CommandExecution.swift b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+CommandExecution.swift
 index c78351473ef660334f121c56dd89791c979ee307..6bca926df9e5cf1823ae9aad7a336ef70a6928c5 100644
 --- a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+CommandExecution.swift
@@ -579,6 +592,121 @@ index feb603c4e26c52d0c053cdf01de48622a9a21c76..711679485fd2b9a1cfda18e69f19392d
  
  
    var launchConfirmationPrompt: Bool?
+diff --git a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotAcquisition.swift b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotAcquisition.swift
+index 6ccfaf0ce48a1111b7176e4f184a228c559b74d0..c67e339bee000d2a0f0fdd56d4157863406fb32b 100644
+--- a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotAcquisition.swift
++++ b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotAcquisition.swift
+@@ -37,7 +37,9 @@ extension RunnerTests {
+     hint: CaptureHint,
+     captureDeadline: Date = .distantFuture,
+     treeCaptureSliceBudgetOverride: TimeInterval? = nil,
+-    litPanelSurface: LitPanelSurface? = nil
++    litPanelSurface: LitPanelSurface? = nil,
++    observeOnly: Bool = false,
++    bundleId: String? = nil
+   ) throws -> SnapshotTraversalContext? {
+     let treeSliceBudget = treeCaptureSliceBudgetOverride ?? treeCaptureSliceBudget
+     let slice = min(treeSliceBudget, max(0.5, captureDeadline.timeIntervalSinceNow))
+@@ -56,7 +58,12 @@ extension RunnerTests {
+       timeout: min(1.0, max(0.1, captureDeadline.timeIntervalSinceNow)),
+       timeoutError: snapshotMainThreadTimeoutError("reading snapshot viewport")
+     ) {
+-      try self.capturedSnapshotViewport(app: app, rootSnapshot: rootSnapshot)
++      try self.capturedSnapshotViewport(
++        app: app,
++        rootSnapshot: rootSnapshot,
++        observeOnly: observeOnly,
++        bundleId: bundleId
++      )
+     }
+ 
+     let keyboardBand = captureKeyboardBandFact(snapshot: rootSnapshot, viewport: viewport, deadline: captureDeadline)
+@@ -141,7 +148,12 @@ extension RunnerTests {
+ 
+ 
+ 
+-  func capturedSnapshotViewport(app: XCUIApplication, rootSnapshot: XCUIElementSnapshot) throws -> SnapshotViewport {
++  func capturedSnapshotViewport(
++    app: XCUIApplication,
++    rootSnapshot: XCUIElementSnapshot,
++    observeOnly: Bool = false,
++    bundleId: String? = nil
++  ) throws -> SnapshotViewport {
+     if requestLitPanel == nil,
+       let frame = Self.fullScreenWindowFrame(
+         windowFrames: rootSnapshot.children.filter { $0.elementType == .window }.map(\.frame),
+@@ -150,6 +162,9 @@ extension RunnerTests {
+     {
+       return .reported(box: frame, interfaceOrientation: capturedInterfaceOrientation(app: app))
+     }
++    if observeOnly, requestLitPanel == nil, bundleId != "com.apple.springboard" {
++      throw ObserveOnlyForegroundHandoffRefused()
++    }
+     return try safeSnapshotViewport(app: app, readingOrientation: true)
+   }
+ 
+diff --git a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotCapturePlan.swift b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotCapturePlan.swift
+index b491bb144c0e7f76a7b642325a1cd44cc76ad6e6..c8d727f3996ed5f4231abef80e93597f42a23611 100644
+--- a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotCapturePlan.swift
++++ b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotCapturePlan.swift
+@@ -352,7 +352,9 @@ extension RunnerTests {
+               hint: hint,
+               captureDeadline: deadline,
+               treeCaptureSliceBudgetOverride: step.treeCaptureSliceBudgetOverride,
+-              litPanelSurface: target.litPanelSurface
++              litPanelSurface: target.litPanelSurface,
++              observeOnly: target.refusesSystemAlertSubstitution,
++              bundleId: target.bundleId
+             )
+           else {
+             return (nil, .completed)
+diff --git a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotCaptureTarget.swift b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotCaptureTarget.swift
+index dff25a5f394058b2ed20b45f718531f15d8c7b42..766328131d3cb265a64a83616297404bebc41d86 100644
+--- a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotCaptureTarget.swift
++++ b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotCaptureTarget.swift
+@@ -22,6 +22,8 @@ struct SnapshotCaptureTarget {
+ 
+ struct SystemAlertSubstitutionRefused: Error {}
+ 
++struct ObserveOnlyForegroundHandoffRefused: Error {}
++
+ 
+ enum SnapshotCommandPreparation {
+   case response(Response)
+@@ -73,6 +75,8 @@ final class SnapshotProbePenaltyIdentity {
+ }
+ 
+ extension RunnerTests {
++  static let observeOnlyForegroundHandoffHint =
++    "Another application owns the foreground."
+ 
+   @MainActor
+   func takeSnapshotCaptureTarget(app: XCUIApplication) -> SnapshotCaptureTarget {
+diff --git a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotExecution.swift b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotExecution.swift
+index 9336341932bd2a3d01a94b00493a980b6455ffed..8e98a04e7506e1e2f319d5afff7565e6110e5cca 100644
+--- a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotExecution.swift
++++ b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotExecution.swift
+@@ -124,6 +124,9 @@ extension RunnerTests {
+         guard let capturedProcessIdentifier = target.processIdentifier else {
+           return observeOnlyUnavailableResponse()
+         }
++        if let unavailable = runnerUnavailableResponse(command: command) {
++          return unavailable
++        }
+         let unchanged = try runMainThreadWork(
+           "observe_only_state",
+           timeout: Self.mainThreadExecutionTimeout,
+@@ -143,6 +146,10 @@ extension RunnerTests {
+       return observeOnlyUnavailableResponse(
+         hint: "A system alert is presented over the session app. Resolve it with alert, or read it with a regular snapshot."
+       )
++    } catch is ObserveOnlyForegroundHandoffRefused {
++      return observeOnlyUnavailableResponse(
++        hint: Self.observeOnlyForegroundHandoffHint
++      )
+     } catch let failure as SnapshotCaptureFailure {
+       invalidateCachedTargetAfterSnapshotFailure()
+       return Response(
 diff --git a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SynthesizedInteraction.swift b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SynthesizedInteraction.swift
 index e32576f95d10729e20de232f08380786f45cba96..67019171b4309af9bdf6933757306ca38ceaf6ef 100644
 --- a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SynthesizedInteraction.swift
@@ -735,7 +863,7 @@ index dfa801cbc5808ad95c4cd98ecda05e6a996531ea..54773a27c5f84280aeb68e80945e64bd
    agent-device metro reload [--metro-host <host>] [--metro-port <port>] [--bundle-url <url>]`,usageFlags:[],listUsageOverride:`metro`,positionalArgs:[`prepare|reload`],allowedFlags:[...zi,...Ri]},cliReader:(e,t)=>{let n=(e[0]??``).toLowerCase();if(n!==`prepare`&&n!==`reload`)throw new c(`INVALID_ARGS`,`metro requires a subcommand: prepare or reload`);if(n===`reload`)return{action:n,metroHost:t.metroHost,metroPort:t.metroPort,bundleUrl:t.bundleUrl,timeoutMs:t.metroProbeTimeoutMs};if(!t.metroPublicBaseUrl&&!t.metroProxyBaseUrl)throw new c(`INVALID_ARGS`,`metro prepare requires --public-base-url <url> or --proxy-base-url <url>.`);return{action:n,projectRoot:t.metroProjectRoot,kind:Mc(t.kind??t.metroKind),port:t.metroPreparePort,listenHost:t.metroListenHost,statusHost:t.metroStatusHost,publicBaseUrl:t.metroPublicBaseUrl,proxyBaseUrl:t.metroProxyBaseUrl,bearerToken:t.metroBearerToken,bridgeScope:t.tenant&&t.runId&&t.leaseId?{tenantId:t.tenant,runId:t.runId,leaseId:t.leaseId}:void 0,startupTimeoutMs:t.metroStartupTimeoutMs,probeTimeoutMs:t.metroProbeTimeoutMs,reuseExisting:!t.metroNoReuseExisting&&void 0,installDependenciesIfNeeded:!t.metroNoInstallDeps&&void 0,runtimeFilePath:t.metroRuntimeFile}}})]});function Fc(e){return{projectRoot:e.projectRoot,kind:e.kind,publicBaseUrl:e.publicBaseUrl,proxyBaseUrl:e.proxyBaseUrl,bearerToken:e.bearerToken,bridgeScope:e.bridgeScope??Ic(e),port:e.port,listenHost:e.listenHost,statusHost:e.statusHost,startupTimeoutMs:e.startupTimeoutMs,probeTimeoutMs:e.probeTimeoutMs,reuseExisting:e.reuseExisting,installDependenciesIfNeeded:e.installDependenciesIfNeeded,runtimeFilePath:e.runtimeFilePath}}function Ic(e){return e.tenant&&e.runId&&e.leaseId?{tenantId:e.tenant,runId:e.runId,leaseId:e.leaseId}:void 0}function Lc(e){return{metroHost:e.metroHost,metroPort:e.metroPort,bundleUrl:e.bundleUrl,timeoutMs:e.timeoutMs}}function Rc(e,t){return e.includes(t)}function zc(e,t,n={}){let r=t===void 0?void 0:n.normalize?.(t)??t;if(r!==void 0&&Rc(e,r))return r;let i=typeof n.message==`function`?n.message(t):n.message;throw new c(`INVALID_ARGS`,i??`Invalid value: ${t}. Use ${e.join(`|`)}.`)}const Bc=`logs`,Vc=`events`,Hc=`network`,Uc=`audio`,Wc=[`dump`,`log`],Gc=[`probe`],Kc=[`start`,`status`,`stop`],qc=U(Bc,`Session app log info, start/stop streaming, diagnostics, and markers. On iOS physical devices, starting the stream relaunches the session app and reports relaunched: true, and stopping the stream ends the app.`,{action:L(ur),message:M(),restart:F()}),Jc=U(Vc,`Read the daemon-owned session event timeline as paged JSON-friendly entries`,{limit:P(),cursor:M()}),Yc=U(Hc,`Dump recent HTTP(s) traffic parsed from the session app log`,{action:L(Wc),limit:P(),include:L(_e)}),Xc=U(Uc,`Measure browser or host-rendered simulator/emulator audio as compact dBFS buckets. Probe actions start sampling, report its status, or stop sampling.`,{action:L(Gc),probeAction:L(Kc),durationMs:P(`Probe duration in milliseconds.`),bucketMs:P(`Audio level bucket size in milliseconds.`)}),Zc=G({name:`observability`,commands:[W({name:Bc,effect:`destructive`,text:{summary:`Manage session app logs`,searchHint:`console output device`},metadata:qc,run:(e,t)=>e.observability.logs(t),cliSchema:{usageOverride:`logs path | logs start | logs stop | logs clear [--restart] | logs doctor | logs mark [message...]`,usageFlags:[],positionalArgs:[`path|start|stop|clear|doctor|mark`,`message?`],allowsExtraPositionals:!0,allowedFlags:[`restart`]},cliReader:(e,t)=>({...v(t),action:nl(e[0]),message:e.slice(1).join(` `)||void 0,restart:t.restart}),daemonWriter:g(Bc,e=>Qc(e))}),W({name:Vc,effect:`read`,text:{summary:`Read session event timeline`,searchHint:`history log`},metadata:Jc,run:(e,t)=>e.observability.events(t),cliSchema:{usageOverride:`events [limit] [cursor]`,listUsageOverride:`events`,positionalArgs:[`limit?`,`cursor?`]},cliReader:(e,t)=>({...v(t),limit:e[0]?.trim()?lr(e[0]):void 0,cursor:e[1]}),daemonWriter:e=>_(Vc,$c(e),e)}),W({name:Hc,effect:`write`,text:{summary:`Inspect HTTP(S) traffic from session logs`,searchHint:`requests api calls`},metadata:Yc,run:(e,t)=>e.observability.network(t),cliSchema:{usageOverride:`network dump [limit] [summary|headers|body|all] [--include summary|headers|body|all] | network log [limit] [summary|headers|body|all] [--include summary|headers|body|all]`,usageFlags:[],listUsageOverride:`network`,positionalArgs:[`dump|log`,`limit?`,`include?`],allowedFlags:[`networkInclude`]},cliReader:(e,t)=>({...v(t),action:rl(e[0]),limit:lr(e[1]),include:t.networkInclude??il(e[2])}),daemonWriter:e=>_(Hc,el(e),{...e,networkInclude:e.include})}),W({name:Uc,effect:`write`,text:{summary:`Probe audio levels`,searchHint:`sound volume level`},metadata:Xc,run:(e,t)=>e.observability.audio(t),cliSchema:{usageOverride:`audio probe start [durationSeconds] [bucketMs] | audio probe status | audio probe stop`,listUsageOverride:`audio`,positionalArgs:[`probe`,`start|status|stop`,`durationSeconds?`,`bucketMs?`]},cliReader:(e,t)=>({...v(t),action:al(e[0]),probeAction:ol(e[1]),durationMs:sl(e[2]),bucketMs:lr(e[3])}),daemonWriter:e=>_(Uc,tl(e),e)})]});function Qc(e){return[e.action??`path`,...y(e.message)]}function $c(e){return e.cursor===void 0?b(e.limit):[e.limit===void 0?``:String(e.limit),e.cursor]}function el(e){return[...e.action?[e.action]:[],...b(e.limit)]}function tl(e){return[e.action??`probe`,e.probeAction??`status`,...b(e.durationMs),...b(e.bucketMs)]}function nl(e){if(e!==void 0)return zc(ur,e,{message:`logs requires path, start, stop, doctor, mark, or clear`})}function rl(e){if(e!==void 0){if(e===`dump`||e===`log`)return e;throw new c(`INVALID_ARGS`,`network requires dump or log`)}}function il(e){if(e!==void 0)return zc(_e,e,{message:`network include must be summary, headers, body, or all`})}function al(e){if(e!==void 0)return zc(Gc,e,{message:`audio requires probe`})}function ol(e){if(e!==void 0)return zc(Kc,e,{message:`audio probe requires start, status, or stop`})}function sl(e){let t=lr(e);return t===void 0?void 0:Math.round(t*1e3)}const cl=`perf`,ll=G({name:`perf`,commands:[W({name:cl,effect:`write`,text:{summary:`Check frames, memory, or native profiles`,searchHint:`performance fps profile`,cliDetail:`Use perf frames for bounded frame-health evidence and perf memory sample for a compact process-memory reading. On iOS simulators and macOS, process sampling and captures target the resolved app executable and exclude other copies with the same name. Apple xctrace and Android Simpleperf/Perfetto captures keep raw artifacts on disk; report produces bounded agent-readable evidence. For React render performance, run agent-device react-devtools profile start before the interaction and react-devtools profile stop after it.`,mcpDetail:`For CPU profiles, start and stop write the raw artifact while report writes a compact summary for readable native CPU evidence. Profiling output is evidence only: compact state, artifact path, and size.`},metadata:U(cl,`Collect frame health, memory diagnostics, and platform profiling artifacts with compact agent-readable summaries.`,{area:j(L(Tt)),subject:L(kt),action:L(wt),kind:L(_t),template:M(`xctrace template name, for example Time Profiler.`),out:M(`Output artifact path.`),tracePath:M(`Existing .trace path to report, defaults to the latest session trace.`)}),run:(e,t)=>e.observability.perf(t),cliSchema:{usageOverride:`perf frames --json
    agent-device perf memory sample --json
 diff --git a/dist/src/tv-remote-runtime.js b/dist/src/tv-remote-runtime.js
-index afcefe428e0ff53d1bb2883bc0a68010dcafeae0..5e177d41d720df0bfab6b4194c92388e1fc53ea5 100644
+index afcefe428e0ff53d1bb2883bc0a68010dcafeae0..a1a1bde7f1209b0d00fdc6687af39bf46964aaf0 100644
 --- a/dist/src/tv-remote-runtime.js
 +++ b/dist/src/tv-remote-runtime.js
 @@ -1 +1 @@

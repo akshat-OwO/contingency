@@ -374,6 +374,15 @@ it.effect(
         "com.apple.Preferences"
       );
       expect(readings).toBe(1);
+      // Immediate reading checks host priority once without waiting across retries.
+      readings = 0;
+      expect(yield* guess.now("dev.contingency.ioslogin")).toBe(
+        "com.apple.Preferences"
+      );
+      expect(readings).toBe(1);
+      readings = 0;
+      expect(yield* guess.now()).toBeNull();
+      expect(readings).toBe(1);
     })
 );
 
