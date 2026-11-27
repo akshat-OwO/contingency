@@ -8,7 +8,11 @@ import type {
   NativeInput,
 } from "@contingency/protocol";
 import { AppError } from "agent-device";
-import type { AlertCommandOptions, CaptureSnapshotOptions } from "agent-device";
+import type {
+  AlertCommandOptions,
+  CaptureSnapshotOptions,
+  ClickOptions,
+} from "agent-device";
 import { Effect, Layer, Option, Schema, Stream } from "effect";
 
 import {
@@ -34,14 +38,13 @@ import {
 import type { IosActivationClick } from "../../src/services/ios-observation.ts";
 import {
   IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
-  iosAgentDeviceFailure,
-  iosAlertActivateFailure,
   iosAlertNodes,
   iosCapabilities,
   iosForegroundUnknown,
   iosRuntimeError,
   iosSystemKeys,
   iosWindowViewport,
+  makeIosActivation,
   makeIosSessionAccess,
 } from "../../src/services/ios-runtime.ts";
 import type {
@@ -172,6 +175,9 @@ export interface CorpusNativeDevice<
 
 /** Synthesized PNG cache keyed by `${width}x${height}`. */
 const pngCache = new Map<string, string>();
+
+const refuse = (message: string, reason: string) =>
+  Promise.reject(new AppError("COMMAND_FAILED", message, { reason }));
 const crcTable = (() => {
   const table = new Uint32Array(256);
   for (let index = 0; index < 256; index += 1) {
@@ -959,72 +965,63 @@ export function makeCorpusNativeBackend(
       return observation;
     });
 
+  // agent-device's ref click, as patched: a point must lie in the ref's frame,
+  // and a ref whose interactive children cover it is refused either way.
+  const refClick = (clickOptions: ClickOptions) => {
+    if (!("ref" in clickOptions)) {
+      return refuse("The fake taps refs only", "unsupported_target");
+    }
+    const point = "point" in clickOptions ? clickOptions.point : undefined;
+    const frame = activeNodes.get(clickOptions.ref)?.bounds;
+    if (
+      point !== undefined &&
+      (frame === undefined ||
+        point.x < frame.x ||
+        point.x > frame.x + frame.width ||
+        point.y < frame.y ||
+        point.y > frame.y + frame.height)
+    ) {
+      return refuse("Point is outside the ref", "point_outside_target");
+    }
+    if (point !== undefined && activeCovered.has(clickOptions.ref)) {
+      return refuse("Ref is covered", "covered_by_interactive_descendants");
+    }
+    if (point !== undefined) {
+      refClicks.push({ point, ref: clickOptions.ref });
+    }
+    return Promise.resolve();
+  };
+
+  const transition = (node: MappedNode) =>
+    Effect.sync(() => {
+      const next = transitionFor("activate", node);
+      if (next !== undefined) {
+        currentId = next.to;
+      }
+    });
+
   const activate = (target: string) =>
     resolveTarget(target, "activate").pipe(
       Effect.tap(() => options.beforeActivate?.(target) ?? Effect.void),
       Effect.flatMap((node) => {
+        if (sdkAlert === undefined || iosDevice === undefined) {
+          return transition(node);
+        }
         const alertTarget = activeAlertActions.get(target);
-        if (
-          alertTarget !== undefined &&
-          sdkAlert !== undefined &&
-          iosDevice !== undefined
-        ) {
-          return Effect.tryPromise({
-            catch: iosAlertActivateFailure,
-            try: () =>
-              sdkAlert({
-                action: "press",
-                buttonIndex: alertTarget.buttonIndex,
-                buttonLabel: alertTarget.buttonLabel,
-                expectedMessage: alertTarget.expectedMessage,
-                platform: "ios",
-                requestId: `${sessionId}-activate`,
-                udid: iosDevice.udid,
-              }),
-          }).pipe(Effect.asVoid);
-        }
-        const click = activeClicks.get(target);
-        const frame =
-          click === undefined ? undefined : activeNodes.get(click.ref)?.bounds;
-        if (
-          click !== undefined &&
-          (frame === undefined ||
-            click.point.x < frame.x ||
-            click.point.x > frame.x + frame.width ||
-            click.point.y < frame.y ||
-            click.point.y > frame.y + frame.height)
-        ) {
-          // agent-device refuses a point outside the ref's frame before dispatch.
-          return Effect.fail(
-            iosAgentDeviceFailure(
-              new AppError("COMMAND_FAILED", "Point is outside the ref", {
-                reason: "point_outside_target",
-              }),
-              "runtime_failed",
-              "activate"
-            )
-          );
-        }
-        if (click !== undefined && activeCovered.has(click.ref)) {
-          return Effect.fail(
-            iosAgentDeviceFailure(
-              new AppError("COMMAND_FAILED", "Ref is covered", {
-                reason: "covered_by_interactive_descendants",
-              }),
-              "runtime_failed",
-              "activate"
-            )
-          );
-        }
-        return Effect.sync(() => {
-          if (click !== undefined) {
-            refClicks.push(click);
-          }
-          const next = transitionFor("activate", node);
-          if (next !== undefined) {
-            currentId = next.to;
-          }
-        });
+        // The production iOS activation decides what reaches agent-device.
+        return makeIosActivation({
+          alert: sdkAlert,
+          click: refClick,
+          options: () => ({
+            platform: "ios",
+            requestId: `${sessionId}-activate`,
+            udid: iosDevice.udid,
+          }),
+        })(target, activeAlertActions, activeClicks).pipe(
+          Effect.andThen(
+            alertTarget === undefined ? transition(node) : Effect.void
+          )
+        );
       })
     );
 
