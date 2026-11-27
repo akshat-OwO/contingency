@@ -541,7 +541,7 @@ journey(
 );
 
 journey(
-  "keeps the widget app in front under its permission alert through iosWindowViewport, refusal, and confirmation (fake backend: no Springboard following or session validation)",
+  "reads a system permission alert after observeOnly raises OBSERVATION_UNAVAILABLE, keeping the widget app in front through iosWindowViewport, refusal, and confirmation",
   { singleTool: true },
   Effect.gen(function* iosSystemPermissionAlertJourney() {
     const fs = yield* FileSystem.FileSystem;
@@ -607,9 +607,16 @@ journey(
         { _tag: "observe", image: false, sessionId: started.id },
         "user"
       );
+      expect(device.observeOnlyAlertRefusals()).toBeGreaterThan(0);
       expect(onAlert.observation?.width).toBe(402);
       expect(onAlert.observation?.height).toBe(874);
-      expect(findIosNode(onAlert, "button", "Allow Once").bounds).toBeDefined();
+      const teachingAllowOnce = findIosNode(onAlert, "button", "Allow Once");
+      expect(teachingAllowOnce.covered).toBe(false);
+      expect(teachingAllowOnce.bounds).toBeDefined();
+      expect(
+        findIosNode(onAlert, "button", "Allow While Using App").covered
+      ).toBe(false);
+      expect(findIosNode(onAlert, "button", "Don’t Allow").covered).toBe(false);
       yield* workspace.forward(
         {
           inputs: tap(
@@ -678,12 +685,7 @@ journey(
       const openedAlert = actions.find(
         (entry) => entry.description === "Activate button Continue"
       );
-      const answeredAlert = actions.find(
-        (entry) => entry.description === "Activate button Allow Once"
-      );
       expect(openedAlert?.after.title).toBe(IOS_WIDGET_APP);
-      expect(answeredAlert?.before.title).toBe(IOS_WIDGET_APP);
-      expect(answeredAlert?.target?.context).toEqual([IOS_WIDGET_APP]);
       yield* call("agent_flow_save", {
         claimOperationId: claimOp,
         files: [
@@ -759,12 +761,12 @@ journey(
       expect(alertScreen.observation?.width).toBe(402);
       expect(alertScreen.observation?.height).toBe(874);
       const alertObservationId = observationIdOf(alertScreen);
+      const allowOnce = findIosNode(alertScreen, "button", "Allow Once");
       const allowWhileUsing = findIosNode(
         alertScreen,
         "button",
         "Allow While Using App"
       );
-      const allowOnce = findIosNode(alertScreen, "button", "Allow Once");
 
       // Action policy refuses filling a non-editable permission button.
       const refusedFill = yield* Effect.flip(
@@ -818,7 +820,8 @@ journey(
       expect(afterRefuse.pendingDecision).toBeNull();
       expect(device.currentCapture()).toBe(IOS_WIDGET_PERMISSION_ALERT);
 
-      // A fresh irreversible attempt on Allow Once pauses, and approval dismisses the alert.
+      // A fresh irreversible attempt on Allow Once pauses, and approval
+      // presses Allow Once by exact label and observed prompt message.
       const pausedAllowOnce = decodeIosSnapshot(
         yield* call("agent_device_workspace", {
           command: {
@@ -859,7 +862,8 @@ journey(
           command: {
             _tag: "complete",
             assessment: {
-              explanation: "Dismissed the system permission alert cleanly.",
+              explanation:
+                "Answered the system permission alert with Allow Once.",
               observationId: observationIdOf(afterApprove),
               outcome: "working",
             },
@@ -875,6 +879,435 @@ journey(
         recordingId,
       });
       expect(listed.recordings[0]?.lifecycle).toBe("dry-run-passed");
+    }).pipe(
+      Effect.provide(
+        scriptedProcess(root, {
+          iosWorkspace: makeCorpusIosWorkspaceLayer({
+            device,
+            root: () => root,
+          }),
+        })
+      ),
+      Effect.scoped
+    );
+  })
+);
+
+journey(
+  "refuses a confirmed iOS permission button when a replacement prompt shares the same label",
+  { singleTool: true },
+  Effect.gen(function* replacedPermissionPromptJourney() {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped({
+      prefix: "contingency-ios-replaced-prompt-",
+    });
+    const selection = corpusIosSelection({
+      conditions: [{ name: "Continue", role: "button" }],
+      outcomes: [{ name: "Continue", role: "button" }],
+    });
+    let swapOnNextActivate: string | null = null;
+    let swapAtStage: {
+      readonly message: string;
+      readonly stage:
+        | "after_initial_check"
+        | "during_coordinate_prep"
+        | "after_revalidation_button_read";
+    } | null = null;
+    const device = makeCorpusNativeBackend({
+      beforeActivate: () =>
+        Effect.sync(() => {
+          if (swapOnNextActivate !== null) {
+            device.setAlertMessageOverride(swapOnNextActivate);
+            swapOnNextActivate = null;
+          }
+        }),
+      device: corpusIosSimulator,
+      onAlertStage: (stage) => {
+        if (swapAtStage !== null && swapAtStage.stage === stage) {
+          device.setAlertMessageOverride(swapAtStage.message);
+          swapAtStage = null;
+        }
+      },
+      platform: "ios",
+      script: IOS_WIDGET_SCRIPT,
+    });
+    const flowName = FlowName.make("ios-replaced-prompt");
+    yield* Effect.gen(function* runReplacedPromptChecks() {
+      const workspace = yield* IosWorkspace;
+
+      const taught = yield* workspace.execute(
+        {
+          _tag: "start",
+          flowName,
+          kind: "teaching",
+          operationId: op("rep-teach-start"),
+          recordingId: null,
+          selection,
+        },
+        "user"
+      );
+      yield* workspace.execute(
+        {
+          _tag: "prepare",
+          operationId: op("rep-teach-prepare"),
+          sessionId: taught.id,
+        },
+        "user"
+      );
+      yield* workspace.execute(
+        {
+          _tag: "record",
+          operationId: op("rep-teach-record"),
+          sessionId: taught.id,
+          start: true,
+        },
+        "user"
+      );
+      yield* workspace.forward(
+        {
+          inputs: tap(
+            device.controlCenter("controls", {
+              name: "Continue",
+              role: "button",
+            })
+          ),
+          sessionId: taught.id,
+        },
+        "user"
+      );
+      yield* workspace.execute(
+        { _tag: "observe", image: false, sessionId: taught.id },
+        "user"
+      );
+      const stopped = yield* workspace.execute(
+        {
+          _tag: "record",
+          operationId: op("rep-teach-stop"),
+          sessionId: taught.id,
+          start: false,
+        },
+        "user"
+      );
+      yield* workspace.execute(
+        {
+          _tag: "close",
+          operationId: op("rep-teach-close"),
+          sessionId: taught.id,
+        },
+        "user"
+      );
+      const { recordingId } = stopped;
+      if (recordingId === null) {
+        return yield* Effect.die("Teaching must produce a recording.");
+      }
+      const claimOp = op("rep-claim");
+      yield* call("agent_teaching_recording_claim", {
+        action: "take",
+        operationId: claimOp,
+        recordingId,
+      });
+      yield* call("agent_flow_save", {
+        claimOperationId: claimOp,
+        files: [
+          {
+            content: [
+              "---",
+              `name: ${flowName}`,
+              "description: Confirm permission prompt without answering a replacement prompt.",
+              "inputs:",
+              "---",
+              "",
+              "# Replaced prompt guard",
+              "",
+              "1. Activate button Continue. Done when: the permission alert appears.",
+              "2. Confirm and activate button Allow Once. Done when: Continue is visible.",
+              "",
+            ].join("\n"),
+            path: "flow.md",
+          },
+        ],
+        nativeConditions: {
+          outcomes: [{ name: "Continue", role: "button" }],
+          starting: [{ name: "Continue", role: "button" }],
+        },
+        recordingId,
+      });
+      const startIntervention = yield* Effect.flip(
+        call("agent_device_workspace", {
+          command: {
+            _tag: "start",
+            flowName,
+            kind: "dry-run",
+            operationId: op("rep-dry-start"),
+            recordingId,
+            selection,
+          },
+          platform: "ios",
+        })
+      );
+      const dryRunSessionId = AgentSessionId.make(
+        startIntervention.intervention?.sessionId ?? ""
+      );
+      yield* workspace.execute(
+        {
+          _tag: "prepare",
+          operationId: op("rep-dry-prepare"),
+          sessionId: dryRunSessionId,
+        },
+        "user"
+      );
+      const prepared = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "observe",
+            image: false,
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      const continueBtn = findIosNode(prepared, "button", "Continue");
+      const promptA = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "input",
+            action: { _tag: "activate", target: continueBtn.target },
+            observationId: observationIdOf(prepared),
+            operationId: op("rep-dry-open-alert"),
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      const promptAAllowOnce = findIosNode(promptA, "button", "Allow Once");
+
+      // Case 1: Prompt A is replaced by Prompt B (different message, same button
+      // label "Allow Once") while waiting for Confirmation. Approval must refuse
+      // with a retriable refusal and leave Prompt B untouched.
+      const paused = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "input",
+            action: { _tag: "activate", target: promptAAllowOnce.target },
+            irreversible: true,
+            observationId: observationIdOf(promptA),
+            operationId: op("rep-dry-confirm-prompt-a"),
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      const decisionId = pendingDecisionIdOf(paused);
+      const promptBMessage =
+        "“Contingency Widgets” Would Like to Access Your Photos";
+      device.setAlertMessageOverride(promptBMessage);
+
+      const refusedAcrossConfirm = yield* Effect.flip(
+        call("agent_device_workspace", {
+          command: {
+            _tag: "decide",
+            allow: true,
+            decisionId,
+            operationId: op("rep-dry-approve-stale-prompt"),
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(refusedAcrossConfirm.code).toBe("ios_workspace_refused");
+      expect(device.currentCapture()).toBe(IOS_WIDGET_PERMISSION_ALERT);
+
+      // Session stayed running (retriable), so the agent can observe Prompt B.
+      const promptB = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "observe",
+            image: false,
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(promptB.phase).toBe("running");
+      expect(findIosNode(promptB, "alert", promptBMessage).name).toBe(
+        promptBMessage
+      );
+      const promptBAllowOnce = findIosNode(promptB, "button", "Allow Once");
+
+      // Case 2: Prompt B is replaced by Prompt C in the narrow window after
+      // pre-dispatch observation and right before `alert press` runs. The
+      // runner's expectedMessage guard refuses with ALERT_MISMATCH, surfaced
+      // as a retriable refusal while keeping the session running.
+      const promptCMessage =
+        "“Contingency Widgets” Would Like to Access the Camera";
+      swapOnNextActivate = promptCMessage;
+      const refusedAtDispatch = yield* Effect.flip(
+        call("agent_device_workspace", {
+          command: {
+            _tag: "input",
+            action: { _tag: "activate", target: promptBAllowOnce.target },
+            observationId: observationIdOf(promptB),
+            operationId: op("rep-dry-dispatch-stale-prompt"),
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(refusedAtDispatch.code).toBe("ios_workspace_refused");
+      expect(device.currentCapture()).toBe(IOS_WIDGET_PERMISSION_ALERT);
+
+      // Session is still running; observe Prompt C.
+      const promptC = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "observe",
+            image: false,
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(promptC.phase).toBe("running");
+      expect(findIosNode(promptC, "alert", promptCMessage).name).toBe(
+        promptCMessage
+      );
+      const promptCAllowOnce = findIosNode(promptC, "button", "Allow Once");
+
+      // Case 3: Prompt C passes the runner's initial expectedMessage check, then
+      // is replaced by Prompt D (same button label and frame) during presentation
+      // capture / hittability wait before dispatch. Final pre-submit revalidation
+      // refuses with ALERT_MISMATCH (dispatched: "no"), leaving the session
+      // running and Prompt D untouched.
+      const promptDMessage =
+        "“Contingency Widgets” Would Like to Access Bluetooth";
+      swapAtStage = { message: promptDMessage, stage: "after_initial_check" };
+      const refusedAfterInitialCheck = yield* Effect.flip(
+        call("agent_device_workspace", {
+          command: {
+            _tag: "input",
+            action: { _tag: "activate", target: promptCAllowOnce.target },
+            observationId: observationIdOf(promptC),
+            operationId: op("rep-dry-post-check-stale-prompt"),
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(refusedAfterInitialCheck.code).toBe("ios_workspace_refused");
+      expect(device.currentCapture()).toBe(IOS_WIDGET_PERMISSION_ALERT);
+
+      const promptD = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "observe",
+            image: false,
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(promptD.phase).toBe("running");
+      expect(findIosNode(promptD, "alert", promptDMessage).name).toBe(
+        promptDMessage
+      );
+      const promptDAllowOnce = findIosNode(promptD, "button", "Allow Once");
+
+      // Case 4: Prompt D is replaced by Prompt E (same button label and frame)
+      // during coordinate and event-record preparation. Because the final check
+      // runs after the event record is prepared, immediately before submit, it
+      // refuses with ALERT_MISMATCH (dispatched: "no") and leaves Prompt E intact.
+      const promptEMessage =
+        "“Contingency Widgets” Would Like to Access Your Contacts";
+      swapAtStage = {
+        message: promptEMessage,
+        stage: "during_coordinate_prep",
+      };
+      const refusedDuringCoordPrep = yield* Effect.flip(
+        call("agent_device_workspace", {
+          command: {
+            _tag: "input",
+            action: { _tag: "activate", target: promptDAllowOnce.target },
+            observationId: observationIdOf(promptD),
+            operationId: op("rep-dry-coord-prep-stale-prompt"),
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(refusedDuringCoordPrep.code).toBe("ios_workspace_refused");
+      expect(device.currentCapture()).toBe(IOS_WIDGET_PERMISSION_ALERT);
+
+      const promptE = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "observe",
+            image: false,
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(promptE.phase).toBe("running");
+      expect(findIosNode(promptE, "alert", promptEMessage).name).toBe(
+        promptEMessage
+      );
+      const promptEAllowOnce = findIosNode(promptE, "button", "Allow Once");
+
+      // Case 5: Prompt E is replaced by Prompt F (same button label and frame)
+      // after the final revalidation button read and before the final title read.
+      // The final title read (last operation before submit) refuses with
+      // ALERT_MISMATCH (dispatched: "no") and leaves Prompt F intact.
+      const promptFMessage =
+        "“Contingency Widgets” Would Like to Access the Microphone";
+      swapAtStage = {
+        message: promptFMessage,
+        stage: "after_revalidation_button_read",
+      };
+      const refusedAfterButtonRead = yield* Effect.flip(
+        call("agent_device_workspace", {
+          command: {
+            _tag: "input",
+            action: { _tag: "activate", target: promptEAllowOnce.target },
+            observationId: observationIdOf(promptE),
+            operationId: op("rep-dry-button-read-stale-prompt"),
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(refusedAfterButtonRead.code).toBe("ios_workspace_refused");
+      expect(device.currentCapture()).toBe(IOS_WIDGET_PERMISSION_ALERT);
+
+      // Session is still running; observing Prompt F and pressing Allow Once succeeds.
+      const promptF = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "observe",
+            image: false,
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(promptF.phase).toBe("running");
+      expect(findIosNode(promptF, "alert", promptFMessage).name).toBe(
+        promptFMessage
+      );
+      const promptFAllowOnce = findIosNode(promptF, "button", "Allow Once");
+      const answered = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "input",
+            action: { _tag: "activate", target: promptFAllowOnce.target },
+            observationId: observationIdOf(promptF),
+            operationId: op("rep-dry-answer-prompt-f"),
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(answered.phase).toBe("running");
+      expect(device.currentCapture()).toBe("controls");
     }).pipe(
       Effect.provide(
         scriptedProcess(root, {

@@ -2011,8 +2011,14 @@ export const makeIosWorkspaceLayer = (options: {
             acceptObservation(session, before);
           }
           yield* recordGestures(session, gestures, before);
+          const selectedAlert =
+            selectedObservation.nodes.find((node) => node.role === "alert")
+              ?.name ?? null;
+          const beforeAlert =
+            before.nodes.find((node) => node.role === "alert")?.name ?? null;
+          const alertChanged = selectedAlert !== beforeAlert;
           const named =
-            selectedTarget === undefined
+            selectedTarget === undefined || alertChanged
               ? []
               : before.nodes.filter(
                   (node) =>
@@ -2098,16 +2104,24 @@ export const makeIosWorkspaceLayer = (options: {
           } else if (isSystemKeyInput(action)) {
             yield* session.run.systemKey(before.id, action._tag);
           } else {
-            const dispatched = yield* session.run.dispatch(
-              before.id,
-              action._tag === "fill"
-                ? {
-                    target: target?.target ?? "",
-                    text: action.text,
-                    type: "fill",
-                  }
-                : { target: target?.target ?? "", type: "activate" }
-            );
+            const dispatched = yield* session.run
+              .dispatch(
+                before.id,
+                action._tag === "fill"
+                  ? {
+                      target: target?.target ?? "",
+                      text: action.text,
+                      type: "fill",
+                    }
+                  : { target: target?.target ?? "", type: "activate" }
+              )
+              .pipe(
+                Effect.mapError((cause) =>
+                  cause.code === "target_changed"
+                    ? error("ios_workspace_refused", cause.message)
+                    : cause
+                )
+              );
             fillResult = dispatched || undefined;
           }
           const after = yield* observeIosPostAction(

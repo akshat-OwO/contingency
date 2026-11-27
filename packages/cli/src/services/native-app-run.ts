@@ -129,7 +129,13 @@ export const createNativeAppRun = <
       });
     const guarded = <A>(effect: Effect.Effect<A, PlatformRuntimeError>) =>
       effect.pipe(
-        Effect.tapError(paused),
+        Effect.tapError((failure) =>
+          failure.code === "target_changed"
+            ? Effect.sync(() => {
+                registry.set(latest, null);
+              })
+            : paused(failure)
+        ),
         Effect.onInterrupt(() => paused(makeError("execution_canceled")))
       );
     const observed = (observation: Observation, retainEvidence = true) =>

@@ -267,6 +267,9 @@ describe("corpus-backed fake native device", () => {
         );
         yield* fake.backend.activate(continueButton?.target ?? "");
         const permissionAlert = yield* fake.backend.capture({ image: false });
+        // The fake raised OBSERVATION_UNAVAILABLE on observeOnly and fell back
+        // through makeIosSessionAccess after appState confirmed runningForeground.
+        expect(fake.observeOnlyAlertRefusals()).toBe(1);
         expect(permissionAlert.appId).toBe(IOS_WIDGET_APP);
         expect(
           new Set(permissionAlert.nodes.map((node) => node.packageName))

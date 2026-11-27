@@ -24,3 +24,6 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - "@ui-sdk/core@0.1.0-beta.5"
   - "@ui-sdk/react@0.1.0-beta.5"
+
+patchedDependencies:
+  agent-device@0.21.41: patches/agent-device@0.21.41.patch

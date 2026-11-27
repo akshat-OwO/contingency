@@ -7,7 +7,9 @@ import type {
   IosWorkspaceSelection,
   NativeInput,
 } from "@contingency/protocol";
-import { Effect, Layer, Schema, Stream } from "effect";
+import { AppError } from "agent-device";
+import type { AlertCommandOptions, CaptureSnapshotOptions } from "agent-device";
+import { Effect, Layer, Option, Schema, Stream } from "effect";
 
 import {
   androidNodeInteraction,
@@ -29,12 +31,20 @@ import {
   iosNodeName,
 } from "../../src/services/ios-observation.ts";
 import {
+  IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
+  iosAlertActivateFailure,
+  iosAlertNodes,
   iosCapabilities,
+  iosForegroundUnknown,
   iosRuntimeError,
   iosSystemKeys,
   iosWindowViewport,
+  makeIosSessionAccess,
 } from "../../src/services/ios-runtime.ts";
-import type { IosObservation } from "../../src/services/ios-runtime.ts";
+import type {
+  IosAlertTarget,
+  IosObservation,
+} from "../../src/services/ios-runtime.ts";
 import type { IosDeviceStream } from "../../src/services/ios-stream.ts";
 import { makeIosWorkspaceLayer } from "../../src/services/ios-workspace.ts";
 import { nativeAppActionPolicy } from "../../src/services/native-app-action-policy.ts";
@@ -141,9 +151,13 @@ export interface CorpusNativeDevice<
   readonly failNextCaptures: (count: number) => void;
   /** Applies Forwarded Input taps to the scripted screen graph. */
   readonly forwardInputs: (inputs: readonly NativeInput[]) => void;
+  /** Number of times an iOS `observeOnly` snapshot raised `OBSERVATION_UNAVAILABLE` for a system alert. */
+  readonly observeOnlyAlertRefusals: () => number;
   readonly recoveries: () => number;
   /** Returns the device to the script's start capture, as app restart does. */
   readonly reset: () => void;
+  /** Replaces the presented iOS system alert's message while keeping its buttons (for prompt-replacement tests). */
+  readonly setAlertMessageOverride: (message: string | null) => void;
 }
 
 /** Synthesized PNG cache keyed by `${width}x${height}`. */
@@ -246,11 +260,14 @@ export const IOS_WIDGET_APP = "dev.contingency.ioswidgets";
 export const IOS_WIDGET_PERMISSION_ALERT = "widget-permission-alert";
 
 /**
- * `system-permission-alert` was captured over Calendar. iOS presents a
- * permission alert inside the app that asked for it, and the bound app's tree
- * then arrives with the alert as its root, so the app stays in front
- * (`fillsScreen`). This re-homes that alert on the widget app: only the owning
- * app and the app named in the title change. The usage text stays Calendar's.
+ * `system-permission-alert` was captured over Calendar. On real iOS,
+ * `observeOnly` snapshots over a presented system permission alert reject with
+ * `OBSERVATION_UNAVAILABLE` and the system-alert hint while `appState` still
+ * reports the bound app `runningForeground`; Contingency then reads the alert
+ * through the non-activating `alert get` path and answers it through
+ * `alert accept` / `alert dismiss` so observation can never reactivate a
+ * backgrounded app. This re-homes Calendar's alert on the widget app so the
+ * fake exercises that real `makeIosSessionAccess` path.
  */
 const widgetPermissionAlert = (): CorpusCapture => {
   const calendar = readCaptureFile("ios", "system-permission-alert");
@@ -353,7 +370,62 @@ const mapNodes = (
       : { ...observed, bounds: node.rect };
   });
 
-const generationPattern = /~s(?<generation>\d+)$/u;
+const generationPattern = /~[as](?<generation>\d+)$/u;
+
+const selectCorpusAlertButton = (
+  items: readonly string[],
+  alertOptions: AlertCommandOptions
+): string | undefined => {
+  if (alertOptions.buttonIndex !== undefined) {
+    const candidate = items[alertOptions.buttonIndex];
+    if (
+      candidate !== undefined &&
+      (alertOptions.buttonLabel === undefined ||
+        candidate.trim() === alertOptions.buttonLabel.trim())
+    ) {
+      return candidate;
+    }
+    return undefined;
+  }
+  if (alertOptions.buttonLabel !== undefined) {
+    const requested = alertOptions.buttonLabel.trim();
+    const matched = items.filter((label) => label.trim() === requested);
+    const [single] = matched;
+    return matched.length === 1 ? single : undefined;
+  }
+  return undefined;
+};
+
+export type CorpusIosAlertStage =
+  | "after_initial_check"
+  | "during_coordinate_prep"
+  | "after_revalidation_button_read";
+
+const alertMismatchAppError = (message: string): AppError =>
+  new AppError("COMMAND_FAILED", message, {
+    dispatched: "no",
+    reason: "alert_mismatch",
+    runnerErrorCode: "ALERT_MISMATCH",
+  });
+
+const alertButtonsMatch = (input: {
+  readonly alertOptions: AlertCommandOptions;
+  readonly liveButtons: readonly {
+    readonly label: string;
+    readonly rect?: CorpusCapture["nodes"][number]["rect"];
+  }[];
+  readonly selectedLabel: string;
+  readonly selectedRect: CorpusCapture["nodes"][number]["rect"] | undefined;
+}): boolean => {
+  const { alertOptions, liveButtons, selectedLabel, selectedRect } = input;
+  const liveItems = liveButtons.map((button) => button.label);
+  const liveLabel = selectCorpusAlertButton(liveItems, alertOptions);
+  if (liveLabel !== selectedLabel) {
+    return false;
+  }
+  const liveButton = liveButtons.find((button) => button.label === liveLabel);
+  return JSON.stringify(liveButton?.rect) === JSON.stringify(selectedRect);
+};
 
 const runtimeErrorFor = (
   platform: NativeAppPlatform,
@@ -408,6 +480,11 @@ interface CorpusIosBackendOptions {
     target: string
   ) => Effect.Effect<void, PlatformRuntimeError>;
   readonly device: IosDevice;
+  /** Runs at discrete stages inside the fake `alert` runner to model races between separate XCTest reads. */
+  readonly onAlertStage?: (
+    stage: CorpusIosAlertStage,
+    options: AlertCommandOptions
+  ) => void;
   readonly platform: "ios";
   readonly script: CorpusScript;
   readonly sessionId?: string;
@@ -429,12 +506,15 @@ export function makeCorpusNativeBackend(
   let currentId = options.script.start;
   let generation = 0;
   let captureCount = 0;
+  let observeOnlyAlertRefusalCount = 0;
   let recoveryCount = 0;
   let failRemaining = 0;
   let failUntilRecover = false;
   let cachedWindow: { readonly height: number; readonly width: number } | null =
     null;
   let activeNodes = new Map<string, MappedNode>();
+  let activeAlertActions: ReadonlyMap<string, IosAlertTarget> = new Map();
+  let alertMessageOverride: string | null = null;
   const recognizer = makeGestureRecognizer();
   let forwardedSequence = 0;
 
@@ -457,6 +537,229 @@ export function makeCorpusNativeBackend(
         candidate.on.role === node.role &&
         candidate.on.name === node.name
     );
+
+  const iosDevice = options.platform === "ios" ? options.device : undefined;
+
+  const readAlertTitle = (): string | null => {
+    const screen = currentCapture();
+    if (screen.nodes[0]?.type !== "Alert") {
+      return null;
+    }
+    return alertMessageOverride ?? screen.nodes[0]?.label ?? "System Alert";
+  };
+
+  const readAlertButtons = () => {
+    const screen = currentCapture();
+    if (screen.nodes[0]?.type !== "Alert") {
+      return null;
+    }
+    return screen.nodes.flatMap((node) => {
+      if (node.type !== "Button" || node.label === undefined) {
+        return [];
+      }
+      return [
+        node.rect === undefined
+          ? { label: node.label }
+          : { label: node.label, rect: node.rect },
+      ];
+    });
+  };
+
+  const readAlertGeometry = () => {
+    const screen = currentCapture();
+    if (screen.nodes[0]?.type !== "Alert") {
+      return null;
+    }
+    return {
+      referenceViewport: cachedWindow ?? screen.viewport,
+      rootRect: screen.nodes[0]?.rect,
+    };
+  };
+
+  const emitAlertStage = (
+    stage: CorpusIosAlertStage,
+    alertOptions: AlertCommandOptions
+  ) => {
+    if (options.platform === "ios") {
+      options.onAlertStage?.(stage, alertOptions);
+    }
+  };
+
+  const verifyAlertBeforeSubmit = (
+    alertOptions: AlertCommandOptions,
+    selectedLabel: string,
+    selectedRect: CorpusCapture["nodes"][number]["rect"] | undefined
+  ): boolean => {
+    // Mirrors the patched runner's final pre-submit identity check inside
+    // RunnerSynthesizedGesture: live button label/frame read first, then the
+    // live alert title read last immediately before event submission.
+    const liveButtons = readAlertButtons();
+    if (
+      liveButtons === null ||
+      !alertButtonsMatch({
+        alertOptions,
+        liveButtons,
+        selectedLabel,
+        selectedRect,
+      })
+    ) {
+      return false;
+    }
+    emitAlertStage("after_revalidation_button_read", alertOptions);
+    const liveTitle = readAlertTitle();
+    if (liveTitle === null) {
+      return false;
+    }
+    if (
+      alertOptions.expectedMessage !== undefined &&
+      liveTitle.trim() !== alertOptions.expectedMessage.trim()
+    ) {
+      return false;
+    }
+    return true;
+  };
+
+  const sdkAlert =
+    iosDevice === undefined
+      ? undefined
+      : (alertOptions: AlertCommandOptions) => {
+          const initialTitle = readAlertTitle();
+          if (initialTitle === null) {
+            return Promise.reject(
+              new AppError("COMMAND_FAILED", "alert not found", {
+                dispatched: "no",
+                reason: "alert-not-found",
+                runnerErrorCode: "ALERT_NOT_FOUND",
+              })
+            );
+          }
+          if (
+            alertOptions.action === "accept" ||
+            alertOptions.action === "dismiss" ||
+            alertOptions.action === "press"
+          ) {
+            if (
+              alertOptions.expectedMessage !== undefined &&
+              alertOptions.expectedMessage.trim() !== initialTitle.trim()
+            ) {
+              return Promise.reject(
+                alertMismatchAppError(
+                  "alert message did not match expected message"
+                )
+              );
+            }
+            const initialButtons = readAlertButtons() ?? [];
+            const selectedLabel = selectCorpusAlertButton(
+              initialButtons.map((button) => button.label),
+              alertOptions
+            );
+            if (selectedLabel === undefined) {
+              return Promise.reject(
+                new AppError(
+                  "COMMAND_FAILED",
+                  `alert ${alertOptions.action} button not found`,
+                  {
+                    dispatched: "no",
+                    runnerErrorCode: "ALERT_BUTTON_NOT_FOUND",
+                  }
+                )
+              );
+            }
+            const selectedButton = initialButtons.find(
+              (button) => button.label === selectedLabel
+            );
+            emitAlertStage("after_initial_check", alertOptions);
+            // Prepare window geometry, coordinate, and event record before the
+            // final pre-submit identity check.
+            readAlertGeometry();
+            emitAlertStage("during_coordinate_prep", alertOptions);
+            if (
+              !verifyAlertBeforeSubmit(
+                alertOptions,
+                selectedLabel,
+                selectedButton?.rect
+              )
+            ) {
+              return Promise.reject(
+                alertMismatchAppError(
+                  "alert presentation changed before button dispatch"
+                )
+              );
+            }
+            const next = transitionFor("activate", {
+              name: selectedLabel,
+              role: "button",
+            });
+            if (next !== undefined) {
+              currentId = next.to;
+              alertMessageOverride = null;
+            }
+            return Promise.resolve({ message: "pressed" });
+          }
+          const buttons = readAlertButtons() ?? [];
+          const geometry = readAlertGeometry();
+          return Promise.resolve({
+            buttons,
+            items: buttons.map((button) => button.label),
+            message: initialTitle,
+            rect: geometry?.rootRect,
+            referenceHeight: geometry?.referenceViewport.height,
+            referenceWidth: geometry?.referenceViewport.width,
+          });
+        };
+
+  const iosSessionAccess =
+    iosDevice !== undefined && sdkAlert !== undefined
+      ? makeIosSessionAccess({
+          alert: sdkAlert,
+          appState: () =>
+            Promise.resolve({
+              appBundleId: currentCapture().source.app,
+              appName: currentCapture().source.app,
+              device_udid: iosDevice.udid,
+              platform: "ios" as const,
+              source: "runner" as const,
+              state: "runningForeground" as const,
+              surface: "app" as const,
+            }),
+          open: () => Promise.resolve({}),
+          options: () => ({
+            platform: "ios" as const,
+            requestId: `${sessionId}-req-${captureCount}`,
+            udid: iosDevice.udid,
+          }),
+          snapshot: (snapshotOptions: CaptureSnapshotOptions) => {
+            const screen = currentCapture();
+            if (
+              screen.nodes[0]?.type === "Alert" &&
+              snapshotOptions.observeOnly === true
+            ) {
+              observeOnlyAlertRefusalCount += 1;
+              return Promise.reject(
+                new AppError(
+                  "OBSERVATION_UNAVAILABLE",
+                  "The session app cannot be observed without activation.",
+                  {
+                    dispatched: "no",
+                    hint: IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
+                    runner: {
+                      error: {
+                        code: "OBSERVATION_UNAVAILABLE",
+                        hint: IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
+                        message:
+                          "The session app cannot be observed without activation.",
+                      },
+                      ok: false,
+                    },
+                    runnerErrorCode: "OBSERVATION_UNAVAILABLE",
+                  }
+                )
+              );
+            }
+            return Promise.resolve(screen);
+          },
+        })
+      : undefined;
 
   const resolveTarget = (
     target: string,
@@ -485,23 +788,78 @@ export function makeCorpusNativeBackend(
   const capture = (
     captureOptions?: NativeCaptureOptions
   ): Effect.Effect<AndroidObservation | IosObservation, PlatformRuntimeError> =>
-    Effect.suspend<
-      AndroidObservation | IosObservation,
-      PlatformRuntimeError,
-      never
-    >(() => {
+    Effect.gen(function* captureCorpus() {
       captureCount += 1;
       if (failUntilRecover || failRemaining > 0) {
         if (failRemaining > 0) {
           failRemaining -= 1;
         }
-        return Effect.fail({
+        return yield* Effect.fail({
           ...runtimeErrorFor(options.platform, "capture_incomplete"),
-          operation: "capture",
+          operation: "capture" as const,
         });
       }
+      let screen: CorpusCapture;
+      if (iosSessionAccess === undefined || iosDevice === undefined) {
+        screen = currentCapture();
+      } else {
+        const read = yield* iosSessionAccess.snapshot(
+          currentCapture().source.app
+        );
+        if (Option.isNone(read)) {
+          return yield* Effect.fail(iosForegroundUnknown());
+        }
+        if (read.value._tag === "alert") {
+          generation += 1;
+          const alertScreen = currentCapture();
+          const viewport = cachedWindow ?? alertScreen.viewport;
+          cachedWindow = viewport;
+          const { height, width } = viewport;
+          const scale =
+            read.value.alert.referenceWidth !== undefined &&
+            read.value.alert.referenceHeight !== undefined
+              ? {
+                  sx: width / read.value.alert.referenceWidth,
+                  sy: height / read.value.alert.referenceHeight,
+                }
+              : { sx: 1, sy: 1 };
+          const built = iosAlertNodes(
+            read.value.alert,
+            alertScreen.source.app,
+            generation,
+            scale
+          );
+          activeAlertActions = built.actions;
+          activeNodes = new Map(
+            built.nodes.flatMap((node) =>
+              node.target === "" ? [] : [[node.target, node]]
+            )
+          );
+          const observation: IosObservation = {
+            appId: alertScreen.source.app,
+            backendSessionId: sessionId,
+            device: iosDevice,
+            frame: { height, width },
+            generation,
+            id: `${sessionId}-obs-${generation}`,
+            nodes: built.nodes,
+            platform: "ios",
+            screenshot: {
+              capturedAt: alertScreen.capturedAt,
+              encoding: "base64" as const,
+              format: "png" as const,
+              image:
+                captureOptions?.image === false
+                  ? ""
+                  : synthesizePngBase64(width, height),
+            },
+          };
+          return observation;
+        }
+        screen = read.value.snapshot;
+      }
+      activeAlertActions = new Map();
       generation += 1;
-      const screen = currentCapture();
       const nodes = mapNodes(options.platform, screen, generation);
       activeNodes = new Map(
         nodes.flatMap((node) =>
@@ -550,7 +908,7 @@ export function makeCorpusNativeBackend(
           platform: "android",
           screenshot,
         };
-        return Effect.succeed(observation);
+        return observation;
       }
       const observation: IosObservation = {
         appId: screen.source.app,
@@ -563,21 +921,40 @@ export function makeCorpusNativeBackend(
         platform: "ios",
         screenshot,
       };
-      return Effect.succeed(observation);
+      return observation;
     });
 
   const activate = (target: string) =>
     resolveTarget(target, "activate").pipe(
       Effect.tap(() => options.beforeActivate?.(target) ?? Effect.void),
-      Effect.tap((node) =>
-        Effect.sync(() => {
+      Effect.flatMap((node) => {
+        const alertTarget = activeAlertActions.get(target);
+        if (
+          alertTarget !== undefined &&
+          sdkAlert !== undefined &&
+          iosDevice !== undefined
+        ) {
+          return Effect.tryPromise({
+            catch: iosAlertActivateFailure,
+            try: () =>
+              sdkAlert({
+                action: "press",
+                buttonIndex: alertTarget.buttonIndex,
+                buttonLabel: alertTarget.buttonLabel,
+                expectedMessage: alertTarget.expectedMessage,
+                platform: "ios",
+                requestId: `${sessionId}-activate`,
+                udid: iosDevice.udid,
+              }),
+          }).pipe(Effect.asVoid);
+        }
+        return Effect.sync(() => {
           const next = transitionFor("activate", node);
           if (next !== undefined) {
             currentId = next.to;
           }
-        })
-      ),
-      Effect.asVoid
+        });
+      })
     );
 
   const fill = (target: string, _text: string) =>
@@ -688,11 +1065,16 @@ export function makeCorpusNativeBackend(
         }
       }
     },
+    observeOnlyAlertRefusals: () => observeOnlyAlertRefusalCount,
     recoveries: () => recoveryCount,
     reset: () => {
       currentId = options.script.start;
       cachedWindow = null;
+      alertMessageOverride = null;
       recognizer.reset();
+    },
+    setAlertMessageOverride: (message) => {
+      alertMessageOverride = message;
     },
   };
 }
