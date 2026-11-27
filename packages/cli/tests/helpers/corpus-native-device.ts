@@ -27,11 +27,14 @@ import type { AndroidDeviceStream } from "../../src/services/android-stream.ts";
 import { makeAndroidWorkspaceLayer } from "../../src/services/android-workspace.ts";
 import type { IosDevice } from "../../src/services/ios-contract.ts";
 import {
+  iosActivationClicks,
   iosNodeInteraction,
   iosNodeName,
 } from "../../src/services/ios-observation.ts";
+import type { IosActivationClick } from "../../src/services/ios-observation.ts";
 import {
   IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
+  iosAgentDeviceFailure,
   iosAlertActivateFailure,
   iosAlertNodes,
   iosCapabilities,
@@ -159,6 +162,8 @@ export interface CorpusNativeDevice<
   /** Number of times an iOS `observeOnly` snapshot raised `OBSERVATION_UNAVAILABLE` for a system alert. */
   readonly observeOnlyAlertRefusals: () => number;
   readonly recoveries: () => number;
+  /** iOS ref clicks at a point dispatched so far, as agent-device's `click({ ref, point })` received them. */
+  readonly refClicks: () => readonly IosActivationClick[];
   /** Returns the device to the script's start capture, as app restart does. */
   readonly reset: () => void;
   /** Replaces the presented iOS system alert's message while keeping its buttons (for prompt-replacement tests). */
@@ -520,6 +525,10 @@ export function makeCorpusNativeBackend(
   let cachedWindow: { readonly height: number; readonly width: number } | null =
     null;
   let activeNodes = new Map<string, MappedNode>();
+  let activeClicks: ReadonlyMap<string, IosActivationClick> = new Map();
+  // Refs agent-device refuses to tap because interactive children cover them.
+  let activeCovered: ReadonlySet<string> = new Set();
+  const refClicks: IosActivationClick[] = [];
   let activeAlertActions: ReadonlyMap<string, IosAlertTarget> = new Map();
   let alertMessageOverride: string | null = null;
   const recognizer = makeGestureRecognizer();
@@ -837,6 +846,7 @@ export function makeCorpusNativeBackend(
             scale
           );
           activeAlertActions = built.actions;
+          activeClicks = new Map();
           activeNodes = new Map(
             built.nodes.flatMap((node) =>
               node.target === "" ? [] : [[node.target, node]]
@@ -871,6 +881,24 @@ export function makeCorpusNativeBackend(
       activeNodes = new Map(
         nodes.flatMap((node) =>
           node.target === "" ? [] : [[node.target, node]]
+        )
+      );
+      // The iOS runtime activates these targets with a ref click at a point.
+      const mint = (ref: string | undefined) =>
+        ref === undefined ? "" : `@${ref.replace(/^@/u, "")}~s${generation}`;
+      activeClicks =
+        options.platform === "ios"
+          ? iosActivationClicks(screen.nodes, mint)
+          : new Map();
+      activeCovered = new Set(
+        screen.nodes.flatMap((parent) =>
+          screen.nodes.some(
+            (child) =>
+              child.parentIndex === parent.index &&
+              iosNodeInteraction(child).hittable
+          )
+            ? [mint(parent.ref)]
+            : []
         )
       );
       const viewport =
@@ -955,7 +983,43 @@ export function makeCorpusNativeBackend(
               }),
           }).pipe(Effect.asVoid);
         }
+        const click = activeClicks.get(target);
+        const frame =
+          click === undefined ? undefined : activeNodes.get(click.ref)?.bounds;
+        if (
+          click !== undefined &&
+          (frame === undefined ||
+            click.point.x < frame.x ||
+            click.point.x > frame.x + frame.width ||
+            click.point.y < frame.y ||
+            click.point.y > frame.y + frame.height)
+        ) {
+          // agent-device refuses a point outside the ref's frame before dispatch.
+          return Effect.fail(
+            iosAgentDeviceFailure(
+              new AppError("COMMAND_FAILED", "Point is outside the ref", {
+                reason: "point_outside_target",
+              }),
+              "runtime_failed",
+              "activate"
+            )
+          );
+        }
+        if (click !== undefined && activeCovered.has(click.ref)) {
+          return Effect.fail(
+            iosAgentDeviceFailure(
+              new AppError("COMMAND_FAILED", "Ref is covered", {
+                reason: "covered_by_interactive_descendants",
+              }),
+              "runtime_failed",
+              "activate"
+            )
+          );
+        }
         return Effect.sync(() => {
+          if (click !== undefined) {
+            refClicks.push(click);
+          }
           const next = transitionFor("activate", node);
           if (next !== undefined) {
             currentId = next.to;
@@ -1083,6 +1147,7 @@ export function makeCorpusNativeBackend(
     },
     observeOnlyAlertRefusals: () => observeOnlyAlertRefusalCount,
     recoveries: () => recoveryCount,
+    refClicks: () => refClicks,
     rejectNextFill: (cause) => {
       fillRejection = cause;
     },

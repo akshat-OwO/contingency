@@ -4,6 +4,7 @@ import path from "node:path";
 import { expect, it } from "@effect/vitest";
 
 import {
+  iosActivationClicks,
   iosActivationPoint,
   iosNodeInteraction,
 } from "../../src/services/ios-observation.ts";
@@ -92,6 +93,7 @@ it("normalizes the pinned SDK securetextfield kind", () => {
 // changes neither control; these points do.
 interface CorpusNode {
   readonly index: number;
+  readonly ref?: string;
   readonly kind?: string;
   readonly label?: string;
   readonly identifier?: string;
@@ -123,15 +125,43 @@ const node = (label: string) => {
 it("taps a stretched switch where UIKit draws it, not at the frame center", () => {
   const toggle = node("Notifications");
   expect(toggle.rect).toMatchObject({ width: 364, x: 20 });
-  expect(iosActivationPoint(controls.nodes, toggle)).toEqual({ x: 46, y: 320 });
+  expect(iosActivationPoint(controls.nodes, toggle)).toEqual({
+    index: toggle.index,
+    x: 46,
+    y: 320,
+  });
 });
-it("taps each half of a stretched stepper as its own button", () => {
-  expect(
-    iosActivationPoint(controls.nodes, node("Quantity, Decrement"))
-  ).toEqual({ x: 43, y: 463 });
+it("taps each half of a stretched stepper as its own button, through the button whose frame holds the drawn point", () => {
+  const decrement = node("Quantity, Decrement");
+  expect(iosActivationPoint(controls.nodes, decrement)).toEqual({
+    index: decrement.index,
+    x: 43,
+    y: 463,
+  });
+  // The drawn increment lies in the decrement's half of the stretched row.
   expect(
     iosActivationPoint(controls.nodes, node("Quantity, Increment"))
-  ).toEqual({ x: 89, y: 463 });
+  ).toEqual({ index: decrement.index, x: 89, y: 463 });
+});
+const generationSeven = (ref: string | undefined) =>
+  ref === undefined ? "" : `@${ref}~s7`;
+it("activates moved controls with a ref click at a point inside that ref's frame", () => {
+  const target = generationSeven;
+  const clicks = iosActivationClicks(controls.nodes, target);
+  expect(Object.fromEntries(clicks)).toEqual({
+    "@e12~s7": { point: { x: 46, y: 320 }, ref: "@e12~s7" },
+    "@e19~s7": { point: { x: 43, y: 463 }, ref: "@e19~s7" },
+    "@e20~s7": { point: { x: 89, y: 463 }, ref: "@e19~s7" },
+  });
+  for (const { point, ref } of clicks.values()) {
+    const { rect } =
+      controls.nodes.find((each) => target(each.ref) === ref) ?? {};
+    expect(rect).toBeDefined();
+    expect(point.x).toBeGreaterThanOrEqual(rect?.x ?? Infinity);
+    expect(point.x).toBeLessThanOrEqual((rect?.x ?? 0) + (rect?.width ?? 0));
+    expect(point.y).toBeGreaterThanOrEqual(rect?.y ?? Infinity);
+    expect(point.y).toBeLessThanOrEqual((rect?.y ?? 0) + (rect?.height ?? 0));
+  }
 });
 it("leaves frame-center taps for every other corpus control", () => {
   const moved = controls.nodes
@@ -179,8 +209,12 @@ it("orders unlabelled stepper buttons decrement first", () => {
     rect: stepper.rect,
   };
   const nodes = [stepper, first, second];
-  expect(iosActivationPoint(nodes, first)).toEqual({ x: 23, y: 16 });
-  expect(iosActivationPoint(nodes, second)).toEqual({ x: 69, y: 16 });
+  expect(iosActivationPoint(nodes, first)).toEqual({ index: 2, x: 23, y: 16 });
+  expect(iosActivationPoint(nodes, second)).toEqual({
+    index: 2,
+    x: 69,
+    y: 16,
+  });
 });
 /** An App Switcher card, as XCTest reports it on an iOS 26.5 iPhone 17. */
 const card = (index: number, x: number) => ({

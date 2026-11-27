@@ -1808,3 +1808,93 @@ journey(
     );
   })
 );
+
+journey(
+  "activates a stretched iOS switch and stepper with a ref click at the point UIKit draws them",
+  {},
+  Effect.gen(function* iosRefClickPointJourney() {
+    const fs = yield* FileSystem.FileSystem;
+    const root = yield* fs.makeTempDirectoryScoped({
+      prefix: "contingency-ios-ref-point-",
+    });
+    const device = makeCorpusNativeBackend({
+      device: corpusIosSimulator,
+      platform: "ios",
+      script: IOS_WIDGET_SCRIPT,
+    });
+    yield* Effect.gen(function* runRefClickPoint() {
+      const workspace = yield* IosWorkspace;
+      const started = yield* Effect.flip(
+        call("agent_device_workspace", {
+          command: {
+            _tag: "start",
+            agentSetup: true,
+            flowName: FlowName.make("ios-ref-point"),
+            kind: "teaching",
+            operationId: op("ios-ref-point-start"),
+            recordingId: null,
+            selection: corpusIosSelection(),
+          },
+          platform: "ios",
+        })
+      );
+      const sessionId = AgentSessionId.make(
+        started.intervention?.sessionId ?? ""
+      );
+      const prepared = yield* workspace.execute(
+        {
+          _tag: "prepare",
+          operationId: op("ios-ref-point-prepare"),
+          sessionId,
+        },
+        "user"
+      );
+      const activate = (
+        snapshot: typeof IosWorkspaceSnapshot.Type,
+        target: string,
+        id: string
+      ) =>
+        call("agent_device_workspace", {
+          command: {
+            _tag: "input",
+            action: { _tag: "activate", target },
+            observationId: observationIdOf(snapshot),
+            operationId: op(id),
+            sessionId,
+          },
+          platform: "ios",
+        }).pipe(Effect.map(decodeIosSnapshot));
+      const toggle = findIosNode(prepared, "switch", "Notifications");
+      const toggled = yield* activate(
+        prepared,
+        toggle.target,
+        "ios-ref-point-switch"
+      );
+      // The action re-observes before it dispatches, so the ref carries that capture's generation.
+      expect(device.refClicks()).toEqual([
+        {
+          point: { x: 46, y: 320 },
+          ref: expect.stringMatching(/^@e12~s\d+$/u),
+        },
+      ]);
+      const increment = findIosNode(toggled, "button", "Quantity, Increment");
+      yield* activate(toggled, increment.target, "ios-ref-point-increment");
+      // The drawn increment lies in the decrement's half of the stretched row, so it is tapped through that button.
+      expect(device.refClicks().at(-1)).toEqual({
+        point: { x: 89, y: 463 },
+        ref: expect.stringMatching(/^@e19~s\d+$/u),
+      });
+      expect(device.refClicks()).toHaveLength(2);
+    }).pipe(
+      Effect.provide(
+        scriptedProcess(root, {
+          iosWorkspace: makeCorpusIosWorkspaceLayer({
+            device,
+            root: () => root,
+          }),
+        })
+      ),
+      Effect.scoped
+    );
+  })
+);

@@ -47,10 +47,11 @@ import {
 import type { ForegroundStep } from "./ios-foreground.ts";
 import { verifyIosFramebufferRelease } from "./ios-framebuffer-release.ts";
 import {
-  iosActivationPoint,
+  iosActivationClicks,
   iosNodeInteraction,
   iosNodeName,
 } from "./ios-observation.ts";
+import type { IosActivationClick } from "./ios-observation.ts";
 import { makeIosPreparation, restartIosTargetApp } from "./ios-preparation.ts";
 import { iosSimctlHost } from "./ios-simctl.ts";
 import { nativeAppActionPolicy } from "./native-app-action-policy.ts";
@@ -1091,9 +1092,9 @@ const startIosRuntime = (
       // Set while the last read of the bound app was a handoff still in front.
       const handedOff = yield* Ref.make(false);
       const fillPublic = client.interactions.fill.bind(client.interactions);
-      // Tap points, by target, for controls UIKit draws away from their frame's center.
-      const activationPoints = yield* Ref.make<
-        ReadonlyMap<string, { readonly x: number; readonly y: number }>
+      // Ref clicks at a point, by target, for controls UIKit draws away from their frame's center.
+      const activationClicks = yield* Ref.make<
+        ReadonlyMap<string, IosActivationClick>
       >(new Map());
       const captureAlertObservation = (
         step: IosCaptureStep,
@@ -1231,7 +1232,7 @@ const startIosRuntime = (
           }
           alertGeneration += 1;
           const built = iosAlertNodes(alert, app, alertGeneration, scale);
-          yield* Ref.set(activationPoints, new Map());
+          yield* Ref.set(activationClicks, new Map());
           yield* Ref.set(alertActions, built.actions);
           const observation: IosObservation = {
             appId: app,
@@ -1467,15 +1468,8 @@ const startIosRuntime = (
               : `@${ref.replace(/^@/u, "")}~s${snapshot.refsGeneration}`;
           yield* Ref.set(alertActions, new Map());
           yield* Ref.set(
-            activationPoints,
-            new Map(
-              snapshot.nodes.flatMap((node) => {
-                const ref = target(node.ref);
-                const point =
-                  ref === "" ? null : iosActivationPoint(snapshot.nodes, node);
-                return point === null ? [] : [[ref, point]];
-              })
-            )
+            activationClicks,
+            iosActivationClicks(snapshot.nodes, target)
           );
           const observation: IosObservation = {
             // An observe-only snapshot may not name its app; the bound app is
@@ -1567,13 +1561,13 @@ const startIosRuntime = (
                 );
                 return;
               }
-              const point = (yield* Ref.get(activationPoints)).get(target);
+              const at = (yield* Ref.get(activationClicks)).get(target);
               yield* io(
                 (signal) =>
                   client.interactions.click(
-                    point === undefined
+                    at === undefined
                       ? { ...options(), ref: target, signal }
-                      : { ...options(), ...point, signal }
+                      : { ...options(), point: at.point, ref: at.ref, signal }
                   ),
                 "activate"
               );
