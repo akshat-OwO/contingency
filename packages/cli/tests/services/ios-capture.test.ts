@@ -5,6 +5,7 @@ import { TestClock } from "effect/testing";
 
 import {
   IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
+  canSkipIosAlertScreenshot,
   canSkipIosScreenshot,
   iosAlertActivateFailure,
   iosAlertNodes,
@@ -769,6 +770,55 @@ it("maps alert get buttons with real bounds and exact label/message bindings for
     role: "button",
     target: "@alert-3~a4",
   });
+});
+
+it("forces a fresh alert screenshot when alert get reports a changed reference viewport", () => {
+  const cachedPixels = { height: 2622, width: 1206 };
+  const cachedScale = { sx: 3, sy: 3 };
+  const cachedWindow = { height: 874, width: 402 };
+
+  // Image-free alert capture reuses cached geometry when reference viewport matches.
+  expect(
+    canSkipIosAlertScreenshot({
+      alert: { referenceHeight: 874, referenceWidth: 402 },
+      cachedPixels,
+      cachedScale,
+      cachedWindow,
+      includeImage: false,
+    })
+  ).toBe(true);
+
+  // Geometry change while an alert is visible (e.g., rotation to landscape)
+  // invalidates the screenshot skip so scale and pixel frame are refreshed.
+  expect(
+    canSkipIosAlertScreenshot({
+      alert: { referenceHeight: 402, referenceWidth: 874 },
+      cachedPixels,
+      cachedScale,
+      cachedWindow,
+      includeImage: false,
+    })
+  ).toBe(false);
+
+  // Requesting an image or lacking cached window geometry never skips.
+  expect(
+    canSkipIosAlertScreenshot({
+      alert: { referenceHeight: 874, referenceWidth: 402 },
+      cachedPixels,
+      cachedScale,
+      cachedWindow,
+      includeImage: true,
+    })
+  ).toBe(false);
+  expect(
+    canSkipIosAlertScreenshot({
+      alert: { referenceHeight: 874, referenceWidth: 402 },
+      cachedPixels,
+      cachedScale,
+      cachedWindow: null,
+      includeImage: false,
+    })
+  ).toBe(false);
 });
 
 it("classifies replaced or missing alert press refusals as retriable target_changed", () => {

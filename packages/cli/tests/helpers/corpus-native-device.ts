@@ -396,6 +396,37 @@ const selectCorpusAlertButton = (
   return undefined;
 };
 
+const matchesRevalidatedAlert = (input: {
+  readonly alertOptions: AlertCommandOptions;
+  readonly live: {
+    readonly buttons: readonly {
+      readonly label: string;
+      readonly rect?: CorpusCapture["nodes"][number]["rect"];
+    }[];
+    readonly items: readonly string[];
+    readonly message: string;
+  } | null;
+  readonly selectedLabel: string;
+  readonly selectedRect: CorpusCapture["nodes"][number]["rect"] | undefined;
+}): boolean => {
+  const { alertOptions, live, selectedLabel, selectedRect } = input;
+  if (live === null) {
+    return false;
+  }
+  if (
+    alertOptions.expectedMessage !== undefined &&
+    live.message.trim() !== alertOptions.expectedMessage.trim()
+  ) {
+    return false;
+  }
+  const liveLabel = selectCorpusAlertButton(live.items, alertOptions);
+  if (liveLabel !== selectedLabel) {
+    return false;
+  }
+  const liveButton = live.buttons.find((button) => button.label === liveLabel);
+  return JSON.stringify(liveButton?.rect) === JSON.stringify(selectedRect);
+};
+
 const runtimeErrorFor = (
   platform: NativeAppPlatform,
   code: "capture_incomplete" | "runtime_failed"
@@ -449,6 +480,8 @@ interface CorpusIosBackendOptions {
     target: string
   ) => Effect.Effect<void, PlatformRuntimeError>;
   readonly device: IosDevice;
+  /** Runs inside the fake `alert` runner after the initial title check and before final pre-dispatch revalidation. */
+  readonly onAlertPostCheck?: (options: AlertCommandOptions) => void;
   readonly platform: "ios";
   readonly script: CorpusScript;
   readonly sessionId?: string;
@@ -504,12 +537,39 @@ export function makeCorpusNativeBackend(
 
   const iosDevice = options.platform === "ios" ? options.device : undefined;
 
+  const readAlertState = () => {
+    const screen = currentCapture();
+    if (screen.nodes[0]?.type !== "Alert") {
+      return null;
+    }
+    const buttons = screen.nodes.flatMap((node) => {
+      if (node.type !== "Button" || node.label === undefined) {
+        return [];
+      }
+      return [
+        node.rect === undefined
+          ? { label: node.label }
+          : { label: node.label, rect: node.rect },
+      ];
+    });
+    const items = buttons.map((button) => button.label);
+    const message =
+      alertMessageOverride ?? screen.nodes[0]?.label ?? "System Alert";
+    return {
+      buttons,
+      items,
+      message,
+      referenceViewport: cachedWindow ?? screen.viewport,
+      rootRect: screen.nodes[0]?.rect,
+    };
+  };
+
   const sdkAlert =
     iosDevice === undefined
       ? undefined
       : (alertOptions: AlertCommandOptions) => {
-          const screen = currentCapture();
-          if (screen.nodes[0]?.type !== "Alert") {
+          const initial = readAlertState();
+          if (initial === null) {
             return Promise.reject(
               new AppError("COMMAND_FAILED", "alert not found", {
                 dispatched: "no",
@@ -518,20 +578,6 @@ export function makeCorpusNativeBackend(
               })
             );
           }
-          const buttons = screen.nodes.flatMap((node) => {
-            if (node.type !== "Button" || node.label === undefined) {
-              return [];
-            }
-            return [
-              node.rect === undefined
-                ? { label: node.label }
-                : { label: node.label, rect: node.rect },
-            ];
-          });
-          const items = buttons.map((button) => button.label);
-          const message =
-            alertMessageOverride ?? screen.nodes[0]?.label ?? "System Alert";
-          const referenceViewport = cachedWindow ?? screen.viewport;
           if (
             alertOptions.action === "accept" ||
             alertOptions.action === "dismiss" ||
@@ -539,7 +585,7 @@ export function makeCorpusNativeBackend(
           ) {
             if (
               alertOptions.expectedMessage !== undefined &&
-              alertOptions.expectedMessage.trim() !== message.trim()
+              alertOptions.expectedMessage.trim() !== initial.message.trim()
             ) {
               return Promise.reject(
                 new AppError(
@@ -553,7 +599,10 @@ export function makeCorpusNativeBackend(
                 )
               );
             }
-            const selectedLabel = selectCorpusAlertButton(items, alertOptions);
+            const selectedLabel = selectCorpusAlertButton(
+              initial.items,
+              alertOptions
+            );
             if (selectedLabel === undefined) {
               return Promise.reject(
                 new AppError(
@@ -562,6 +611,34 @@ export function makeCorpusNativeBackend(
                   {
                     dispatched: "no",
                     runnerErrorCode: "ALERT_BUTTON_NOT_FOUND",
+                  }
+                )
+              );
+            }
+            const selectedButton = initial.buttons.find(
+              (button) => button.label === selectedLabel
+            );
+            if (options.platform === "ios") {
+              options.onAlertPostCheck?.(alertOptions);
+            }
+            // Mirrors the patched runner's final pre-dispatch revalidation
+            // after presentation capture and hittability wait.
+            if (
+              !matchesRevalidatedAlert({
+                alertOptions,
+                live: readAlertState(),
+                selectedLabel,
+                selectedRect: selectedButton?.rect,
+              })
+            ) {
+              return Promise.reject(
+                new AppError(
+                  "COMMAND_FAILED",
+                  "alert presentation changed before button dispatch",
+                  {
+                    dispatched: "no",
+                    reason: "alert_mismatch",
+                    runnerErrorCode: "ALERT_MISMATCH",
                   }
                 )
               );
@@ -576,14 +653,13 @@ export function makeCorpusNativeBackend(
             }
             return Promise.resolve({ message: "pressed" });
           }
-          const rootRect = screen.nodes[0]?.rect;
           return Promise.resolve({
-            buttons,
-            items,
-            message,
-            rect: rootRect,
-            referenceHeight: referenceViewport.height,
-            referenceWidth: referenceViewport.width,
+            buttons: initial.buttons,
+            items: initial.items,
+            message: initial.message,
+            rect: initial.rootRect,
+            referenceHeight: initial.referenceViewport.height,
+            referenceWidth: initial.referenceViewport.width,
           });
         };
 

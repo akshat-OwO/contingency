@@ -1,8 +1,8 @@
 diff --git a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+Alert.swift b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+Alert.swift
-index e1a94e31417b93f7e3c7881fa47a5327d898f5ba..40e454f54767c3fa446f46c19480efaae60bda6c 100644
+index e1a94e31417b93f7e3c7881fa47a5327d898f5ba..ae97d40fdaf1dcb8404f5278b91e43ebb4e09bf3 100644
 --- a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+Alert.swift
 +++ b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+Alert.swift
-@@ -80,11 +80,45 @@ extension RunnerTests {
+@@ -80,11 +80,46 @@ extension RunnerTests {
    }
  
    @MainActor
@@ -10,6 +10,7 @@ index e1a94e31417b93f7e3c7881fa47a5327d898f5ba..40e454f54767c3fa446f46c19480efaa
 -    if action == "accept" || action == "dismiss" {
 +  func handleAlert(
 +    _ alert: RunnerAlert,
++    activeApp: XCUIApplication? = nil,
 +    action: String,
 +    buttonLabel: String? = nil,
 +    buttonIndex: Int? = nil,
@@ -51,7 +52,74 @@ index e1a94e31417b93f7e3c7881fa47a5327d898f5ba..40e454f54767c3fa446f46c19480efaa
        } catch ModalReadFailure.deadlineExceeded {
          return alertVerificationResponse(.timedOut, action: action, activated: false)
        } catch {
-@@ -156,10 +190,29 @@ extension RunnerTests {
+@@ -99,6 +134,16 @@ extension RunnerTests {
+           hint: RunnerTests.alertNoButtonActivatedHint
+         ))
+       }
++      let chosenLabel: String
++      do {
++        chosenLabel = try readModalValue(deadline: deadline) {
++          button.label.trimmingCharacters(in: .whitespacesAndNewlines)
++        }
++      } catch ModalReadFailure.deadlineExceeded {
++        return alertVerificationResponse(.timedOut, action: action, activated: false)
++      } catch {
++        return alertUnresolvedResponse()
++      }
+       guard Date() < deadline else {
+         return alertVerificationResponse(.timedOut, action: action, activated: false)
+       }
+@@ -121,12 +166,37 @@ extension RunnerTests {
+         return alertVerificationResponse(.unconfirmed, action: action, activated: false)
+       }
+ #endif
++      var dispatchAlert = alert
++      var dispatchButton = button
++      var dispatchFrame = buttonFrame
++      if expectedMessage != nil || hasExplicitTarget {
++        guard let verified = revalidateTargetedAlertBeforeDispatch(
++          activeApp: activeApp ?? alert.ownerApp,
++          action: action,
++          hasExplicitTarget: hasExplicitTarget,
++          buttonLabel: buttonLabel,
++          buttonIndex: buttonIndex,
++          chosenLabel: chosenLabel,
++          expectedMessage: expectedMessage,
++          expectedFrame: buttonFrame,
++          deadline: deadline
++        ) else {
++          return Response(ok: false, error: ErrorPayload(
++            code: RunnerWireErrorCode.alertMismatch,
++            message: "alert presentation changed before button dispatch",
++            hint: RunnerTests.alertNoButtonActivatedHint
++          ))
++        }
++        dispatchAlert = verified.alert
++        dispatchButton = verified.button
++        dispatchFrame = verified.frame
++      }
+       NSLog(
+         "AGENT_DEVICE_RUNNER_ALERT_ACTIVATION action=%@ label=%@ frame=(%.1f,%.1f,%.1f,%.1f) point=(%.1f,%.1f)",
+         action,
+-        button.label,
+-        buttonFrame.origin.x, buttonFrame.origin.y, buttonFrame.size.width, buttonFrame.size.height,
+-        buttonFrame.midX, buttonFrame.midY
++        chosenLabel,
++        dispatchFrame.origin.x, dispatchFrame.origin.y, dispatchFrame.size.width, dispatchFrame.size.height,
++        dispatchFrame.midX, dispatchFrame.midY
+       )
+ 
+ 
+@@ -134,7 +204,7 @@ extension RunnerTests {
+ 
+ 
+ 
+-      guard let outcome = try activateAlertButton(alert, button: button, action: action, frame: buttonFrame, deadline: deadline) else {
++      guard let outcome = try activateAlertButton(dispatchAlert, button: dispatchButton, action: action, frame: dispatchFrame, deadline: deadline) else {
+         return alertVerificationResponse(.timedOut, action: action, activated: false)
+       }
+       if let response = unsupportedResponse(for: outcome) {
+@@ -156,10 +226,29 @@ extension RunnerTests {
      }
  
      let items: [String]
@@ -83,7 +151,7 @@ index e1a94e31417b93f7e3c7881fa47a5327d898f5ba..40e454f54767c3fa446f46c19480efaa
      } catch {
        return alertUnresolvedResponse()
      }
-@@ -169,7 +222,11 @@ extension RunnerTests {
+@@ -169,7 +258,11 @@ extension RunnerTests {
        data: DataPayload(
          message: title,
          items: items,
@@ -96,7 +164,7 @@ index e1a94e31417b93f7e3c7881fa47a5327d898f5ba..40e454f54767c3fa446f46c19480efaa
        )
      )
    }
-@@ -330,6 +387,51 @@ extension RunnerTests {
+@@ -330,6 +423,122 @@ extension RunnerTests {
      return buttons[index]
    }
  
@@ -145,6 +213,77 @@ index e1a94e31417b93f7e3c7881fa47a5327d898f5ba..40e454f54767c3fa446f46c19480efaa
 +    return SnapshotRect(frame)
 +  }
 +
++  @MainActor
++  private func revalidateTargetedAlertBeforeDispatch(
++    activeApp: XCUIApplication,
++    action: String,
++    hasExplicitTarget: Bool,
++    buttonLabel: String?,
++    buttonIndex: Int?,
++    chosenLabel: String,
++    expectedMessage: String?,
++    expectedFrame: CGRect,
++    deadline: Date
++  ) -> (alert: RunnerAlert, button: XCUIElement, frame: CGRect)? {
++    guard Date() < deadline else { return nil }
++    guard case .resolved(let liveAlert) = resolveAlert(app: activeApp, deadline: deadline) else {
++      return nil
++    }
++    do {
++      if let expected = expectedMessage {
++        let liveTitle = try readModalValue(deadline: deadline) {
++          self.preferredAlertTitle(liveAlert.root, buttons: liveAlert.actions)
++        }
++        guard liveTitle == expected.trimmingCharacters(in: .whitespacesAndNewlines) else {
++          return nil
++        }
++      }
++      let liveButton = hasExplicitTarget
++        ? try chooseTargetedAlertButton(
++          liveAlert,
++          buttonLabel: buttonLabel,
++          buttonIndex: buttonIndex,
++          deadline: deadline
++        )
++        : try chooseAlertButton(liveAlert, action: action, deadline: deadline)
++      guard let liveButton else { return nil }
++      let snapshot = try readModalValue(deadline: deadline) { () -> (String, CGRect, Bool) in
++        (
++          liveButton.label.trimmingCharacters(in: .whitespacesAndNewlines),
++          liveButton.frame,
++          liveButton.exists && liveButton.isHittable
++        )
++      }
++      guard snapshot.2, snapshot.0 == chosenLabel else { return nil }
++      let liveFrame = snapshot.1
++#if !os(tvOS)
++      guard !liveFrame.isNull, !liveFrame.isEmpty,
++            alertFramesMatch(liveFrame, expectedFrame)
++      else {
++        return nil
++      }
++#endif
++      return (alert: liveAlert, button: liveButton, frame: liveFrame)
++    } catch {
++      return nil
++    }
++  }
++
++  private func alertFramesMatch(_ a: CGRect, _ b: CGRect) -> Bool {
++    guard a.origin.x.isFinite, a.origin.y.isFinite,
++          a.size.width.isFinite, a.size.height.isFinite,
++          b.origin.x.isFinite, b.origin.y.isFinite,
++          b.size.width.isFinite, b.size.height.isFinite
++    else {
++      return false
++    }
++    let tolerance: CGFloat = 1.0
++    return abs(a.origin.x - b.origin.x) <= tolerance
++      && abs(a.origin.y - b.origin.y) <= tolerance
++      && abs(a.size.width - b.size.width) <= tolerance
++      && abs(a.size.height - b.size.height) <= tolerance
++  }
++
  
  
  
@@ -168,16 +307,17 @@ index b94e17d155d79817f7a3f23d0e9c50f0bbe04bbf..8f981d418daff35000b70b789cd07703
        code = "ALERT_DEADLINE_EXCEEDED"
        message = "alert \(action) exhausted its deadline"
 diff --git a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+CommandExecution.swift b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+CommandExecution.swift
-index c78351473ef660334f121c56dd89791c979ee307..6499515817bc58161449f354c4bf0bfed8ca2264 100644
+index c78351473ef660334f121c56dd89791c979ee307..6bca926df9e5cf1823ae9aad7a336ef70a6928c5 100644
 --- a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+CommandExecution.swift
 +++ b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+CommandExecution.swift
-@@ -647,7 +647,14 @@ extension RunnerTests {
+@@ -647,7 +647,15 @@ extension RunnerTests {
        )
        switch resolveAlert(app: activeApp, deadline: deadline) {
        case .resolved(let alert):
 -        return try handleAlert(alert, action: action, deadline: deadline)
 +        return try handleAlert(
 +          alert,
++          activeApp: activeApp,
 +          action: action,
 +          buttonLabel: command.buttonLabel,
 +          buttonIndex: command.buttonIndex,

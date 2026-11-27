@@ -906,6 +906,7 @@ journey(
       outcomes: [{ name: "Continue", role: "button" }],
     });
     let swapOnNextActivate: string | null = null;
+    let swapAfterInitialTitleCheck: string | null = null;
     const device = makeCorpusNativeBackend({
       beforeActivate: () =>
         Effect.sync(() => {
@@ -915,6 +916,12 @@ journey(
           }
         }),
       device: corpusIosSimulator,
+      onAlertPostCheck: () => {
+        if (swapAfterInitialTitleCheck !== null) {
+          device.setAlertMessageOverride(swapAfterInitialTitleCheck);
+          swapAfterInitialTitleCheck = null;
+        }
+      },
       platform: "ios",
       script: IOS_WIDGET_SCRIPT,
     });
@@ -1143,7 +1150,7 @@ journey(
       expect(refusedAtDispatch.code).toBe("ios_workspace_refused");
       expect(device.currentCapture()).toBe(IOS_WIDGET_PERMISSION_ALERT);
 
-      // Session is still running; observing Prompt C and pressing Allow Once succeeds.
+      // Session is still running; observe Prompt C.
       const promptC = decodeIosSnapshot(
         yield* call("agent_device_workspace", {
           command: {
@@ -1159,13 +1166,53 @@ journey(
         promptCMessage
       );
       const promptCAllowOnce = findIosNode(promptC, "button", "Allow Once");
-      const answered = decodeIosSnapshot(
-        yield* call("agent_device_workspace", {
+
+      // Case 3: Prompt C passes the runner's initial expectedMessage check, then
+      // is replaced by Prompt D (same button label and frame) during the runner's
+      // presentation capture / hittability wait before dispatch. Final pre-dispatch
+      // revalidation refuses with ALERT_MISMATCH (dispatched: "no"), leaving the
+      // session running and Prompt D untouched.
+      const promptDMessage =
+        "“Contingency Widgets” Would Like to Access Bluetooth";
+      swapAfterInitialTitleCheck = promptDMessage;
+      const refusedAtFinalRevalidation = yield* Effect.flip(
+        call("agent_device_workspace", {
           command: {
             _tag: "input",
             action: { _tag: "activate", target: promptCAllowOnce.target },
             observationId: observationIdOf(promptC),
-            operationId: op("rep-dry-answer-prompt-c"),
+            operationId: op("rep-dry-post-check-stale-prompt"),
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(refusedAtFinalRevalidation.code).toBe("ios_workspace_refused");
+      expect(device.currentCapture()).toBe(IOS_WIDGET_PERMISSION_ALERT);
+
+      // Session is still running; observing Prompt D and pressing Allow Once succeeds.
+      const promptD = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "observe",
+            image: false,
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(promptD.phase).toBe("running");
+      expect(findIosNode(promptD, "alert", promptDMessage).name).toBe(
+        promptDMessage
+      );
+      const promptDAllowOnce = findIosNode(promptD, "button", "Allow Once");
+      const answered = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "input",
+            action: { _tag: "activate", target: promptDAllowOnce.target },
+            observationId: observationIdOf(promptD),
+            operationId: op("rep-dry-answer-prompt-d"),
             sessionId: dryRunSessionId,
           },
           platform: "ios",

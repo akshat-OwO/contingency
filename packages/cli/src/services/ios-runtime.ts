@@ -311,6 +311,38 @@ export const canSkipIosScreenshot = (input: {
   input.viewport.width === input.cachedWindow.width &&
   input.viewport.height === input.cachedWindow.height;
 
+/**
+ * Reuses cached alert geometry only when `alert get` reports the same window
+ * viewport as the cached screenshot. Any geometry change (such as rotation
+ * while an alert is visible) forces a fresh non-activating screenshot.
+ */
+export const canSkipIosAlertScreenshot = (input: {
+  readonly alert: Pick<IosPresentedAlert, "referenceHeight" | "referenceWidth">;
+  readonly cachedPixels: IosViewport | null;
+  readonly cachedScale: { readonly sx: number; readonly sy: number } | null;
+  readonly cachedWindow: IosViewport | null;
+  readonly includeImage: boolean;
+}): boolean => {
+  const referenceViewport =
+    input.alert.referenceWidth !== undefined &&
+    input.alert.referenceHeight !== undefined
+      ? {
+          height: input.alert.referenceHeight,
+          width: input.alert.referenceWidth,
+        }
+      : input.cachedWindow;
+  return (
+    referenceViewport !== null &&
+    canSkipIosScreenshot({
+      cachedPixels: input.cachedPixels,
+      cachedScale: input.cachedScale,
+      cachedWindow: input.cachedWindow,
+      includeImage: input.includeImage,
+      viewport: referenceViewport,
+    })
+  );
+};
+
 /** A presented system alert's frame arrives as the viewport while its rects stay in window points; keep the window it sits inside. */
 export const iosWindowViewport = (
   snapshot: {
@@ -989,11 +1021,13 @@ const startIosRuntime = (
             alert.referenceHeight !== undefined
               ? { height: alert.referenceHeight, width: alert.referenceWidth }
               : cachedWindow;
-          const needScreenshot =
-            includeImage ||
-            cachedPixels === null ||
-            cachedScale === null ||
-            cachedWindow === null;
+          const needScreenshot = !canSkipIosAlertScreenshot({
+            alert,
+            cachedPixels,
+            cachedScale,
+            cachedWindow,
+            includeImage,
+          });
           let width: number;
           let height: number;
           let scale: { readonly sx: number; readonly sy: number } | undefined;
@@ -1074,7 +1108,7 @@ const startIosRuntime = (
               scale = cachedScale;
             }
             encodedImage = bytes.toString("base64");
-          } else {
+          } else if (cachedPixels !== null && cachedScale !== null) {
             const appState = yield* step(
               "app-state",
               io(
@@ -1096,6 +1130,10 @@ const startIosRuntime = (
             }
             ({ width, height } = cachedPixels);
             scale = cachedScale;
+          } else {
+            return yield* Effect.fail(
+              iosCaptureFailure("capture_incomplete", "capture", "png-header")
+            );
           }
           alertGeneration += 1;
           const built = iosAlertNodes(alert, app, alertGeneration, scale);
