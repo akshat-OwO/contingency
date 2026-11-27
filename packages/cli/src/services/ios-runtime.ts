@@ -153,6 +153,7 @@ export const iosCaptureFailure = (
     | "png-header"
     | "settle-deadline"
     | "alert-dismissed"
+    | "foreground-handoff"
 ): PlatformRuntimeError => ({
   ...iosRuntimeError(code),
   message: `iOS ${code} during ${operation} (${reason}). Inspect this session and explicitly recover before input.`,
@@ -429,6 +430,10 @@ const hostFailure = (failure: IosError) =>
 export const IOS_SYSTEM_ALERT_UNAVAILABLE_HINT =
   "A system alert is presented over the session app. Resolve it with alert, or read it with a regular snapshot.";
 
+/** Hint agent-device's iOS runner emits when observeOnly proves another app owns the foreground. */
+export const IOS_FOREGROUND_HANDOFF_UNAVAILABLE_HINT =
+  "Another application owns the foreground.";
+
 const readErrorHint = (
   details: AppErrorDetails | undefined
 ): string | undefined => {
@@ -463,6 +468,24 @@ export const isIosSystemAlertObservationUnavailable = (
   }
   const hint = readErrorHint(cause.details);
   return hint !== undefined && /\bsystem alert\b/iu.test(hint);
+};
+
+/**
+ * agent-device's observe-only snapshot refuses to capture an app that is
+ * handing off the foreground, even while XCUIApplication still reports
+ * `runningForeground`: its window no longer fills the screen, or AXRuntime
+ * names a different primary app. Reading such an app's frame through XCTest
+ * can hold the runner's main thread for a minute.
+ */
+export const isIosForegroundHandoffObservationUnavailable = (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- A rejected SDK promise is unknown by definition.
+  cause: unknown
+): boolean => {
+  if (!isAgentDeviceError(cause) || cause.code !== "OBSERVATION_UNAVAILABLE") {
+    return false;
+  }
+  const hint = readErrorHint(cause.details);
+  return hint !== undefined && /\banother application\b/iu.test(hint);
 };
 
 /**
@@ -541,7 +564,8 @@ export interface IosPresentedAlert {
 /** One non-activating observation read of the bound iOS app or a system alert over it. */
 export type IosSessionRead<A> =
   | { readonly _tag: "snapshot"; readonly snapshot: A }
-  | { readonly _tag: "alert"; readonly alert: IosPresentedAlert };
+  | { readonly _tag: "alert"; readonly alert: IosPresentedAlert }
+  | { readonly _tag: "handoff" };
 
 /** Exact alert button target bound to the observed prompt message for non-activating dispatch. */
 export interface IosAlertTarget {
@@ -837,6 +861,9 @@ export const makeIosSessionAccess = <A, B>(input: {
           isAgentDeviceError(cause) && cause.code === "OBSERVATION_UNAVAILABLE",
         (cause) =>
           Effect.gen(function* handleObservationUnavailable() {
+            if (isIosForegroundHandoffObservationUnavailable(cause)) {
+              return Option.some<IosSessionRead<A>>({ _tag: "handoff" });
+            }
             const systemAlertHint =
               isIosSystemAlertObservationUnavailable(cause);
             const readAppState = input.appState;
@@ -1183,6 +1210,19 @@ const startIosRuntime = (
             }
             return followStep(front);
           }
+          if (read.value._tag === "handoff") {
+            const front = yield* guess(app);
+            if (front === null) {
+              return yield* Effect.fail(
+                iosCaptureFailure(
+                  "observation_stale",
+                  "capture",
+                  "foreground-handoff"
+                )
+              );
+            }
+            return followStep(front);
+          }
           if (read.value._tag === "alert") {
             return yield* captureAlertObservation(
               step,
@@ -1278,9 +1318,11 @@ const startIosRuntime = (
               app !== SPRINGBOARD &&
               !fillsScreen(snapshot.nodes[0], { height, width })
             ) {
-              // The bound app is shrinking toward Home or sits in the App
-              // Switcher: Springboard is in front, so binding to it is safe.
-              return followStep(SPRINGBOARD);
+              // The bound app is shrinking during a handoff, toward Home, or
+              // in the App Switcher: follow an unambiguous foreground app, or
+              // Springboard when no other app is in front.
+              const front = yield* guess.now(app);
+              return followStep(front ?? SPRINGBOARD);
             }
             const appState = yield* step(
               "app-state",
@@ -1317,7 +1359,8 @@ const startIosRuntime = (
               app !== SPRINGBOARD &&
               !fillsScreen(snapshot.nodes[0], cachedPixels)
             ) {
-              return followStep(SPRINGBOARD);
+              const front = yield* guess.now(app);
+              return followStep(front ?? SPRINGBOARD);
             }
             const appState = yield* step(
               "app-state",

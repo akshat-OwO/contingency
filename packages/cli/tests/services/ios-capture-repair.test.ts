@@ -519,3 +519,48 @@ it.effect(
       })
     )
 );
+
+it.effect(
+  "does not repeat a capture_incomplete that already spent the settle window",
+  () =>
+    Effect.gen(function* boundsElapsedIncompleteCapture() {
+      let captures = 0;
+      const runtime = yield* adaptNativeAppRuntime({
+        backend: {
+          activate: () => Effect.void,
+          capture: () =>
+            Effect.gen(function* slowIncomplete() {
+              captures += 1;
+              yield* TestClock.adjust("30 seconds");
+              return yield* Effect.fail(iosRuntimeError("capture_incomplete"));
+            }),
+          close: () => Effect.void,
+          fill: () =>
+            Effect.succeed({
+              confirmation: "confirmed" as const,
+              outcome: "entered" as const,
+            }),
+          recover: () => Effect.void,
+          rotate: () => Effect.void,
+          sessionId: "fixture-session",
+          systemKey: () => Effect.void,
+          validate: () => Effect.void,
+        },
+        capabilities: iosCapabilities,
+        error: iosRuntimeError,
+        policy: nativeAppActionPolicy(iosRuntimeError, iosSystemKeys),
+        startup: {
+          device: simulator,
+          platform: "ios",
+          requiredCapabilities: iosCapabilities,
+          scope: yield* Effect.scope,
+          targetApp: app,
+        },
+      });
+      const fiber = yield* Effect.forkChild(Effect.flip(runtime.observe()));
+      yield* TestClock.adjust("65 seconds");
+      const failure = yield* Fiber.join(fiber);
+      expect(failure.code).toBe("capture_incomplete");
+      expect(captures).toBe(1);
+    }).pipe(Effect.scoped)
+);

@@ -304,7 +304,7 @@ export const makeIosForegroundGuess = (
         })
       )
     );
-  const once = (behind: string | undefined) =>
+  const once = (behind?: string) =>
     Effect.gen(function* guessForeground() {
       const processes = parseProcessTable(yield* host.table);
       let listed = apps ?? (yield* refresh(processes));
@@ -316,7 +316,7 @@ export const makeIosForegroundGuess = (
   // For about a second after another app comes forward, the app it replaced
   // still runs high (measured on iOS 26.5), so an unclear reading is read
   // again before it counts as no guess.
-  return (behind?: string) =>
+  const settled = (behind?: string) =>
     Effect.gen(function* settledGuess() {
       for (let reading = 1; reading < GUESS_READINGS; reading += 1) {
         const front = yield* once(behind);
@@ -327,6 +327,7 @@ export const makeIosForegroundGuess = (
       }
       return yield* once(behind);
     });
+  return Object.assign(settled, { now: once });
 };
 
 /** One observation attempt against the bound app. */

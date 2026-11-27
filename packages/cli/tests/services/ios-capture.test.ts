@@ -4,11 +4,13 @@ import { Effect, Fiber, Logger, Option } from "effect";
 import { TestClock } from "effect/testing";
 
 import {
+  IOS_FOREGROUND_HANDOFF_UNAVAILABLE_HINT,
   IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
   canSkipIosAlertScreenshot,
   canSkipIosScreenshot,
   iosAlertActivateFailure,
   iosAlertNodes,
+  isIosForegroundHandoffObservationUnavailable,
   isIosSystemAlertObservationUnavailable,
   makeIosSessionAccess,
   iosAgentDeviceFailure,
@@ -300,6 +302,113 @@ it("identifies OBSERVATION_UNAVAILABLE carrying agent-device's system-alert hint
     false
   );
 });
+
+it("identifies OBSERVATION_UNAVAILABLE carrying the foreground-handoff hint", () => {
+  expect(
+    isIosForegroundHandoffObservationUnavailable(
+      new AppError(
+        "OBSERVATION_UNAVAILABLE",
+        "The session app cannot be observed without activation.",
+        {
+          hint: IOS_FOREGROUND_HANDOFF_UNAVAILABLE_HINT,
+        }
+      )
+    )
+  ).toBe(true);
+  expect(
+    isIosForegroundHandoffObservationUnavailable(
+      new AppError(
+        "OBSERVATION_UNAVAILABLE",
+        "The session app cannot be observed without activation.",
+        {
+          runner: {
+            error: {
+              code: "OBSERVATION_UNAVAILABLE",
+              hint: IOS_FOREGROUND_HANDOFF_UNAVAILABLE_HINT,
+            },
+          },
+        }
+      )
+    )
+  ).toBe(true);
+  expect(
+    isIosForegroundHandoffObservationUnavailable(
+      new AppError(
+        "OBSERVATION_UNAVAILABLE",
+        "The session app cannot be observed without activation.",
+        { hint: IOS_SYSTEM_ALERT_UNAVAILABLE_HINT }
+      )
+    )
+  ).toBe(false);
+  expect(
+    isIosForegroundHandoffObservationUnavailable(
+      new AppError(
+        "OBSERVATION_UNAVAILABLE",
+        "The session app cannot be observed without activation.",
+        {
+          hint: "XCUIApplication must report runningForeground before and after capture. This state report does not prove screen ownership (#2696).",
+        }
+      )
+    )
+  ).toBe(false);
+  expect(
+    isIosForegroundHandoffObservationUnavailable(
+      new AppError("COMMAND_FAILED", "other", {
+        hint: IOS_FOREGROUND_HANDOFF_UNAVAILABLE_HINT,
+      })
+    )
+  ).toBe(false);
+});
+
+it.effect(
+  "reads a foreground-handoff OBSERVATION_UNAVAILABLE as a handoff without consulting appState or alert get",
+  () =>
+    Effect.gen(function* fastForegroundHandoff() {
+      let appStateCalls = 0;
+      let alertCalls = 0;
+      const access = makeIosSessionAccess({
+        alert: () => {
+          alertCalls += 1;
+          return Promise.resolve({ items: ["Allow"], message: "Alert" });
+        },
+        appState: () => {
+          appStateCalls += 1;
+          return Promise.resolve({
+            appBundleId: "dev.contingency.ioslogin",
+            appName: "dev.contingency.ioslogin",
+            device_udid: "session-simulator",
+            platform: "ios" as const,
+            source: "runner" as const,
+            state: "runningForeground" as const,
+            surface: "app" as const,
+          });
+        },
+        open: () => {
+          throw new Error("Foreground handoff must never activate an app");
+        },
+        options: () => ({
+          platform: "ios",
+          requestId: "capture",
+          udid: "session-simulator",
+        }),
+        snapshot: () =>
+          Promise.reject(
+            new AppError(
+              "OBSERVATION_UNAVAILABLE",
+              "The session app cannot be observed without activation.",
+              {
+                hint: IOS_FOREGROUND_HANDOFF_UNAVAILABLE_HINT,
+              }
+            )
+          ),
+      });
+      expect(yield* access.snapshot("dev.contingency.ioslogin")).toStrictEqual(
+        Option.some({ _tag: "handoff" })
+      );
+      expect(appStateCalls).toBe(0);
+      expect(alertCalls).toBe(0);
+    })
+);
 
 it.effect(
   "reads a presented system alert via non-activating alert get when observeOnly rejects with the system-alert hint and appState confirms the bound app is runningForeground",

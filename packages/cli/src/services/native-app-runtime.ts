@@ -48,6 +48,7 @@ export const OBSERVATION_VALIDATION_MILLIS = 10_000;
  * moment later is complete. A gap that lasts past this window is real.
  */
 export const CAPTURE_SETTLE_WINDOW = "5 seconds";
+const CAPTURE_SETTLE_WINDOW_MILLIS = 5000;
 const CAPTURE_SETTLE_SPACING = "250 millis";
 
 export const adaptNativeAppRuntime = <
@@ -136,12 +137,21 @@ export const adaptNativeAppRuntime = <
           yield* input.backend.validate();
           validatedAt = now;
         }
+        const captureStartedAt = yield* Clock.currentTimeMillis;
         const attempt = yield* input.backend.capture(options).pipe(
           Effect.retry({
             schedule: Schedule.spaced(CAPTURE_SETTLE_SPACING).pipe(
               Schedule.upTo({ duration: CAPTURE_SETTLE_WINDOW })
             ),
-            while: (cause) => cause.code === "capture_incomplete",
+            while: (cause) =>
+              cause.code === "capture_incomplete"
+                ? Clock.currentTimeMillis.pipe(
+                    Effect.map(
+                      (at) =>
+                        at - captureStartedAt < CAPTURE_SETTLE_WINDOW_MILLIS
+                    )
+                  )
+                : false,
           }),
           Effect.result
         );

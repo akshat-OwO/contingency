@@ -806,7 +806,7 @@ export function makeCorpusNativeBackend(
         const read = yield* iosSessionAccess.snapshot(
           currentCapture().source.app
         );
-        if (Option.isNone(read)) {
+        if (Option.isNone(read) || read.value._tag === "handoff") {
           return yield* Effect.fail(iosForegroundUnknown());
         }
         if (read.value._tag === "alert") {
