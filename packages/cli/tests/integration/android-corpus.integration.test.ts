@@ -246,23 +246,44 @@ journey(
           platform: "android",
         })
       );
-      const openButton = findAndroidNode(
-        initial,
-        "button",
-        "SHOW BOTTOM SHEET"
+      const email = initial.observation?.nodes.find(
+        (node) => node.name === "Email"
       );
+      if (email === undefined) {
+        return yield* Effect.die("The controls screen must show Email.");
+      }
+      const filled = decodeAndroidSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "input",
+            action: {
+              _tag: "fill",
+              target: email.target,
+              text: "shopper@example.com",
+            },
+            observationId: initial.observation?.id ?? "",
+            operationId: op("dry-fill-email"),
+            sessionId: dryRunSessionId,
+          },
+          platform: "android",
+        })
+      );
+      expect(filled.inputConfirmation).toBe("confirmed");
+      const openButton = findAndroidNode(filled, "button", "SHOW BOTTOM SHEET");
       const opened = decodeAndroidSnapshot(
         yield* call("agent_device_workspace", {
           command: {
             _tag: "input",
             action: { _tag: "activate", target: openButton.target },
-            observationId: initial.observation?.id ?? "",
+            observationId: filled.observation?.id ?? "",
             operationId: op("dry-open-sheet"),
             sessionId: dryRunSessionId,
           },
           platform: "android",
         })
       );
+      // An activate entered no text, so it carries no earlier fill's status.
+      expect(opened.inputConfirmation).toBeUndefined();
       const closeButton = findAndroidNode(opened, "button", "CLOSE SHEET");
       const closed = decodeAndroidSnapshot(
         yield* call("agent_device_workspace", {

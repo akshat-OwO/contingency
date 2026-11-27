@@ -78,3 +78,14 @@ export const performNativeAppFill = (
         )
     )
   );
+
+/** An input's answer, carrying the read-back of the text that very input entered. */
+export const answerInput = <
+  A extends { readonly inputConfirmation?: "confirmed" | "unconfirmed" },
+>(
+  answer: A,
+  confirmation: "confirmed" | "unconfirmed" | undefined
+): A =>
+  confirmation === undefined
+    ? answer
+    : { ...answer, inputConfirmation: confirmation };

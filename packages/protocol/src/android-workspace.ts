@@ -350,9 +350,10 @@ export const AndroidWorkspaceSnapshot = Schema.Struct({
     })
   ),
   /**
-   * Whether the text the latest input entered read back as entered. An
-   * `unconfirmed` fill or Variable entry may hold other text, so reread the
-   * field before relying on it. Absent when that input entered no text.
+   * Whether the text this answer's own input entered read back as entered.
+   * An `unconfirmed` fill or Variable entry may hold other text, so reread the
+   * field before relying on it. Present only on the answer to an input that
+   * entered text, its replay, or the decision that ran it.
    */
   inputConfirmation: Schema.optionalKey(
     Schema.Literals(["confirmed", "unconfirmed"])

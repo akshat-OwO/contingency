@@ -826,15 +826,78 @@ journey(
       expect(refilled.phase).toBe("running");
       expect(refilled.inputConfirmation).toBe("confirmed");
 
+      // A fill still awaiting Confirmation entered nothing, so its answer
+      // carries no status, not the previous fill's.
+      const pending = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "input",
+            action: {
+              _tag: "fill",
+              target: findIosNode(refilled, email.role, "Email").target,
+              text: "Test Shopper",
+            },
+            irreversible: true,
+            observationId: observationIdOf(refilled),
+            operationId: op("ios-mismatch-dry-pending-fill"),
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(device.fills()).toBe(2);
+      expect(pending.inputConfirmation).toBeUndefined();
+      yield* call("agent_device_workspace", {
+        command: {
+          _tag: "decide",
+          allow: false,
+          decisionId: pendingDecisionIdOf(pending),
+          operationId: op("ios-mismatch-dry-pending-refuse"),
+          sessionId: dryRunSessionId,
+        },
+        platform: "ios",
+      });
+
+      // Replaying the mismatched fill answers for that attempt, not the later one.
+      const replayed = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "input",
+            action: {
+              _tag: "fill",
+              target: email.target,
+              text: "Test Shopper",
+            },
+            observationId: observationIdOf(initial),
+            operationId: op("ios-mismatch-dry-fill"),
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(device.fills()).toBe(2);
+      expect(replayed.inputConfirmation).toBe("unconfirmed");
+      const fresh = decodeIosSnapshot(
+        yield* call("agent_device_workspace", {
+          command: {
+            _tag: "observe",
+            image: false,
+            sessionId: dryRunSessionId,
+          },
+          platform: "ios",
+        })
+      );
+      expect(fresh.inputConfirmation).toBeUndefined();
+
       const afterAlert = decodeIosSnapshot(
         yield* call("agent_device_workspace", {
           command: {
             _tag: "input",
             action: {
               _tag: "activate",
-              target: findIosNode(refilled, "button", "Show alert").target,
+              target: findIosNode(fresh, "button", "Show alert").target,
             },
-            observationId: observationIdOf(refilled),
+            observationId: observationIdOf(fresh),
             operationId: op("ios-mismatch-dry-alert"),
             sessionId: dryRunSessionId,
           },
