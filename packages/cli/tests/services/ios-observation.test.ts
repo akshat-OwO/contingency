@@ -6,6 +6,7 @@ import { expect, it } from "@effect/vitest";
 import {
   iosActivationClicks,
   iosActivationPoint,
+  iosActivationRequest,
   iosNodeInteraction,
 } from "../../src/services/ios-observation.ts";
 
@@ -244,4 +245,22 @@ it("taps the uncovered part of an App Switcher card the newer card overlaps", ()
   expect(iosActivationPoint(switcher, newer)?.x).toBeGreaterThan(281);
   // The containers are not peers of a card: they keep the frame-centre tap.
   expect(iosActivationPoint(switcher, container)).toBeNull();
+});
+it("sends a moved control's ref click at its drawn point, and every other target as a plain ref", () => {
+  const clicks = iosActivationClicks(controls.nodes, generationSeven);
+  expect(iosActivationRequest(clicks, "@e12~s7")).toEqual({
+    point: { x: 46, y: 320 },
+    ref: "@e12~s7",
+  });
+  expect(iosActivationRequest(clicks, "@e20~s7")).toEqual({
+    point: { x: 89, y: 463 },
+    ref: "@e19~s7",
+  });
+  // A target from another capture has no click here, so agent-device refuses its stale ref.
+  expect(iosActivationRequest(clicks, "@e12~s6")).toStrictEqual({
+    ref: "@e12~s6",
+  });
+  expect(iosActivationRequest(clicks, "@e6~s7")).toStrictEqual({
+    ref: "@e6~s7",
+  });
 });

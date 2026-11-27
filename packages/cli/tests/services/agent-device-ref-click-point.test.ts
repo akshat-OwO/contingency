@@ -38,10 +38,21 @@ interface RuntimeInteractions {
   ) => Promise<object>;
 }
 
+interface SnapshotRect {
+  readonly height: number;
+  readonly width: number;
+  readonly x: number;
+  readonly y: number;
+}
+
 interface CorpusSession {
   readonly name: string;
   readonly snapshot: {
     readonly createdAt: number;
+    readonly keyboard?: {
+      readonly frame: SnapshotRect;
+      readonly kind: "visible";
+    };
     readonly nodes: readonly object[];
   };
 }
@@ -79,55 +90,67 @@ interface RuntimeFactoryModule {
 
 const NOTIFICATIONS = { height: 28, width: 364, x: 20, y: 306 };
 
-const loadRuntime = Effect.promise(async () => {
-  // SAFETY: Patched `agent-device/dist/src/runtime-factory.js` exports the
-  // runtime config normalizer as `t` and the interaction surface as `a`.
-  const mod = (await import(
-    pathToFileURL(path.join(AGENT_DEVICE_SRC, "runtime-factory.js")).href
-  )) as RuntimeFactoryModule;
-  const taps: Point[] = [];
-  const session: CorpusSession = {
-    name: "default",
-    snapshot: {
-      createdAt: 0,
-      nodes: [
-        {
-          hittable: true,
-          index: 0,
-          rect: { height: 874, width: 402, x: 0, y: 0 },
-          ref: "e1",
-          type: "Application",
-        },
-        {
-          hittable: true,
-          index: 1,
-          label: "Notifications",
-          parentIndex: 0,
-          rect: NOTIFICATIONS,
-          ref: "e2",
-          type: "Switch",
-        },
-      ],
-    },
-  };
-  const runtime = mod.t({
-    backend: {
-      captureSnapshot: () => Promise.resolve({ snapshot: session.snapshot }),
-      platform: "ios",
-      tap: (_context, point) => {
-        taps.push(point);
-        return Promise.resolve({});
+/** A tall control whose lower part the visible keyboard covers. */
+const KEYBOARD = { height: 274, width: 402, x: 0, y: 600 };
+
+const loadRuntime = (
+  target: SnapshotRect = NOTIFICATIONS,
+  keyboard?: SnapshotRect
+) =>
+  Effect.promise(async () => {
+    // SAFETY: Patched `agent-device/dist/src/runtime-factory.js` exports the
+    // runtime config normalizer as `t` and the interaction surface as `a`.
+    const mod = (await import(
+      pathToFileURL(path.join(AGENT_DEVICE_SRC, "runtime-factory.js")).href
+    )) as RuntimeFactoryModule;
+    const taps: Point[] = [];
+    const nodes = [
+      {
+        hittable: true,
+        index: 0,
+        rect: { height: 874, width: 402, x: 0, y: 0 },
+        ref: "e1",
+        type: "Application",
       },
-    },
-    sessions: {
-      delete: () => {},
-      get: (name) => (name === session.name ? session : undefined),
-      list: () => [session],
-      set: () => {},
-    },
+      {
+        hittable: true,
+        index: 1,
+        label: "Notifications",
+        parentIndex: 0,
+        rect: target,
+        ref: "e2",
+        type: "Switch",
+      },
+    ];
+    const session: CorpusSession = {
+      name: "default",
+      snapshot:
+        keyboard === undefined
+          ? { createdAt: 0, nodes }
+          : {
+              createdAt: 0,
+              keyboard: { frame: keyboard, kind: "visible" },
+              nodes,
+            },
+    };
+    const runtime = mod.t({
+      backend: {
+        captureSnapshot: () => Promise.resolve({ snapshot: session.snapshot }),
+        platform: "ios",
+        tap: (_context, point) => {
+          taps.push(point);
+          return Promise.resolve({});
+        },
+      },
+      sessions: {
+        delete: () => {},
+        get: (name) => (name === session.name ? session : undefined),
+        list: () => [session],
+        set: () => {},
+      },
+    });
+    return { interactions: mod.a(runtime), taps };
   });
-  return { interactions: mod.a(runtime), taps };
-});
 
 const click = (interactions: RuntimeInteractions, options: RefClickOptions) =>
   Effect.tryPromise(() =>
@@ -139,7 +162,7 @@ const click = (interactions: RuntimeInteractions, options: RefClickOptions) =>
 
 it.effect("keeps a plain ref click on the frame center", () =>
   Effect.gen(function* plainRefClick() {
-    const { interactions, taps } = yield* loadRuntime;
+    const { interactions, taps } = yield* loadRuntime();
     yield* click(interactions, {});
     expect(taps).toEqual([{ x: 202, y: 320 }]);
   })
@@ -147,7 +170,7 @@ it.effect("keeps a plain ref click on the frame center", () =>
 
 it.effect("taps a ref at an absolute point or an offset inside its frame", () =>
   Effect.gen(function* refClickAtPoint() {
-    const { interactions, taps } = yield* loadRuntime;
+    const { interactions, taps } = yield* loadRuntime();
     yield* click(interactions, { point: { x: 46, y: 320 } });
     yield* click(interactions, { offset: { x: 26, y: 14 } });
     expect(taps).toEqual([
@@ -159,7 +182,7 @@ it.effect("taps a ref at an absolute point or an offset inside its frame", () =>
 
 it.effect("refuses a point outside the ref's frame before dispatch", () =>
   Effect.gen(function* refusesOutsidePoint() {
-    const { interactions, taps } = yield* loadRuntime;
+    const { interactions, taps } = yield* loadRuntime();
     const failure = yield* Effect.flip(
       click(interactions, { point: { x: 10, y: 320 } })
     );
@@ -181,7 +204,7 @@ it.effect(
   "refuses a point on anything but a single ref, or with an offset too",
   () =>
     Effect.gen(function* refusesMisuse() {
-      const { interactions, taps } = yield* loadRuntime;
+      const { interactions, taps } = yield* loadRuntime();
       const both = yield* Effect.flip(
         click(interactions, {
           offset: { x: 1, y: 1 },
@@ -228,5 +251,41 @@ it.effect(
         { point: { x: 46, y: 320 } },
         { offset: { x: 26, y: 14 } },
       ]);
+    })
+);
+
+it.effect(
+  "refuses a requested point behind the keyboard even when the frame center is clear",
+  () =>
+    Effect.gen(function* refusesCoveredPoint() {
+      const { interactions, taps } = yield* loadRuntime(
+        { height: 300, width: 362, x: 20, y: 400 },
+        KEYBOARD
+      );
+      const failure = yield* Effect.flip(
+        click(interactions, { point: { x: 100, y: 650 } })
+      );
+      expect(failure.cause).toMatchObject({
+        code: "COMMAND_FAILED",
+        details: { dispatched: "no", reason: "tap_keyboard_occludes_target" },
+      });
+      expect(taps).toEqual([]);
+    })
+);
+
+it.effect(
+  "taps a requested point clear of the keyboard even when the frame center is covered",
+  () =>
+    Effect.gen(function* tapsClearPoint() {
+      const { interactions, taps } = yield* loadRuntime(
+        { height: 200, width: 362, x: 20, y: 520 },
+        KEYBOARD
+      );
+      const covered = yield* Effect.flip(click(interactions, {}));
+      expect(covered.cause).toMatchObject({
+        details: { reason: "tap_keyboard_occludes_target" },
+      });
+      yield* click(interactions, { point: { x: 100, y: 520 } });
+      expect(taps).toEqual([{ x: 100, y: 520 }]);
     })
 );

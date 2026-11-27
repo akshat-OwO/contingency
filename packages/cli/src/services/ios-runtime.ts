@@ -48,6 +48,7 @@ import type { ForegroundStep } from "./ios-foreground.ts";
 import { verifyIosFramebufferRelease } from "./ios-framebuffer-release.ts";
 import {
   iosActivationClicks,
+  iosActivationRequest,
   iosNodeInteraction,
   iosNodeName,
 } from "./ios-observation.ts";
@@ -1561,14 +1562,17 @@ const startIosRuntime = (
                 );
                 return;
               }
-              const at = (yield* Ref.get(activationClicks)).get(target);
+              const request = iosActivationRequest(
+                yield* Ref.get(activationClicks),
+                target
+              );
               yield* io(
                 (signal) =>
-                  client.interactions.click(
-                    at === undefined
-                      ? { ...options(), ref: target, signal }
-                      : { ...options(), point: at.point, ref: at.ref, signal }
-                  ),
+                  client.interactions.click({
+                    ...options(),
+                    ...request,
+                    signal,
+                  }),
                 "activate"
               );
             }),

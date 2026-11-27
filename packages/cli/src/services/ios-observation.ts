@@ -316,3 +316,14 @@ export const iosActivationClicks = (
     })
   );
 };
+
+/**
+ * What iOS activate passes to agent-device's `click` for `target`: a ref click
+ * at the point UIKit draws the control when {@link iosActivationClicks} moved
+ * it, otherwise the plain ref, which agent-device taps at its frame's center.
+ */
+export const iosActivationRequest = (
+  clicks: ReadonlyMap<string, IosActivationClick>,
+  target: string
+): { readonly ref: string; readonly point?: IosActivationClick["point"] } =>
+  clicks.get(target) ?? { ref: target };

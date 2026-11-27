@@ -189,7 +189,7 @@ catalogs:
       version: 26.6.6
 
 patchedDependencies:
-  agent-device@0.21.41: 545e2f122f671db269676d8ab0fe5064a5680b600fce0edf4da3badada518107
+  agent-device@0.21.41: 0983a8c023dcc8335d4eb3c5b29bf9dfd3301e86094347a45ba992bc1d11ef05
 
 importers:
 
@@ -360,7 +360,7 @@ importers:
         version: 26.6.6
       agent-device:
         specifier: 0.21.41
-        version: 0.21.41(patch_hash=545e2f122f671db269676d8ab0fe5064a5680b600fce0edf4da3badada518107)(ai@7.0.166(zod@4.6.7))
+        version: 0.21.41(patch_hash=0983a8c023dcc8335d4eb3c5b29bf9dfd3301e86094347a45ba992bc1d11ef05)(ai@7.0.166(zod@4.6.7))
       axe-core:
         specifier: ^4.13.0
         version: 4.14.0
@@ -10059,7 +10059,7 @@ snapshots:
 
   agent-base@7.1.4: {}
 
-  agent-device@0.21.41(patch_hash=545e2f122f671db269676d8ab0fe5064a5680b600fce0edf4da3badada518107)(ai@7.0.166(zod@4.6.7)):
+  agent-device@0.21.41(patch_hash=0983a8c023dcc8335d4eb3c5b29bf9dfd3301e86094347a45ba992bc1d11ef05)(ai@7.0.166(zod@4.6.7)):
     optionalDependencies:
       ai: 7.0.166(zod@4.6.7)
 
