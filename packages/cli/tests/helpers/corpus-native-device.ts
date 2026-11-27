@@ -396,34 +396,34 @@ const selectCorpusAlertButton = (
   return undefined;
 };
 
-const matchesRevalidatedAlert = (input: {
+export type CorpusIosAlertStage =
+  | "after_initial_check"
+  | "during_coordinate_prep"
+  | "after_revalidation_button_read";
+
+const alertMismatchAppError = (message: string): AppError =>
+  new AppError("COMMAND_FAILED", message, {
+    dispatched: "no",
+    reason: "alert_mismatch",
+    runnerErrorCode: "ALERT_MISMATCH",
+  });
+
+const alertButtonsMatch = (input: {
   readonly alertOptions: AlertCommandOptions;
-  readonly live: {
-    readonly buttons: readonly {
-      readonly label: string;
-      readonly rect?: CorpusCapture["nodes"][number]["rect"];
-    }[];
-    readonly items: readonly string[];
-    readonly message: string;
-  } | null;
+  readonly liveButtons: readonly {
+    readonly label: string;
+    readonly rect?: CorpusCapture["nodes"][number]["rect"];
+  }[];
   readonly selectedLabel: string;
   readonly selectedRect: CorpusCapture["nodes"][number]["rect"] | undefined;
 }): boolean => {
-  const { alertOptions, live, selectedLabel, selectedRect } = input;
-  if (live === null) {
-    return false;
-  }
-  if (
-    alertOptions.expectedMessage !== undefined &&
-    live.message.trim() !== alertOptions.expectedMessage.trim()
-  ) {
-    return false;
-  }
-  const liveLabel = selectCorpusAlertButton(live.items, alertOptions);
+  const { alertOptions, liveButtons, selectedLabel, selectedRect } = input;
+  const liveItems = liveButtons.map((button) => button.label);
+  const liveLabel = selectCorpusAlertButton(liveItems, alertOptions);
   if (liveLabel !== selectedLabel) {
     return false;
   }
-  const liveButton = live.buttons.find((button) => button.label === liveLabel);
+  const liveButton = liveButtons.find((button) => button.label === liveLabel);
   return JSON.stringify(liveButton?.rect) === JSON.stringify(selectedRect);
 };
 
@@ -480,8 +480,11 @@ interface CorpusIosBackendOptions {
     target: string
   ) => Effect.Effect<void, PlatformRuntimeError>;
   readonly device: IosDevice;
-  /** Runs inside the fake `alert` runner after the initial title check and before final pre-dispatch revalidation. */
-  readonly onAlertPostCheck?: (options: AlertCommandOptions) => void;
+  /** Runs at discrete stages inside the fake `alert` runner to model races between separate XCTest reads. */
+  readonly onAlertStage?: (
+    stage: CorpusIosAlertStage,
+    options: AlertCommandOptions
+  ) => void;
   readonly platform: "ios";
   readonly script: CorpusScript;
   readonly sessionId?: string;
@@ -537,12 +540,20 @@ export function makeCorpusNativeBackend(
 
   const iosDevice = options.platform === "ios" ? options.device : undefined;
 
-  const readAlertState = () => {
+  const readAlertTitle = (): string | null => {
     const screen = currentCapture();
     if (screen.nodes[0]?.type !== "Alert") {
       return null;
     }
-    const buttons = screen.nodes.flatMap((node) => {
+    return alertMessageOverride ?? screen.nodes[0]?.label ?? "System Alert";
+  };
+
+  const readAlertButtons = () => {
+    const screen = currentCapture();
+    if (screen.nodes[0]?.type !== "Alert") {
+      return null;
+    }
+    return screen.nodes.flatMap((node) => {
       if (node.type !== "Button" || node.label === undefined) {
         return [];
       }
@@ -552,24 +563,68 @@ export function makeCorpusNativeBackend(
           : { label: node.label, rect: node.rect },
       ];
     });
-    const items = buttons.map((button) => button.label);
-    const message =
-      alertMessageOverride ?? screen.nodes[0]?.label ?? "System Alert";
+  };
+
+  const readAlertGeometry = () => {
+    const screen = currentCapture();
+    if (screen.nodes[0]?.type !== "Alert") {
+      return null;
+    }
     return {
-      buttons,
-      items,
-      message,
       referenceViewport: cachedWindow ?? screen.viewport,
       rootRect: screen.nodes[0]?.rect,
     };
+  };
+
+  const emitAlertStage = (
+    stage: CorpusIosAlertStage,
+    alertOptions: AlertCommandOptions
+  ) => {
+    if (options.platform === "ios") {
+      options.onAlertStage?.(stage, alertOptions);
+    }
+  };
+
+  const verifyAlertBeforeSubmit = (
+    alertOptions: AlertCommandOptions,
+    selectedLabel: string,
+    selectedRect: CorpusCapture["nodes"][number]["rect"] | undefined
+  ): boolean => {
+    // Mirrors the patched runner's final pre-submit identity check inside
+    // RunnerSynthesizedGesture: live button label/frame read first, then the
+    // live alert title read last immediately before event submission.
+    const liveButtons = readAlertButtons();
+    if (
+      liveButtons === null ||
+      !alertButtonsMatch({
+        alertOptions,
+        liveButtons,
+        selectedLabel,
+        selectedRect,
+      })
+    ) {
+      return false;
+    }
+    emitAlertStage("after_revalidation_button_read", alertOptions);
+    const liveTitle = readAlertTitle();
+    if (liveTitle === null) {
+      return false;
+    }
+    if (
+      alertOptions.expectedMessage !== undefined &&
+      liveTitle.trim() !== alertOptions.expectedMessage.trim()
+    ) {
+      return false;
+    }
+    return true;
   };
 
   const sdkAlert =
     iosDevice === undefined
       ? undefined
       : (alertOptions: AlertCommandOptions) => {
-          const initial = readAlertState();
-          if (initial === null) {
+          const initialTitle = readAlertTitle();
+          if (initialTitle === null) {
             return Promise.reject(
               new AppError("COMMAND_FAILED", "alert not found", {
                 dispatched: "no",
@@ -585,22 +640,17 @@ export function makeCorpusNativeBackend(
           ) {
             if (
               alertOptions.expectedMessage !== undefined &&
-              alertOptions.expectedMessage.trim() !== initial.message.trim()
+              alertOptions.expectedMessage.trim() !== initialTitle.trim()
             ) {
               return Promise.reject(
-                new AppError(
-                  "COMMAND_FAILED",
-                  "alert message did not match expected message",
-                  {
-                    dispatched: "no",
-                    reason: "alert_mismatch",
-                    runnerErrorCode: "ALERT_MISMATCH",
-                  }
+                alertMismatchAppError(
+                  "alert message did not match expected message"
                 )
               );
             }
+            const initialButtons = readAlertButtons() ?? [];
             const selectedLabel = selectCorpusAlertButton(
-              initial.items,
+              initialButtons.map((button) => button.label),
               alertOptions
             );
             if (selectedLabel === undefined) {
@@ -615,31 +665,24 @@ export function makeCorpusNativeBackend(
                 )
               );
             }
-            const selectedButton = initial.buttons.find(
+            const selectedButton = initialButtons.find(
               (button) => button.label === selectedLabel
             );
-            if (options.platform === "ios") {
-              options.onAlertPostCheck?.(alertOptions);
-            }
-            // Mirrors the patched runner's final pre-dispatch revalidation
-            // after presentation capture and hittability wait.
+            emitAlertStage("after_initial_check", alertOptions);
+            // Prepare window geometry, coordinate, and event record before the
+            // final pre-submit identity check.
+            readAlertGeometry();
+            emitAlertStage("during_coordinate_prep", alertOptions);
             if (
-              !matchesRevalidatedAlert({
+              !verifyAlertBeforeSubmit(
                 alertOptions,
-                live: readAlertState(),
                 selectedLabel,
-                selectedRect: selectedButton?.rect,
-              })
+                selectedButton?.rect
+              )
             ) {
               return Promise.reject(
-                new AppError(
-                  "COMMAND_FAILED",
-                  "alert presentation changed before button dispatch",
-                  {
-                    dispatched: "no",
-                    reason: "alert_mismatch",
-                    runnerErrorCode: "ALERT_MISMATCH",
-                  }
+                alertMismatchAppError(
+                  "alert presentation changed before button dispatch"
                 )
               );
             }
@@ -653,13 +696,15 @@ export function makeCorpusNativeBackend(
             }
             return Promise.resolve({ message: "pressed" });
           }
+          const buttons = readAlertButtons() ?? [];
+          const geometry = readAlertGeometry();
           return Promise.resolve({
-            buttons: initial.buttons,
-            items: initial.items,
-            message: initial.message,
-            rect: initial.rootRect,
-            referenceHeight: initial.referenceViewport.height,
-            referenceWidth: initial.referenceViewport.width,
+            buttons,
+            items: buttons.map((button) => button.label),
+            message: initialTitle,
+            rect: geometry?.rootRect,
+            referenceHeight: geometry?.referenceViewport.height,
+            referenceWidth: geometry?.referenceViewport.width,
           });
         };
 

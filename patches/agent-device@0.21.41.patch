@@ -1,5 +1,97 @@
+diff --git a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerSynthesizedGesture.h b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerSynthesizedGesture.h
+index 59c41e58e4a6dc613652850f3d47a9a2fe11e4fb..647efbf23f2eeb44002474cacf639c50eef032d8 100644
+--- a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerSynthesizedGesture.h
++++ b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerSynthesizedGesture.h
+@@ -8,6 +8,7 @@ FOUNDATION_EXPORT double RunnerControlledScrollProgress(double t);
+ typedef NS_ENUM(NSInteger, RunnerTapSynthesisStatus) {
+   RunnerTapSynthesisStatusSucceeded,
+   RunnerTapSynthesisStatusDeadlineExceeded,
++  RunnerTapSynthesisStatusRejected,
+   RunnerTapSynthesisStatusFailed,
+ };
+ 
+@@ -38,6 +39,14 @@ typedef struct {
+                                             deadline:(NSDate * _Nullable)deadline
+                                         errorMessage:(NSString * _Nullable * _Nullable)errorMessage;
+ 
+++ (RunnerTapSynthesisStatus)synthesizeTapWithApplication:(id)application
++                                      resolvedWindow:(id _Nullable)resolvedWindow
++                                interfaceOrientation:(NSInteger)interfaceOrientation
++                                               point:(CGPoint)point
++                                            deadline:(NSDate * _Nullable)deadline
++                                        beforeSubmit:(BOOL (^ _Nullable)(void))beforeSubmit
++                                        errorMessage:(NSString * _Nullable * _Nullable)errorMessage;
++
+ // Each pointer is an ordered array of { x, y, offsetMs } samples. The first sample
+ // starts contact; subsequent samples move it; all pointers lift at their final offset.
+ // `dispatched`, when given, turns YES once the record is handed to XCTest to run, so a failure with
+diff --git a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerSynthesizedGesture.m b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerSynthesizedGesture.m
+index 73c3ff3eadd70d7e9089ff0998f1db8138898ff7..d43703a7f17026d252994ba83a084b6d82d83022 100644
+--- a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerSynthesizedGesture.m
++++ b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerSynthesizedGesture.m
+@@ -74,6 +74,7 @@ static RunnerTapSynthesisStatus RunnerTrySynthesizeTap(
+   NSInteger interfaceOrientation,
+   CGPoint point,
+   NSDate * _Nullable deadline,
++  BOOL (^ _Nullable beforeSubmit)(void),
+   NSString * _Nullable * _Nullable errorMessage
+ );
+ // XCTest's proven swipe profile reaches the endpoint in 100 ms, then holds for the planned
+@@ -112,9 +113,33 @@ + (RunnerTapSynthesisStatus)synthesizeTapWithApplication:(id)application
+                                                point:(CGPoint)point
+                                             deadline:(NSDate * _Nullable)deadline
+                                         errorMessage:(NSString * _Nullable * _Nullable)errorMessage {
++  return [self synthesizeTapWithApplication:application
++                             resolvedWindow:resolvedWindow
++                       interfaceOrientation:interfaceOrientation
++                                      point:point
++                                   deadline:deadline
++                               beforeSubmit:nil
++                               errorMessage:errorMessage];
++}
++
+++ (RunnerTapSynthesisStatus)synthesizeTapWithApplication:(id)application
++                                      resolvedWindow:(id _Nullable)resolvedWindow
++                                interfaceOrientation:(NSInteger)interfaceOrientation
++                                               point:(CGPoint)point
++                                            deadline:(NSDate * _Nullable)deadline
++                                        beforeSubmit:(BOOL (^ _Nullable)(void))beforeSubmit
++                                        errorMessage:(NSString * _Nullable * _Nullable)errorMessage {
+   if (errorMessage != NULL) *errorMessage = nil;
+   @try {
+-    return RunnerTrySynthesizeTap(application, resolvedWindow, interfaceOrientation, point, deadline, errorMessage);
++    return RunnerTrySynthesizeTap(
++      application,
++      resolvedWindow,
++      interfaceOrientation,
++      point,
++      deadline,
++      beforeSubmit,
++      errorMessage
++    );
+   } @catch (NSException *exception) {
+     if (errorMessage != NULL) {
+       *errorMessage = RunnerFormatXCTestException(exception, @"private XCTest event synthesis failed");
+@@ -221,6 +246,7 @@ static RunnerTapSynthesisStatus RunnerTrySynthesizeTap(
+   NSInteger interfaceOrientation,
+   CGPoint point,
+   NSDate * _Nullable deadline,
++  BOOL (^ _Nullable beforeSubmit)(void),
+   NSString * _Nullable * _Nullable errorMessage
+ ) {
+   RunnerGestureEventBridge bridge;
+@@ -247,6 +273,9 @@ static RunnerTapSynthesisStatus RunnerTrySynthesizeTap(
+   if (deadline != nil && deadline.timeIntervalSinceNow <= 0) {
+     return RunnerTapSynthesisStatusDeadlineExceeded;
+   }
++  if (beforeSubmit != nil && !beforeSubmit()) {
++    return RunnerTapSynthesisStatusRejected;
++  }
+   error = RunnerSynthesizeEventRecord(&bridge, record);
+   if (errorMessage != NULL) *errorMessage = error;
+   return error == nil ? RunnerTapSynthesisStatusSucceeded : RunnerTapSynthesisStatusFailed;
 diff --git a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+Alert.swift b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+Alert.swift
-index e1a94e31417b93f7e3c7881fa47a5327d898f5ba..ae97d40fdaf1dcb8404f5278b91e43ebb4e09bf3 100644
+index e1a94e31417b93f7e3c7881fa47a5327d898f5ba..65e7f5e9189de4b76b6cbbeabc37ad0979715e06 100644
 --- a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+Alert.swift
 +++ b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+Alert.swift
 @@ -80,11 +80,46 @@ extension RunnerTests {
@@ -69,57 +161,72 @@ index e1a94e31417b93f7e3c7881fa47a5327d898f5ba..ae97d40fdaf1dcb8404f5278b91e43eb
        guard Date() < deadline else {
          return alertVerificationResponse(.timedOut, action: action, activated: false)
        }
-@@ -121,12 +166,37 @@ extension RunnerTests {
-         return alertVerificationResponse(.unconfirmed, action: action, activated: false)
-       }
- #endif
-+      var dispatchAlert = alert
-+      var dispatchButton = button
-+      var dispatchFrame = buttonFrame
-+      if expectedMessage != nil || hasExplicitTarget {
-+        guard let verified = revalidateTargetedAlertBeforeDispatch(
-+          activeApp: activeApp ?? alert.ownerApp,
-+          action: action,
-+          hasExplicitTarget: hasExplicitTarget,
-+          buttonLabel: buttonLabel,
-+          buttonIndex: buttonIndex,
-+          chosenLabel: chosenLabel,
-+          expectedMessage: expectedMessage,
-+          expectedFrame: buttonFrame,
-+          deadline: deadline
-+        ) else {
-+          return Response(ok: false, error: ErrorPayload(
-+            code: RunnerWireErrorCode.alertMismatch,
-+            message: "alert presentation changed before button dispatch",
-+            hint: RunnerTests.alertNoButtonActivatedHint
-+          ))
-+        }
-+        dispatchAlert = verified.alert
-+        dispatchButton = verified.button
-+        dispatchFrame = verified.frame
-+      }
+@@ -124,21 +169,54 @@ extension RunnerTests {
        NSLog(
          "AGENT_DEVICE_RUNNER_ALERT_ACTIVATION action=%@ label=%@ frame=(%.1f,%.1f,%.1f,%.1f) point=(%.1f,%.1f)",
          action,
 -        button.label,
--        buttonFrame.origin.x, buttonFrame.origin.y, buttonFrame.size.width, buttonFrame.size.height,
--        buttonFrame.midX, buttonFrame.midY
 +        chosenLabel,
-+        dispatchFrame.origin.x, dispatchFrame.origin.y, dispatchFrame.size.width, dispatchFrame.size.height,
-+        dispatchFrame.midX, dispatchFrame.midY
+         buttonFrame.origin.x, buttonFrame.origin.y, buttonFrame.size.width, buttonFrame.size.height,
+         buttonFrame.midX, buttonFrame.midY
        )
++      let revalidationTargetApp = activeApp ?? alert.ownerApp
++      let preSubmitCheck: (@MainActor () -> Bool)?
++      if expectedMessage != nil || hasExplicitTarget {
++        preSubmitCheck = { @MainActor in
++          self.revalidateTargetedAlertBeforeDispatch(
++            activeApp: revalidationTargetApp,
++            action: action,
++            hasExplicitTarget: hasExplicitTarget,
++            buttonLabel: buttonLabel,
++            buttonIndex: buttonIndex,
++            chosenLabel: chosenLabel,
++            expectedMessage: expectedMessage,
++            expectedFrame: buttonFrame,
++            deadline: deadline
++          )
++        }
++      } else {
++        preSubmitCheck = nil
++      }
  
- 
-@@ -134,7 +204,7 @@ extension RunnerTests {
- 
- 
- 
+-
+-
+-
+-
+-
 -      guard let outcome = try activateAlertButton(alert, button: button, action: action, frame: buttonFrame, deadline: deadline) else {
-+      guard let outcome = try activateAlertButton(dispatchAlert, button: dispatchButton, action: action, frame: dispatchFrame, deadline: deadline) else {
++      let activationOutcome = try activateAlertButton(
++        alert,
++        button: button,
++        action: action,
++        frame: buttonFrame,
++        deadline: deadline,
++        beforeSubmit: preSubmitCheck
++      )
++      switch activationOutcome {
++      case .timedOut:
          return alertVerificationResponse(.timedOut, action: action, activated: false)
+-      }
+-      if let response = unsupportedResponse(for: outcome) {
+-        return response
++      case .rejected:
++        return Response(ok: false, error: ErrorPayload(
++          code: RunnerWireErrorCode.alertMismatch,
++          message: "alert presentation changed before button dispatch",
++          hint: RunnerTests.alertNoButtonActivatedHint
++        ))
++      case .unsupported(let message, let hint):
++        if let response = unsupportedResponse(for: .unsupported(message: message, hint: hint)) {
++          return response
++        }
++        return alertUnresolvedResponse()
++      case .performed:
++        break
        }
-       if let response = unsupportedResponse(for: outcome) {
-@@ -156,10 +226,29 @@ extension RunnerTests {
+       while true {
+         sleepFor(min(0.2, max(0, deadline.timeIntervalSinceNow)))
+@@ -156,10 +234,29 @@ extension RunnerTests {
      }
  
      let items: [String]
@@ -151,7 +258,7 @@ index e1a94e31417b93f7e3c7881fa47a5327d898f5ba..ae97d40fdaf1dcb8404f5278b91e43eb
      } catch {
        return alertUnresolvedResponse()
      }
-@@ -169,7 +258,11 @@ extension RunnerTests {
+@@ -169,7 +266,11 @@ extension RunnerTests {
        data: DataPayload(
          message: title,
          items: items,
@@ -164,7 +271,119 @@ index e1a94e31417b93f7e3c7881fa47a5327d898f5ba..ae97d40fdaf1dcb8404f5278b91e43eb
        )
      )
    }
-@@ -330,6 +423,122 @@ extension RunnerTests {
+@@ -182,15 +283,23 @@ extension RunnerTests {
+       && RunnerLaunchConfirmationPrompt.system.recognizes(title: title, buttons: items)
+   }
+ 
++  enum AlertActivationOutcome {
++    case performed
++    case timedOut
++    case rejected
++    case unsupported(message: String, hint: String?)
++  }
++
+   @MainActor
+   func activateAlertButton(
+     _ alert: RunnerAlert,
+     button: XCUIElement,
+     action: String,
+     frame: CGRect,
+-    deadline: Date
+-  ) throws -> RunnerInteractionOutcome? {
+-    var outcome: RunnerInteractionOutcome?
++    deadline: Date,
++    beforeSubmit: (@MainActor () -> Bool)? = nil
++  ) throws -> AlertActivationOutcome {
++    var outcome: AlertActivationOutcome = .timedOut
+     var activationError: Error?
+     withUIInterruptionHandlingDisabledIfSupported(alert.ownerApp) {
+       withBoundedInteractionIdleTimeoutIfSupported(alert.ownerApp, waits: .preEventSkipped) {
+@@ -215,6 +324,10 @@ extension RunnerTests {
+             resolvedWindow: window,
+             accessibilityHealth: mainOwned.accessibilityHealth
+           ) else {
++            if let beforeSubmit, !beforeSubmit() {
++              outcome = .rejected
++              return
++            }
+             outcome = .unsupported(
+               message: "alert activation could not read the window hosting the alert",
+               hint: "Inspect the current alert before deciding whether to act again."
+@@ -223,6 +336,21 @@ extension RunnerTests {
+           }
+           hostContext = context
+         }
++        var beforeSubmitInvoked = false
++        var rejectedBeforeSubmit = false
++        let wrappedBeforeSubmit: (@MainActor () -> Bool)?
++        if let check = beforeSubmit {
++          wrappedBeforeSubmit = { @MainActor in
++            beforeSubmitInvoked = true
++            let allowed = check()
++            if !allowed {
++              rejectedBeforeSubmit = true
++            }
++            return allowed
++          }
++        } else {
++          wrappedBeforeSubmit = nil
++        }
+         let attempt: RunnerInteractionOutcome?
+         do {
+           attempt = try synthesizedTapAt(
+@@ -230,12 +358,17 @@ extension RunnerTests {
+             x: frame.midX,
+             y: frame.midY,
+             context: hostContext,
+-            deadline: deadline
++            deadline: deadline,
++            beforeSubmit: wrappedBeforeSubmit
+           )
+         } catch {
+           activationError = error
+           return
+         }
++        if rejectedBeforeSubmit {
++          outcome = .rejected
++          return
++        }
+         switch attempt {
+         case .performed?:
+           typealias WaitForQuiescence = @convention(c) (NSObject, Selector, Bool) -> Void
+@@ -246,16 +379,30 @@ extension RunnerTests {
+           waitForQuiescence(alert.ownerApp, postEventWaitSelector, false)
+           outcome = .performed
+         case .unsupported(let message, _)?, .notDispatched(let message, _)?:
++          if !beforeSubmitInvoked, let beforeSubmit, !beforeSubmit() {
++            outcome = .rejected
++            return
++          }
+           outcome = .unsupported(
+             message: message,
+             hint: "Inspect the current alert before deciding whether to act again."
+           )
+         case nil:
+-          break
++          outcome = .timedOut
+         }
+ #else
++        if let beforeSubmit, !beforeSubmit() {
++          outcome = .rejected
++          return
++        }
+         do {
+-          outcome = try activateElement(app: alert.ownerApp, element: button, action: "alert \(action)", resolvedFrame: frame)
++          let result = try activateElement(app: alert.ownerApp, element: button, action: "alert \(action)", resolvedFrame: frame)
++          switch result {
++          case .performed:
++            outcome = .performed
++          case .unsupported(let message, let hint), .notDispatched(let message, let hint):
++            outcome = .unsupported(message: message, hint: hint)
++          }
+         } catch {
+           activationError = error
+         }
+@@ -330,6 +477,122 @@ extension RunnerTests {
      return buttons[index]
    }
  
@@ -224,20 +443,12 @@ index e1a94e31417b93f7e3c7881fa47a5327d898f5ba..ae97d40fdaf1dcb8404f5278b91e43eb
 +    expectedMessage: String?,
 +    expectedFrame: CGRect,
 +    deadline: Date
-+  ) -> (alert: RunnerAlert, button: XCUIElement, frame: CGRect)? {
-+    guard Date() < deadline else { return nil }
++  ) -> Bool {
++    guard Date() < deadline else { return false }
 +    guard case .resolved(let liveAlert) = resolveAlert(app: activeApp, deadline: deadline) else {
-+      return nil
++      return false
 +    }
 +    do {
-+      if let expected = expectedMessage {
-+        let liveTitle = try readModalValue(deadline: deadline) {
-+          self.preferredAlertTitle(liveAlert.root, buttons: liveAlert.actions)
-+        }
-+        guard liveTitle == expected.trimmingCharacters(in: .whitespacesAndNewlines) else {
-+          return nil
-+        }
-+      }
 +      let liveButton = hasExplicitTarget
 +        ? try chooseTargetedAlertButton(
 +          liveAlert,
@@ -246,7 +457,7 @@ index e1a94e31417b93f7e3c7881fa47a5327d898f5ba..ae97d40fdaf1dcb8404f5278b91e43eb
 +          deadline: deadline
 +        )
 +        : try chooseAlertButton(liveAlert, action: action, deadline: deadline)
-+      guard let liveButton else { return nil }
++      guard let liveButton else { return false }
 +      let snapshot = try readModalValue(deadline: deadline) { () -> (String, CGRect, Bool) in
 +        (
 +          liveButton.label.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -254,18 +465,26 @@ index e1a94e31417b93f7e3c7881fa47a5327d898f5ba..ae97d40fdaf1dcb8404f5278b91e43eb
 +          liveButton.exists && liveButton.isHittable
 +        )
 +      }
-+      guard snapshot.2, snapshot.0 == chosenLabel else { return nil }
++      guard snapshot.2, snapshot.0 == chosenLabel else { return false }
 +      let liveFrame = snapshot.1
 +#if !os(tvOS)
 +      guard !liveFrame.isNull, !liveFrame.isEmpty,
 +            alertFramesMatch(liveFrame, expectedFrame)
 +      else {
-+        return nil
++        return false
 +      }
 +#endif
-+      return (alert: liveAlert, button: liveButton, frame: liveFrame)
++      if let expected = expectedMessage {
++        let liveTitle = try readModalValue(deadline: deadline) {
++          self.preferredAlertTitle(liveAlert.root, buttons: liveAlert.actions)
++        }
++        guard liveTitle == expected.trimmingCharacters(in: .whitespacesAndNewlines) else {
++          return false
++        }
++      }
++      return true
 +    } catch {
-+      return nil
++      return false
 +    }
 +  }
 +
@@ -360,6 +579,53 @@ index feb603c4e26c52d0c053cdf01de48622a9a21c76..711679485fd2b9a1cfda18e69f19392d
  
  
    var launchConfirmationPrompt: Bool?
+diff --git a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SynthesizedInteraction.swift b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SynthesizedInteraction.swift
+index e32576f95d10729e20de232f08380786f45cba96..67019171b4309af9bdf6933757306ca38ceaf6ef 100644
+--- a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SynthesizedInteraction.swift
++++ b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SynthesizedInteraction.swift
+@@ -77,7 +77,8 @@ extension RunnerTests {
+     x: Double,
+     y: Double,
+     context: SynthesizedCoordinateContext? = nil,
+-    deadline: Date? = nil
++    deadline: Date? = nil,
++    beforeSubmit: (@MainActor () -> Bool)? = nil
+   ) throws -> RunnerInteractionOutcome? {
+ #if os(iOS)
+     guard x.isFinite, y.isFinite else {
+@@ -104,6 +105,12 @@ extension RunnerTests {
+       referenceFrame: referenceFrame,
+       orientation: orientation
+     )
++    let beforeSubmitBlock: (() -> Bool)?
++    if let check = beforeSubmit {
++      beforeSubmitBlock = { MainActor.assumeIsolated { check() } }
++    } else {
++      beforeSubmitBlock = nil
++    }
+     var message: NSString?
+     let status = RunnerSynthesizedGesture.synthesizeTap(
+       withApplication: app,
+@@ -111,6 +118,7 @@ extension RunnerTests {
+       interfaceOrientation: orientation,
+       point: point,
+       deadline: deadline,
++      beforeSubmit: beforeSubmitBlock,
+       errorMessage: &message
+     )
+     switch status {
+@@ -118,6 +126,11 @@ extension RunnerTests {
+       return .performed
+     case .deadlineExceeded:
+       return nil
++    case .rejected:
++      return .notDispatched(
++        message: "synthesized tap rejected by pre-submit check",
++        hint: "Inspect the current presentation before deciding whether to act again."
++      )
+     case .failed:
+       return .unsupported(
+         message: message as String? ?? "private XCTest event synthesis failed",
 diff --git a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests.swift b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests.swift
 index e0cd0bb6c4eea021df9acd5e90cebfd03693e7a8..458f94ef00f116d1e068068bebe181d50e63e67f 100644
 --- a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests.swift
