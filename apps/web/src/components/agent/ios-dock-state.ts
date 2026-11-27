@@ -219,6 +219,18 @@ const teachingPresentation = (
 const pausedPresentation = (
   session: IosWorkspaceSnapshot
 ): IosDockPresentation => {
+  const paused = quiet(
+    "Paused",
+    session.error ??
+      "The simulator stopped mirroring. Recover the same simulator to carry on.",
+    "attention"
+  );
+  // A failed first preparation, even one whose first observation could not
+  // name the app in front, has no runtime to recover or send Home; as on
+  // Android, it prepares again.
+  if (!hasPreparedIosSession(session)) {
+    return { ...paused, action: action("prepare", "Retry preparation") };
+  }
   if (session.refusal?.recovery === "go-home") {
     // The observer follows any app in front; it pauses only when it
     // cannot tell which one that is (ADR 0083).
@@ -231,19 +243,7 @@ const pausedPresentation = (
       action: action("recover", "Go Home", "Go Home and carry on"),
     };
   }
-  // A failed first preparation has no runtime to recover; as on Android, it
-  // prepares again.
-  return {
-    ...quiet(
-      "Paused",
-      session.error ??
-        "The simulator stopped mirroring. Recover the same simulator to carry on.",
-      "attention"
-    ),
-    action: hasPreparedIosSession(session)
-      ? action("recover", "Recover selected simulator")
-      : action("prepare", "Retry preparation"),
-  };
+  return { ...paused, action: action("recover", "Recover selected simulator") };
 };
 
 const controlPresentation = (

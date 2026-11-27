@@ -71,3 +71,24 @@ test("retries a failed first preparation and recovers only after preparation", (
     }).action?.label
   ).toBe("Recover selected simulator");
 });
+
+test("retries a first preparation whose first observation named no app in front", () => {
+  const refusal = {
+    code: "foreground_app_unknown",
+    recovery: "go-home",
+  } as const;
+  expect(
+    iosDockPresentation({ ...pending, phase: "paused", refusal }).action?.label
+  ).toBe("Retry preparation");
+  expect(
+    iosDockPresentation({
+      ...pending,
+      phase: "paused",
+      preparation: {
+        ...pending.preparation,
+        evidence: [{ observationId: "ready", type: "observation" }],
+      },
+      refusal,
+    }).action?.label
+  ).toBe("Go Home");
+});
