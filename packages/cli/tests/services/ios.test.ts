@@ -1,11 +1,20 @@
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import { NodeServices } from "@effect/platform-node";
 import { expect, it } from "@effect/vitest";
 import type { Scope } from "effect";
-import { Deferred, Effect, Exit, Fiber, FileSystem } from "effect";
+import {
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  FileSystem,
+  Option,
+  Schema,
+} from "effect";
 
+import { droppedCause } from "../../src/services/failure-reference.ts";
 import { iosError } from "../../src/services/ios-contract.ts";
 import type {
   IosDevice,
@@ -29,6 +38,7 @@ import {
   iosRunnerArguments,
   iosRunnerStartBudgetMs,
 } from "../../src/services/ios-runner.ts";
+import { iosSimctlHost } from "../../src/services/ios-simctl.ts";
 import type { IosSimctlService } from "../../src/services/ios-simctl.ts";
 
 const selected: IosDevice = {
@@ -1087,6 +1097,114 @@ it.effect(
           "terminate",
           "get_app_container",
         ]);
+      })
+    )
+);
+
+it.live(
+  "returns no installed apps when an erased simulator lacks Containers/Bundle/Application",
+  () =>
+    withDirectory((dataPath) =>
+      Effect.gen(function* missingApplicationDirectory() {
+        expect(yield* iosSimctlHost.apps(dataPath)).toEqual([]);
+
+        // Through discovery and preparation without an upload, an erased
+        // simulator reports the normal Target App not-installed failure
+        // instead of discovery_failed.
+        const { io } = fakeHost();
+        const host: IosSimctlService = {
+          ...io,
+          apps: iosSimctlHost.apps,
+          devices: () =>
+            Effect.succeed(
+              JSON.stringify({
+                devices: {
+                  [selected.runtime]: [
+                    {
+                      dataPath,
+                      deviceTypeIdentifier: selected.deviceType,
+                      isAvailable: true,
+                      name: selected.name,
+                      state: "Booted",
+                      udid: selected.udid,
+                    },
+                  ],
+                },
+              })
+            ),
+        };
+        expect(yield* makeIosDiscovery(host).apps(selected)).toEqual([]);
+        expect(
+          yield* failureCode(
+            Effect.scoped(
+              makeIosPreparation(host).prepare({
+                device: selected,
+                environment,
+                requiredCapabilities: [],
+              })
+            )
+          )
+        ).toBe("preparation_failed");
+      })
+    )
+);
+
+it.live(
+  "still fails with discovery_failed for non-ENOENT errors reading Containers/Bundle/Application",
+  () =>
+    withDirectory((directory) =>
+      Effect.gen(function* nonEnoentApplicationDirectory() {
+        // ENOTDIR: Containers/Bundle/Application is a file, not a directory.
+        const notDirDataPath = path.join(directory, "not-dir");
+        yield* Effect.promise(async () => {
+          await mkdir(path.join(notDirDataPath, "Containers/Bundle"), {
+            recursive: true,
+          });
+          await writeFile(
+            path.join(notDirDataPath, "Containers/Bundle/Application"),
+            "not a directory"
+          );
+        });
+        const notDirError = yield* Effect.flip(
+          iosSimctlHost.apps(notDirDataPath)
+        );
+        expect(notDirError.code).toBe("discovery_failed");
+        const notDirCause = droppedCause(notDirError);
+        expect(
+          Option.isSome(notDirCause) &&
+            Schema.is(Schema.Struct({ code: Schema.Literal("ENOTDIR") }))(
+              notDirCause.value
+            )
+        ).toBe(true);
+
+        // EACCES: unreadable Containers/Bundle/Application (skipped as root).
+        if (process.getuid?.() !== 0) {
+          const deniedDataPath = path.join(directory, "denied");
+          const deniedRoot = path.join(
+            deniedDataPath,
+            "Containers/Bundle/Application"
+          );
+          yield* Effect.promise(async () => {
+            await mkdir(deniedRoot, { recursive: true });
+            await chmod(deniedRoot, 0o000);
+          });
+          yield* Effect.ensuring(
+            Effect.gen(function* verifyDenied() {
+              const deniedError = yield* Effect.flip(
+                iosSimctlHost.apps(deniedDataPath)
+              );
+              expect(deniedError.code).toBe("discovery_failed");
+              const deniedCause = droppedCause(deniedError);
+              expect(
+                Option.isSome(deniedCause) &&
+                  Schema.is(Schema.Struct({ code: Schema.Literal("EACCES") }))(
+                    deniedCause.value
+                  )
+              ).toBe(true);
+            }),
+            Effect.promise(() => chmod(deniedRoot, 0o700))
+          );
+        }
       })
     )
 );

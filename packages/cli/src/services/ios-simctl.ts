@@ -59,6 +59,9 @@ const readApp = (bundle: string) =>
       path: bundle,
     } satisfies IosApp;
   });
+const isMissingDirectory = Schema.is(
+  Schema.Struct({ code: Schema.Literal("ENOENT") })
+);
 const simctl = (args: readonly string[]) =>
   iosCommand("xcrun", ["simctl", ...args]);
 /** Host inventory is separate from commands bound to a selected device. */
@@ -67,10 +70,18 @@ export const iosSimctlHost = {
   apps: (dataPath: string) =>
     Effect.gen(function* installedBundles() {
       const root = path.join(dataPath, "Containers/Bundle/Application");
+      // Freshly created or erased simulators have no Application folder until the first install.
       const directories = yield* Effect.tryPromise({
-        catch: (cause) => iosFailure("discovery_failed", cause),
+        catch: (cause) =>
+          isMissingDirectory(cause)
+            ? ({ _tag: "MissingApplicationDirectory" } as const)
+            : iosFailure("discovery_failed", cause),
         try: () => readdir(root),
-      });
+      }).pipe(
+        Effect.catchTag("MissingApplicationDirectory", () =>
+          Effect.succeed<readonly string[]>([])
+        )
+      );
       const apps: IosApp[] = [];
       for (const directory of directories) {
         const parent = path.join(root, directory);
