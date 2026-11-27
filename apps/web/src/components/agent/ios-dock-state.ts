@@ -229,7 +229,14 @@ const pausedPresentation = (
   // name the app in front, has no runtime to recover or send Home; as on
   // Android, it prepares again.
   if (!hasPreparedIosSession(session)) {
-    return { ...paused, action: action("prepare", "Retry preparation") };
+    return {
+      ...quiet(
+        "Paused",
+        "Preparation failed before the simulator was ready. Retry preparation to prepare it again.",
+        "attention"
+      ),
+      action: action("prepare", "Retry preparation"),
+    };
   }
   if (session.refusal?.recovery === "go-home") {
     // The observer follows any app in front; it pauses only when it

@@ -77,9 +77,16 @@ test("retries a first preparation whose first observation named no app in front"
     code: "foreground_app_unknown",
     recovery: "go-home",
   } as const;
-  expect(
-    iosDockPresentation({ ...pending, phase: "paused", refusal }).action?.label
-  ).toBe("Retry preparation");
+  const unprepared = iosDockPresentation({
+    ...pending,
+    error:
+      "iOS cannot tell which app is in front of the simulator, so nothing was observed or sent. Press Home (Go Home in the Workspace, or the recover command) and carry on from the Home Screen.",
+    phase: "paused",
+    refusal,
+  });
+  expect(unprepared.action?.label).toBe("Retry preparation");
+  expect(unprepared.nextStep).toContain("Retry preparation");
+  expect(unprepared.nextStep).not.toContain("Home");
   expect(
     iosDockPresentation({
       ...pending,
