@@ -375,6 +375,7 @@ interface SessionState {
     readonly height: number;
   })[];
   readonly field: AndroidWorkspaceSnapshot["field"];
+  readonly inputConfirmation?: PlatformFillResult["confirmation"] | undefined;
   readonly revision: number;
   readonly summary: AndroidWorkspaceSummary;
   readonly observation: AndroidObservation | null;
@@ -707,7 +708,7 @@ export const makeAndroidWorkspaceLayer = (options: {
           const recording = yield* recordingState(current.summary.recordingId);
           const captured = current.observation;
           const pending = session.boundary.pending();
-          return {
+          const result: AndroidWorkspaceSnapshot = {
             ...current.summary,
             ...recording,
             boundary: pending?.boundary ?? null,
@@ -734,7 +735,10 @@ export const makeAndroidWorkspaceLayer = (options: {
             variables: registry
               .get(session.variables)
               .map(({ value: _value, ...variable }) => variable),
-          } satisfies AndroidWorkspaceSnapshot;
+          };
+          return current.inputConfirmation === undefined
+            ? result
+            : { ...result, inputConfirmation: current.inputConfirmation };
         });
       const { emit, keyframe, finishRecording } = makeNativeAppTeachingCapture({
         directory: (session: Session) => session.directory,
@@ -2018,6 +2022,7 @@ export const makeAndroidWorkspaceLayer = (options: {
           update(session, (value) => ({
             ...value,
             field: null,
+            inputConfirmation: undefined,
             observation: null,
           }));
           // The agent's touch is drawn on the live stage before it lands
@@ -2064,6 +2069,10 @@ export const makeAndroidWorkspaceLayer = (options: {
             );
             fillResult = dispatched || undefined;
           }
+          update(session, (value) => ({
+            ...value,
+            inputConfirmation: fillResult?.confirmation,
+          }));
           const after = yield* observeRepairing(session);
           acceptObservation(session, after);
           if (current.recording) {

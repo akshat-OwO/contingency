@@ -368,6 +368,7 @@ interface SessionState {
     { readonly _tag: "input" }
   > | null;
   readonly field: IosWorkspaceSnapshot["field"];
+  readonly inputConfirmation?: PlatformFillResult["confirmation"] | undefined;
   readonly revision: number;
   readonly summary: IosWorkspaceSummary;
   readonly observation: IosObservation | null;
@@ -704,7 +705,7 @@ export const makeIosWorkspaceLayer = (options: {
           const recording = yield* recordingState(current.summary.recordingId);
           const captured = current.observation;
           const pending = session.boundary.pending();
-          return {
+          const result: IosWorkspaceSnapshot = {
             ...current.summary,
             ...recording,
             boundary: pending?.boundary ?? null,
@@ -731,7 +732,10 @@ export const makeIosWorkspaceLayer = (options: {
             variables: registry
               .get(session.variables)
               .map(({ value: _value, ...variable }) => variable),
-          } satisfies IosWorkspaceSnapshot;
+          };
+          return current.inputConfirmation === undefined
+            ? result
+            : { ...result, inputConfirmation: current.inputConfirmation };
         });
       const { emit, keyframe, finishRecording } = makeNativeAppTeachingCapture({
         directory: (session: Session) => session.directory,
@@ -2070,6 +2074,7 @@ export const makeIosWorkspaceLayer = (options: {
           update(session, (value) => ({
             ...value,
             field: null,
+            inputConfirmation: undefined,
             observation: null,
           }));
           // The agent's touch is drawn on the live stage before it lands
@@ -2124,6 +2129,10 @@ export const makeIosWorkspaceLayer = (options: {
               );
             fillResult = dispatched || undefined;
           }
+          update(session, (value) => ({
+            ...value,
+            inputConfirmation: fillResult?.confirmation,
+          }));
           const after = yield* observeIosPostAction(
             observeRepairing(session),
             before

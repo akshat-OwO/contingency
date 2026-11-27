@@ -349,6 +349,14 @@ export const AndroidWorkspaceSnapshot = Schema.Struct({
       target: text,
     })
   ),
+  /**
+   * Whether the text the latest input entered read back as entered. An
+   * `unconfirmed` fill or Variable entry may hold other text, so reread the
+   * field before relying on it. Absent when that input entered no text.
+   */
+  inputConfirmation: Schema.optionalKey(
+    Schema.Literals(["confirmed", "unconfirmed"])
+  ),
   observation: Schema.NullOr(AndroidWorkspaceObservation),
   pendingDecision: Schema.optionalKey(Schema.NullOr(AgentPendingDecision)),
   revision: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),

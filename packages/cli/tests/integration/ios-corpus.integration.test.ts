@@ -801,10 +801,11 @@ journey(
       );
       expect(device.fills()).toBe(1);
       expect(afterFill.phase).toBe("running");
+      expect(afterFill.inputConfirmation).toBe("unconfirmed");
       expect(afterFill.failureReference ?? null).toBeNull();
       expect(afterFill.captureGaps).toEqual([]);
 
-      // The agent fills again from the fresh observation, which confirms.
+      // The answer says the entry is unconfirmed, so the agent fills again from the fresh observation.
       const refilled = decodeIosSnapshot(
         yield* call("agent_device_workspace", {
           command: {
@@ -823,6 +824,7 @@ journey(
       );
       expect(device.fills()).toBe(2);
       expect(refilled.phase).toBe("running");
+      expect(refilled.inputConfirmation).toBe("confirmed");
 
       const afterAlert = decodeIosSnapshot(
         yield* call("agent_device_workspace", {
@@ -839,6 +841,7 @@ journey(
           platform: "ios",
         })
       );
+      expect(afterAlert.inputConfirmation).toBeUndefined();
       const completed = decodeIosSnapshot(
         yield* call("agent_device_workspace", {
           command: {
