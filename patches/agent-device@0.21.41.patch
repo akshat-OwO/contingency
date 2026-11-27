@@ -592,22 +592,6 @@ index feb603c4e26c52d0c053cdf01de48622a9a21c76..711679485fd2b9a1cfda18e69f19392d
  
  
    var launchConfirmationPrompt: Bool?
-diff --git a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+Snapshot.swift b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+Snapshot.swift
-index cd68d36085bbc11f94073a147605c574f02e9419..d90b873c4f8d60b53af57b69d90d18f0f02ed9fa 100644
---- a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+Snapshot.swift
-+++ b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+Snapshot.swift
-@@ -338,6 +338,11 @@ extension RunnerTests {
-       }
-       return blocking
-     }
-+    if target.refusesSystemAlertSubstitution,
-+      Self.observeOnlyRefusesNonPrimaryApp(app: target.app, bundleId: target.bundleId)
-+    {
-+      throw ObserveOnlyForegroundHandoffRefused()
-+    }
-     return try runSnapshotCapturePlan(
-       plan,
-       target: target,
 diff --git a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotAcquisition.swift b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotAcquisition.swift
 index 6ccfaf0ce48a1111b7176e4f184a228c559b74d0..c67e339bee000d2a0f0fdd56d4157863406fb32b 100644
 --- a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotAcquisition.swift
@@ -677,7 +661,7 @@ index b491bb144c0e7f76a7b642325a1cd44cc76ad6e6..c8d727f3996ed5f4231abef80e93597f
            else {
              return (nil, .completed)
 diff --git a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotCaptureTarget.swift b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotCaptureTarget.swift
-index dff25a5f394058b2ed20b45f718531f15d8c7b42..f164acaba1f46b5f92c6b274245df2f833009d44 100644
+index dff25a5f394058b2ed20b45f718531f15d8c7b42..766328131d3cb265a64a83616297404bebc41d86 100644
 --- a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotCaptureTarget.swift
 +++ b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotCaptureTarget.swift
 @@ -22,6 +22,8 @@ struct SnapshotCaptureTarget {
@@ -689,55 +673,30 @@ index dff25a5f394058b2ed20b45f718531f15d8c7b42..f164acaba1f46b5f92c6b274245df2f8
  
  enum SnapshotCommandPreparation {
    case response(Response)
-@@ -73,6 +75,20 @@ final class SnapshotProbePenaltyIdentity {
+@@ -73,6 +75,8 @@ final class SnapshotProbePenaltyIdentity {
  }
  
  extension RunnerTests {
 +  static let observeOnlyForegroundHandoffHint =
 +    "Another application owns the foreground."
-+
-+  static func observeOnlyRefusesNonPrimaryApp(
-+    app: XCUIApplication,
-+    bundleId: String?
-+  ) -> Bool {
-+    #if os(iOS)
-+      guard bundleId != "com.apple.springboard" else { return false }
-+      return RunnerApplicationIsNotPrimaryApp(app)
-+    #else
-+      return false
-+    #endif
-+  }
  
    @MainActor
    func takeSnapshotCaptureTarget(app: XCUIApplication) -> SnapshotCaptureTarget {
 diff --git a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotExecution.swift b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotExecution.swift
-index 9336341932bd2a3d01a94b00493a980b6455ffed..8b01420c3794347004cc2463222fa1a527d32756 100644
+index 9336341932bd2a3d01a94b00493a980b6455ffed..8e98a04e7506e1e2f319d5afff7565e6110e5cca 100644
 --- a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotExecution.swift
 +++ b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerTests+SnapshotExecution.swift
-@@ -124,6 +124,12 @@ extension RunnerTests {
+@@ -124,6 +124,9 @@ extension RunnerTests {
          guard let capturedProcessIdentifier = target.processIdentifier else {
            return observeOnlyUnavailableResponse()
          }
-+        if Self.observeOnlyRefusesNonPrimaryApp(app: target.app, bundleId: target.bundleId) {
-+          return observeOnlyUnavailableResponse(hint: Self.observeOnlyForegroundHandoffHint)
-+        }
 +        if let unavailable = runnerUnavailableResponse(command: command) {
 +          return unavailable
 +        }
          let unchanged = try runMainThreadWork(
            "observe_only_state",
            timeout: Self.mainThreadExecutionTimeout,
-@@ -133,6 +139,9 @@ extension RunnerTests {
-             && Self.processIdentifier(of: target.app) == capturedProcessIdentifier
-         }
-         guard unchanged else { return observeOnlyUnavailableResponse() }
-+        if Self.observeOnlyRefusesNonPrimaryApp(app: target.app, bundleId: target.bundleId) {
-+          return observeOnlyUnavailableResponse(hint: Self.observeOnlyForegroundHandoffHint)
-+        }
-         payload.observation = observation
-       }
-       setNeedsPostSnapshotInteractionDelay()
-@@ -143,6 +152,10 @@ extension RunnerTests {
+@@ -143,6 +146,10 @@ extension RunnerTests {
        return observeOnlyUnavailableResponse(
          hint: "A system alert is presented over the session app. Resolve it with alert, or read it with a regular snapshot."
        )
@@ -807,57 +766,6 @@ index e0cd0bb6c4eea021df9acd5e90cebfd03693e7a8..458f94ef00f116d1e068068bebe181d5
      static let alertUnresolved = "ALERT_UNRESOLVED"
  
      static let synthesizedGestureNotDispatched = "SYNTHESIZED_GESTURE_NOT_DISPATCHED"
-diff --git a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerXCTestEventBridge.h b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerXCTestEventBridge.h
-index 91dbdfba8fc6741025b42dc5a3ba9f3ed0b715a0..35a00a45f2164acbbe49cbb32f6181c3698f6640 100644
---- a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerXCTestEventBridge.h
-+++ b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerXCTestEventBridge.h
-@@ -138,6 +138,10 @@ FOUNDATION_EXPORT RunnerFullScreenEvidence RunnerFullScreenEvidenceFromForegroun
- // and walks no tree, so it answers while XCTest's accessibility channel is penalized.
- #if TARGET_OS_IOS
- FOUNDATION_EXPORT CGRect RunnerFullScreenApplicationFrame(id application);
-+// YES when AXRuntime positively identifies a different process as the primary foreground app
-+// (even while XCUIApplication still transiently reports runningForeground during handoff).
-+// NO when `application` is the primary app or when AXRuntime cannot name both pids.
-+FOUNDATION_EXPORT BOOL RunnerApplicationIsNotPrimaryApp(id application);
- #endif
- 
- FOUNDATION_EXPORT NSString * _Nullable RunnerRequireClass(
-diff --git a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerXCTestEventBridge.m b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerXCTestEventBridge.m
-index eb736cd942e81b4b6929e6d6868c44f5be385497..f831ef5ecea03793f76fc6a8badc11757fc4130f 100644
---- a/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerXCTestEventBridge.m
-+++ b/dist/apple/runner/AgentDeviceRunner/AgentDeviceRunnerUITests/RunnerXCTestEventBridge.m
-@@ -489,6 +489,31 @@ CGRect RunnerFullScreenApplicationFrame(id application) {
-   return screen;
- }
- 
-+BOOL RunnerApplicationIsNotPrimaryApp(id application) {
-+  if (application == nil) {
-+    return NO;
-+  }
-+  Class<AgentDeviceForegroundElement> element = RunnerForegroundElementClass();
-+  if (element == Nil || ![element respondsToSelector:@selector(primaryApp)]) {
-+    return NO;
-+  }
-+  __block pid_t targetProcessID = 0;
-+  __block pid_t primaryProcessID = 0;
-+  NSString *exception = [RunnerObjCExceptionCatcher catchException:^{
-+    id<AgentDeviceForegroundElement> primaryApp = [element primaryApp];
-+    if (primaryApp == nil || ![primaryApp respondsToSelector:@selector(pid)]) {
-+      return;
-+    }
-+    targetProcessID = (pid_t)[RunnerAXSnapshotBridge
-+      processIdentifierForApplication:(XCUIApplication *)application];
-+    primaryProcessID = [primaryApp pid];
-+  }];
-+  if (exception != nil || targetProcessID <= 0 || primaryProcessID <= 0) {
-+    return NO;
-+  }
-+  return primaryProcessID != targetProcessID;
-+}
-+
- #endif
- 
- NSString * _Nullable RunnerResolveSoleScreen(
 diff --git a/dist/src/alert-contract.js b/dist/src/alert-contract.js
 index 906f5e5ae096b28aa8fae099522ed5b5b105888d..ec546258eae0a389fc7c57bb5f4b288e4ce296d8 100644
 --- a/dist/src/alert-contract.js

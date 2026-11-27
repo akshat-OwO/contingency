@@ -1,13 +1,16 @@
 import { expect, it } from "@effect/vitest";
 import { AppError } from "agent-device";
-import { Effect, Fiber, Logger, Option } from "effect";
+import { Effect, Fiber, Logger, Option, Result } from "effect";
 import { TestClock } from "effect/testing";
 
+import { SPRINGBOARD } from "../../src/services/ios-foreground.ts";
 import {
   IOS_FOREGROUND_HANDOFF_UNAVAILABLE_HINT,
+  IOS_HANDOFF_READINGS,
   IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
   canSkipIosAlertScreenshot,
   canSkipIosScreenshot,
+  followIosHandoff,
   iosAlertActivateFailure,
   iosAlertNodes,
   isIosForegroundHandoffObservationUnavailable,
@@ -558,6 +561,109 @@ it.effect(
           udid: "session-simulator",
         }),
       ]);
+    })
+);
+
+const handoff = (input: {
+  readonly leavesAfter: number | null;
+  readonly guess: string | null;
+  readonly guessNow: string | null;
+  readonly repeated: boolean;
+}) => {
+  let readings = 0;
+  return followIosHandoff({
+    guess: Effect.succeed(input.guess),
+    guessNow: Effect.succeed(input.guessNow),
+    inFront: Effect.sync(() => {
+      readings += 1;
+      return input.leavesAfter === null || readings <= input.leavesAfter;
+    }),
+    repeated: input.repeated,
+  }).pipe(
+    Effect.result,
+    Effect.map((result) => ({ readings, result }))
+  );
+};
+
+it.effect(
+  "follows the guessed app once a handing-off app leaves the front",
+  () =>
+    Effect.gen(function* followsAfterLeaving() {
+      const fiber = yield* Effect.forkChild(
+        handoff({
+          guess: "com.apple.Preferences",
+          guessNow: null,
+          leavesAfter: 3,
+          repeated: false,
+        })
+      );
+      yield* TestClock.adjust("1 second");
+      const { readings, result } = yield* Fiber.join(fiber);
+      expect(readings).toBe(4);
+      expect(result).toStrictEqual(
+        Result.succeed({ _tag: "follow", app: "com.apple.Preferences" })
+      );
+    })
+);
+
+it.effect(
+  "reports no app when a handing-off app leaves the front and nothing is clearly in front",
+  () =>
+    Effect.gen(function* noGuessAfterLeaving() {
+      const { result } = yield* handoff({
+        guess: null,
+        guessNow: "com.apple.Preferences",
+        leavesAfter: 0,
+        repeated: false,
+      });
+      expect(result).toStrictEqual(Result.succeed(null));
+    })
+);
+
+it.effect(
+  "reads the bound app again when it stays in front, as while an alert is dismissed, without following any app",
+  () =>
+    Effect.gen(function* rereadsAfterAlert() {
+      const fiber = yield* Effect.forkChild(
+        handoff({
+          guess: "com.apple.Preferences",
+          guessNow: "com.apple.Preferences",
+          leavesAfter: null,
+          repeated: false,
+        })
+      );
+      yield* TestClock.adjust("10 seconds");
+      const { readings, result } = yield* Fiber.join(fiber);
+      expect(readings).toBe(IOS_HANDOFF_READINGS);
+      expect(result).toStrictEqual(
+        Result.fail(
+          iosCaptureFailure(
+            "observation_stale",
+            "capture",
+            "foreground-handoff"
+          )
+        )
+      );
+    })
+);
+
+it.effect(
+  "follows Springboard when a handoff outlasts its readings twice and no other app is in front, as in the App Switcher",
+  () =>
+    Effect.gen(function* followsSpringboard() {
+      const fiber = yield* Effect.forkChild(
+        handoff({
+          guess: null,
+          guessNow: null,
+          leavesAfter: null,
+          repeated: true,
+        })
+      );
+      yield* TestClock.adjust("10 seconds");
+      const { result } = yield* Fiber.join(fiber);
+      expect(result).toStrictEqual(
+        Result.succeed({ _tag: "follow", app: SPRINGBOARD })
+      );
     })
 );
 

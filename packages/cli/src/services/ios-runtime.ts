@@ -160,6 +160,41 @@ export const iosCaptureFailure = (
   operation,
 });
 
+/** Readings of a handoff, spaced to outlast an app switch or a dismissed alert. */
+export const IOS_HANDOFF_READINGS = 20;
+export const IOS_HANDOFF_SPACING = "250 millis";
+
+/**
+ * The runner refused the bound app because it is handing off the foreground.
+ * Reading its tree again through XCTest can hold the runner for a minute, and
+ * binding another app activates it, so wait on its app state instead. Once it
+ * leaves the front, follow a clear guess, or none to report the foreground
+ * unknown. A handoff that outlasts the readings once is read again, since an
+ * alert being dismissed looks the same; one that outlasts them twice is the
+ * App Switcher or Home, so follow the app in front or Springboard.
+ */
+export const followIosHandoff = <E>(input: {
+  readonly inFront: Effect.Effect<boolean, E>;
+  readonly guess: Effect.Effect<string | null, E>;
+  readonly guessNow: Effect.Effect<string | null, E>;
+  readonly repeated: boolean;
+}): Effect.Effect<ForegroundStep<never> | null, E | PlatformRuntimeError> =>
+  Effect.gen(function* followHandoff() {
+    for (let reading = 0; reading < IOS_HANDOFF_READINGS; reading += 1) {
+      if (!(yield* input.inFront)) {
+        const front = yield* input.guess;
+        return front === null ? null : followStep(front);
+      }
+      yield* Effect.sleep(IOS_HANDOFF_SPACING);
+    }
+    if (input.repeated) {
+      return followStep((yield* input.guessNow) ?? SPRINGBOARD);
+    }
+    return yield* Effect.fail(
+      iosCaptureFailure("observation_stale", "capture", "foreground-handoff")
+    );
+  });
+
 type IosCaptureStep = <A>(
   name: "snapshot" | "screenshot" | "app-state" | "read-png" | "session-check",
   effect: Effect.Effect<A, PlatformRuntimeError>
@@ -430,7 +465,7 @@ const hostFailure = (failure: IosError) =>
 export const IOS_SYSTEM_ALERT_UNAVAILABLE_HINT =
   "A system alert is presented over the session app. Resolve it with alert, or read it with a regular snapshot.";
 
-/** Hint agent-device's iOS runner emits when observeOnly proves another app owns the foreground. */
+/** Hint agent-device's iOS runner emits when an observe-only read finds the app handing off the foreground. */
 export const IOS_FOREGROUND_HANDOFF_UNAVAILABLE_HINT =
   "Another application owns the foreground.";
 
@@ -473,9 +508,9 @@ export const isIosSystemAlertObservationUnavailable = (
 /**
  * agent-device's observe-only snapshot refuses to capture an app that is
  * handing off the foreground, even while XCUIApplication still reports
- * `runningForeground`: its window no longer fills the screen, or AXRuntime
- * names a different primary app. Reading such an app's frame through XCTest
- * can hold the runner's main thread for a minute.
+ * `runningForeground`: its window no longer fills the screen. Reading such an
+ * app's frame or tree through XCTest can hold the runner's main thread for a
+ * minute.
  */
 export const isIosForegroundHandoffObservationUnavailable = (
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- A rejected SDK promise is unknown by definition.
@@ -1023,6 +1058,8 @@ const startIosRuntime = (
       const guess = makeIosForegroundGuess(iosHostProcesses, udid);
       // Set while no app could be named in front; recovery then goes Home.
       const lost = yield* Ref.make(false);
+      // Set while the last read of the bound app was a handoff still in front.
+      const handedOff = yield* Ref.make(false);
       const fillPublic = client.interactions.fill.bind(client.interactions);
       // Tap points, by target, for controls UIKit draws away from their frame's center.
       const activationPoints = yield* Ref.make<
@@ -1211,18 +1248,32 @@ const startIosRuntime = (
             return followStep(front);
           }
           if (read.value._tag === "handoff") {
-            const front = yield* guess(app);
-            if (front === null) {
-              return yield* Effect.fail(
-                iosCaptureFailure(
-                  "observation_stale",
-                  "capture",
-                  "foreground-handoff"
+            const repeated = yield* Ref.getAndSet(handedOff, true);
+            const front = yield* followIosHandoff({
+              guess: guess(app),
+              guessNow: guess.now(app),
+              inFront: io(
+                (signal) => client.command.appState({ ...options(), signal }),
+                "session-check"
+              ).pipe(
+                Effect.map(
+                  (state) =>
+                    state.platform !== "ios" ||
+                    state.source !== "runner" ||
+                    state.state === undefined ||
+                    state.state === "runningForeground"
                 )
-              );
+              ),
+              repeated,
+            });
+            if (front === null) {
+              yield* Ref.set(lost, true);
+              return yield* Effect.fail(iosForegroundUnknown());
             }
-            return followStep(front);
+            yield* Ref.set(handedOff, false);
+            return front;
           }
+          yield* Ref.set(handedOff, false);
           if (read.value._tag === "alert") {
             return yield* captureAlertObservation(
               step,
