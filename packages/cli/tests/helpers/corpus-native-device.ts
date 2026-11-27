@@ -48,6 +48,7 @@ import type {
 import type { IosDeviceStream } from "../../src/services/ios-stream.ts";
 import { makeIosWorkspaceLayer } from "../../src/services/ios-workspace.ts";
 import { nativeAppActionPolicy } from "../../src/services/native-app-action-policy.ts";
+import { performNativeAppFill } from "../../src/services/native-app-fill.ts";
 import { nativeHitTest } from "../../src/services/native-app-hit-test.ts";
 import type {
   NativeAppPlatform,
@@ -149,6 +150,10 @@ export interface CorpusNativeDevice<
   readonly failCapturesUntilRecover: () => void;
   /** Fails the next `count` captures as `capture_incomplete`. */
   readonly failNextCaptures: (count: number) => void;
+  /** Rejects the next SDK fill with `cause` after the text was typed, as agent-device does on a read-back mismatch. */
+  readonly rejectNextFill: (cause: unknown) => void;
+  /** SDK fills dispatched so far, rejected ones included. */
+  readonly fills: () => number;
   /** Applies Forwarded Input taps to the scripted screen graph. */
   readonly forwardInputs: (inputs: readonly NativeInput[]) => void;
   /** Number of times an iOS `observeOnly` snapshot raised `OBSERVATION_UNAVAILABLE` for a system alert. */
@@ -510,6 +515,8 @@ export function makeCorpusNativeBackend(
   let recoveryCount = 0;
   let failRemaining = 0;
   let failUntilRecover = false;
+  let fillCount = 0;
+  let fillRejection: unknown;
   let cachedWindow: { readonly height: number; readonly width: number } | null =
     null;
   let activeNodes = new Map<string, MappedNode>();
@@ -959,18 +966,26 @@ export function makeCorpusNativeBackend(
 
   const fill = (target: string, _text: string) =>
     resolveTarget(target, "fill").pipe(
-      Effect.map((node) => {
-        const next = transitionFor("fill", node);
-        if (next !== undefined) {
-          currentId = next.to;
-        }
-        return {
-          confirmation: node.password
-            ? ("unconfirmed" as const)
-            : ("confirmed" as const),
-          outcome: "entered" as const,
-        };
-      })
+      Effect.flatMap((node) =>
+        performNativeAppFill(
+          () => {
+            fillCount += 1;
+            const next = transitionFor("fill", node);
+            if (next !== undefined) {
+              currentId = next.to;
+            }
+            const rejection = fillRejection;
+            fillRejection = undefined;
+            if (rejection !== undefined) {
+              return Promise.reject(rejection);
+            }
+            return Promise.resolve(
+              node.password ? { verification: "unconfirmed" as const } : {}
+            );
+          },
+          (code) => runtimeErrorFor(options.platform, code)
+        )
+      )
     );
 
   const recover = () =>
@@ -1034,6 +1049,7 @@ export function makeCorpusNativeBackend(
     failNextCaptures: (count) => {
       failRemaining = count;
     },
+    fills: () => fillCount,
     forwardInputs: (inputs) => {
       for (const input of inputs) {
         forwardedSequence += 1;
@@ -1067,6 +1083,9 @@ export function makeCorpusNativeBackend(
     },
     observeOnlyAlertRefusals: () => observeOnlyAlertRefusalCount,
     recoveries: () => recoveryCount,
+    rejectNextFill: (cause) => {
+      fillRejection = cause;
+    },
     reset: () => {
       currentId = options.script.start;
       cachedWindow = null;
