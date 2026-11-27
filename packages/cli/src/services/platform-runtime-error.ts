@@ -93,6 +93,7 @@ const SELF_EXPLAINING = new Set<PlatformRuntimeError["code"]>([
   "capture_incomplete",
   "device_in_use",
   "observation_stale",
+  "target_changed",
 ]);
 
 /**

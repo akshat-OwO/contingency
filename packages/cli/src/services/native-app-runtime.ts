@@ -112,7 +112,9 @@ export const adaptNativeAppRuntime = <
       });
     const guarded = <A>(effect: EffectType.Effect<A, PlatformRuntimeError>) =>
       effect.pipe(
-        Effect.tapError(pause),
+        Effect.tapError((failure) =>
+          failure.code === "target_changed" ? Effect.void : pause(failure)
+        ),
         Effect.onInterrupt(() => pause(error("execution_canceled")))
       );
     const requireReady = Effect.suspend(() =>

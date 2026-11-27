@@ -24,6 +24,7 @@ import {
   Predicate,
   Ref,
   Schedule,
+  Schema,
   Scope,
 } from "effect";
 
@@ -480,11 +481,29 @@ const verifyIosAlertOverBoundApp = (input: {
     return false;
   });
 
+/** Rect reported by agent-device's non-activating `alert get` path (in window points). */
+export interface IosAlertRect {
+  readonly height: number;
+  readonly width: number;
+  readonly x: number;
+  readonly y: number;
+}
+
+/** One actionable button reported by agent-device's non-activating `alert get` path. */
+export interface IosPresentedAlertButton {
+  readonly label: string;
+  readonly rect?: IosAlertRect | undefined;
+}
+
 /** Presented system alert read through agent-device's non-activating `alert get` path. */
 export interface IosPresentedAlert {
-  readonly message: string;
-  readonly items: readonly string[];
+  readonly buttons?: readonly IosPresentedAlertButton[] | undefined;
   readonly identifiers?: AgentDeviceIdentifiers | undefined;
+  readonly items: readonly string[];
+  readonly message: string;
+  readonly rect?: IosAlertRect | undefined;
+  readonly referenceHeight?: number | undefined;
+  readonly referenceWidth?: number | undefined;
 }
 
 /** One non-activating observation read of the bound iOS app or a system alert over it. */
@@ -492,133 +511,141 @@ export type IosSessionRead<A> =
   | { readonly _tag: "snapshot"; readonly snapshot: A }
   | { readonly _tag: "alert"; readonly alert: IosPresentedAlert };
 
-export type IosAlertAction = "accept" | "dismiss";
+/** Exact alert button target bound to the observed prompt message for non-activating dispatch. */
+export interface IosAlertTarget {
+  readonly buttonIndex: number;
+  readonly buttonLabel: string;
+  readonly expectedMessage: string;
+}
+
+const AlertRectSchema = Schema.Struct({
+  height: Schema.Finite.check(Schema.isGreaterThan(0)),
+  width: Schema.Finite.check(Schema.isGreaterThan(0)),
+  x: Schema.Finite,
+  y: Schema.Finite,
+});
+
+const AlertButtonSchema = Schema.Struct({
+  label: Schema.String,
+  rect: Schema.optional(AlertRectSchema),
+});
+
+const decodeAlertRect = Schema.decodeUnknownOption(AlertRectSchema);
+const decodeAlertButtons = Schema.decodeUnknownOption(
+  Schema.Array(AlertButtonSchema)
+);
+const decodePositiveFinite = Schema.decodeUnknownOption(
+  Schema.Finite.check(Schema.isGreaterThan(0))
+);
+
+const scaleAlertBounds = (
+  rect: IosAlertRect | undefined,
+  scale: { readonly sx: number; readonly sy: number } | undefined
+): IosAlertRect | undefined =>
+  rect === undefined || scale === undefined
+    ? undefined
+    : {
+        height: rect.height * scale.sy,
+        width: rect.width * scale.sx,
+        x: rect.x * scale.sx,
+        y: rect.y * scale.sy,
+      };
 
 /**
- * Button label preferences matching `RunnerAlertButtonChoice` in
- * `agent-device@0.21.41` so Contingency exposes only buttons that
- * `alert accept` or `alert dismiss` will unambiguously press.
- */
-const ALERT_ACCEPT_PATTERNS = [
-  /^allow while using (?:the )?app$/iu,
-  /^while using the app$/iu,
-  /^allow all$/iu,
-  /^always allow$/iu,
-  /^allow all the time$/iu,
-  /^allow notifications$/iu,
-  /^allow$/iu,
-  /^ok$/iu,
-  /^yes$/iu,
-  /^continue$/iu,
-  /^save$/iu,
-  /^confirm/iu,
-  /^turn on$/iu,
-  /^open settings$/iu,
-  /^done$/iu,
-  /^open$/iu,
-  /^allow once$/iu,
-  /^only this time$/iu,
-] as const;
-
-const ALERT_DISMISS_PATTERNS = [
-  /^cancel$/iu,
-  /^deny$/iu,
-  /^don.?t allow$/iu,
-  /^not now$/iu,
-  /^no$/iu,
-  /^dismiss$/iu,
-  /^close$/iu,
-  /^close app$/iu,
-  /^later$/iu,
-  /^skip$/iu,
-  /^ask app not to track$/iu,
-  /^keep browsing$/iu,
-] as const;
-
-const matchAlertButtonIndex = (
-  items: readonly string[],
-  patterns: readonly RegExp[]
-): number | null => {
-  for (const pattern of patterns) {
-    const matches: number[] = [];
-    for (const [index, label] of items.entries()) {
-      if (pattern.test(label.trim())) {
-        matches.push(index);
-      }
-    }
-    if (matches.length > 1) {
-      return null;
-    }
-    if (matches.length === 1 && matches[0] !== undefined) {
-      return matches[0];
-    }
-  }
-  return null;
-};
-
-/**
- * Maps each `alert get` item index that `alert accept` or `alert dismiss` will
- * unambiguously activate to that action.
- */
-export const iosAlertButtonActions = (
-  items: readonly string[]
-): ReadonlyMap<number, IosAlertAction> => {
-  const actions = new Map<number, IosAlertAction>();
-  const acceptIndex = matchAlertButtonIndex(items, ALERT_ACCEPT_PATTERNS);
-  if (acceptIndex !== null) {
-    actions.set(acceptIndex, "accept");
-  }
-  const dismissIndex = matchAlertButtonIndex(items, ALERT_DISMISS_PATTERNS);
-  if (dismissIndex !== null && !actions.has(dismissIndex)) {
-    actions.set(dismissIndex, "dismiss");
-  }
-  return actions;
-};
-
-/**
- * Builds observation nodes and non-activating `alert` action targets from an
- * `alert get` result. Buttons that neither `accept` nor `dismiss` selects stay
- * visible in the tree as non-hittable so activating them never presses another
- * button by mistake.
+ * Builds observation nodes and non-activating targeted `alert press` bindings
+ * from an `alert get` result. Every reported button is actionable by its own
+ * exact label and index, bound to the observed alert message, and carries its
+ * scaled screen bounds when reported by the runner.
  */
 export const iosAlertNodes = (
   alert: IosPresentedAlert,
   app: string,
-  generation: number
+  generation: number,
+  scale?: { readonly sx: number; readonly sy: number }
 ) => {
-  const buttonActions = iosAlertButtonActions(alert.items);
-  const actions = new Map<string, IosAlertAction>();
+  const actions = new Map<string, IosAlertTarget>();
+  const alertBounds = scaleAlertBounds(alert.rect, scale);
+  const rootBase: IosObservation["nodes"][number] = {
+    covered: false,
+    editable: false,
+    hittable: false,
+    name: alert.message,
+    packageName: app,
+    password: false,
+    role: "alert",
+    target: `@alert-0~a${generation}`,
+  };
   const nodes: IosObservation["nodes"][number][] = [
-    {
+    alertBounds === undefined ? rootBase : { ...rootBase, bounds: alertBounds },
+  ];
+  const buttons: readonly IosPresentedAlertButton[] =
+    alert.buttons !== undefined && alert.buttons.length > 0
+      ? alert.buttons
+      : alert.items.map((label) => ({ label }));
+  for (const [index, button] of buttons.entries()) {
+    const target = `@alert-${index + 1}~a${generation}`;
+    actions.set(target, {
+      buttonIndex: index,
+      buttonLabel: button.label,
+      expectedMessage: alert.message,
+    });
+    const bounds = scaleAlertBounds(button.rect, scale);
+    const buttonBase: IosObservation["nodes"][number] = {
       covered: false,
       editable: false,
-      hittable: false,
-      name: alert.message,
-      packageName: app,
-      password: false,
-      role: "alert",
-      target: `@alert-0~a${generation}`,
-    },
-  ];
-  for (const [index, label] of alert.items.entries()) {
-    const action = buttonActions.get(index);
-    const target = `@alert-${index + 1}~a${generation}`;
-    if (action !== undefined) {
-      actions.set(target, action);
-    }
-    nodes.push({
-      covered: action === undefined,
-      editable: false,
-      hittable: action !== undefined,
-      name: label,
+      hittable: true,
+      name: button.label,
       packageName: app,
       password: false,
       role: "button",
       target,
-    });
+    };
+    nodes.push(bounds === undefined ? buttonBase : { ...buttonBase, bounds });
   }
   return { actions, nodes };
 };
+
+const isIosAlertChangedError = (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- A rejected SDK promise is unknown by definition.
+  cause: unknown
+): boolean => {
+  if (!isAgentDeviceError(cause)) {
+    return false;
+  }
+  const runnerCode = cause.details?.runnerErrorCode;
+  const reason = cause.details?.reason;
+  return (
+    cause.code === "ALERT_MISMATCH" ||
+    cause.code === "ALERT_NOT_FOUND" ||
+    cause.code === "ALERT_BUTTON_NOT_FOUND" ||
+    cause.code === "ALERT_UNRESOLVED" ||
+    runnerCode === "ALERT_MISMATCH" ||
+    runnerCode === "ALERT_NOT_FOUND" ||
+    runnerCode === "ALERT_BUTTON_NOT_FOUND" ||
+    runnerCode === "ALERT_UNRESOLVED" ||
+    reason === "alert_mismatch" ||
+    reason === "alert-not-found"
+  );
+};
+
+/**
+ * Classifies an `alert press` refusal. When the runner proved nothing was
+ * dispatched because the alert disappeared, changed message, or changed
+ * buttons, return a retriable `target_changed` refusal instead of pausing.
+ */
+export const iosAlertActivateFailure = (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- A rejected SDK promise is unknown by definition.
+  cause: unknown
+): PlatformRuntimeError =>
+  isIosAlertChangedError(cause)
+    ? {
+        _tag: "PlatformRuntimeError",
+        code: "target_changed",
+        message:
+          "The observed iOS system alert changed or disappeared. Refresh and choose the button again; no input was forwarded.",
+        operation: "activate",
+      }
+    : iosAgentDeviceFailure(cause, "runtime_failed", "activate");
 
 const isIosAlertAbsentError = (
   // oxlint-disable-next-line anti-slop/no-unknown-parameters -- A rejected SDK promise is unknown by definition.
@@ -662,17 +689,27 @@ const readAlertIdentifiers = (
 const parseIosPresentedAlert = (
   raw: CommandRequestResult
 ): IosPresentedAlert | null => {
-  const rawItems = raw.items;
-  if (!Array.isArray(rawItems)) {
-    return null;
+  const rawButtons = Option.getOrElse(decodeAlertButtons(raw.buttons), () => [])
+    .map((entry): IosPresentedAlertButton | null => {
+      const label = entry.label.trim();
+      if (label === "") {
+        return null;
+      }
+      return entry.rect === undefined ? { label } : { label, rect: entry.rect };
+    })
+    .filter((entry): entry is IosPresentedAlertButton => entry !== null);
+  let items: string[] = [];
+  if (rawButtons.length > 0) {
+    items = rawButtons.map((button) => button.label);
+  } else if (Array.isArray(raw.items)) {
+    items = raw.items.flatMap((entry) => {
+      if (!Predicate.isString(entry)) {
+        return [];
+      }
+      const trimmed = entry.trim();
+      return trimmed === "" ? [] : [trimmed];
+    });
   }
-  const items = rawItems.flatMap((entry) => {
-    if (!Predicate.isString(entry)) {
-      return [];
-    }
-    const trimmed = entry.trim();
-    return trimmed === "" ? [] : [trimmed];
-  });
   if (items.length === 0) {
     return null;
   }
@@ -680,11 +717,29 @@ const parseIosPresentedAlert = (
     Predicate.isString(raw.message) && raw.message.trim() !== ""
       ? raw.message.trim()
       : "System Alert";
-  return {
+  const rect = Option.getOrUndefined(decodeAlertRect(raw.rect));
+  const referenceWidth = Option.getOrUndefined(
+    decodePositiveFinite(raw.referenceWidth)
+  );
+  const referenceHeight = Option.getOrUndefined(
+    decodePositiveFinite(raw.referenceHeight)
+  );
+  const parsed: IosPresentedAlert = {
+    buttons: rawButtons.length > 0 ? rawButtons : undefined,
     identifiers: readAlertIdentifiers(raw),
     items,
     message,
+    rect,
+    referenceHeight:
+      referenceWidth !== undefined && referenceHeight !== undefined
+        ? referenceHeight
+        : undefined,
+    referenceWidth:
+      referenceWidth !== undefined && referenceHeight !== undefined
+        ? referenceWidth
+        : undefined,
   };
+  return parsed;
 };
 
 /** Session-bound SDK access shared by Teaching, Dry Runs, and Runs. */
@@ -887,8 +942,8 @@ const startIosRuntime = (
         readonly sx: number;
         readonly sy: number;
       } | null>(null);
-      // Presented system-alert buttons, by synthetic target, dispatched via non-activating `alert accept|dismiss`.
-      const alertActions = yield* Ref.make<ReadonlyMap<string, IosAlertAction>>(
+      // Presented system-alert buttons, by synthetic target, dispatched via non-activating targeted `alert press`.
+      const alertActions = yield* Ref.make<ReadonlyMap<string, IosAlertTarget>>(
         new Map()
       );
       let alertGeneration = 0;
@@ -929,6 +984,11 @@ const startIosRuntime = (
           const cachedWindow = yield* Ref.get(window);
           const cachedPixels = yield* Ref.get(screenPixels);
           const cachedScale = yield* Ref.get(pixelScale);
+          const referenceViewport =
+            alert.referenceWidth !== undefined &&
+            alert.referenceHeight !== undefined
+              ? { height: alert.referenceHeight, width: alert.referenceWidth }
+              : cachedWindow;
           const needScreenshot =
             includeImage ||
             cachedPixels === null ||
@@ -936,6 +996,7 @@ const startIosRuntime = (
             cachedWindow === null;
           let width: number;
           let height: number;
+          let scale: { readonly sx: number; readonly sy: number } | undefined;
           let encodedImage = "";
           if (needScreenshot) {
             const filename = path.join(
@@ -995,11 +1056,22 @@ const startIosRuntime = (
               );
             }
             if (
-              cachedWindow !== null &&
+              referenceViewport !== null &&
               Math.sign(width - height) !==
-                Math.sign(cachedWindow.width - cachedWindow.height)
+                Math.sign(referenceViewport.width - referenceViewport.height)
             ) {
               return yield* Effect.fail(iosRuntimeError("observation_stale"));
+            }
+            if (referenceViewport !== null) {
+              scale = {
+                sx: width / referenceViewport.width,
+                sy: height / referenceViewport.height,
+              };
+              yield* Ref.set(window, referenceViewport);
+              yield* Ref.set(screenPixels, { height, width });
+              yield* Ref.set(pixelScale, scale);
+            } else if (cachedScale !== null) {
+              scale = cachedScale;
             }
             encodedImage = bytes.toString("base64");
           } else {
@@ -1023,9 +1095,10 @@ const startIosRuntime = (
               );
             }
             ({ width, height } = cachedPixels);
+            scale = cachedScale;
           }
           alertGeneration += 1;
-          const built = iosAlertNodes(alert, app, alertGeneration);
+          const built = iosAlertNodes(alert, app, alertGeneration, scale);
           yield* Ref.set(activationPoints, new Map());
           yield* Ref.set(alertActions, built.actions);
           const observation: IosObservation = {
@@ -1326,16 +1399,19 @@ const startIosRuntime = (
         backend: {
           activate: (target) =>
             Effect.gen(function* activateIos() {
-              const alertAction = (yield* Ref.get(alertActions)).get(target);
-              if (alertAction !== undefined) {
-                yield* io(
+              const alertTarget = (yield* Ref.get(alertActions)).get(target);
+              if (alertTarget !== undefined) {
+                yield* tryBackend(
                   (signal) =>
                     client.command.alert({
                       ...options(),
-                      action: alertAction,
+                      action: "press",
+                      buttonIndex: alertTarget.buttonIndex,
+                      buttonLabel: alertTarget.buttonLabel,
+                      expectedMessage: alertTarget.expectedMessage,
                       signal,
                     }),
-                  "activate"
+                  iosAlertActivateFailure
                 );
                 return;
               }

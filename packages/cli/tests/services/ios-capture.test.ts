@@ -6,7 +6,7 @@ import { TestClock } from "effect/testing";
 import {
   IOS_SYSTEM_ALERT_UNAVAILABLE_HINT,
   canSkipIosScreenshot,
-  iosAlertButtonActions,
+  iosAlertActivateFailure,
   iosAlertNodes,
   isIosSystemAlertObservationUnavailable,
   makeIosSessionAccess,
@@ -620,23 +620,54 @@ it.effect(
     })
 );
 
-it("maps alert get buttons to unambiguous accept/dismiss actions matching RunnerAlertButtonChoice", () => {
-  // Two-button notifications alert: both buttons are unambiguously selectable.
+it("maps alert get buttons with real bounds and exact label/message bindings for every button", () => {
+  // Two-button notifications alert with scaled bounds.
   const notifications = iosAlertNodes(
     {
+      buttons: [
+        {
+          label: "Don’t Allow",
+          rect: { height: 44, width: 135, x: 66, y: 450 },
+        },
+        {
+          label: "Allow",
+          rect: { height: 44, width: 135, x: 201, y: 450 },
+        },
+      ],
       items: ["Don’t Allow", "Allow"],
       message:
         "“Contingency Public Login” Would Like to Send You Notifications",
+      rect: { height: 150, width: 270, x: 66, y: 344 },
+      referenceHeight: 874,
+      referenceWidth: 402,
     },
     "dev.contingency.ioslogin",
-    3
+    3,
+    { sx: 3, sy: 3 }
   );
   expect([...notifications.actions.entries()]).toEqual([
-    ["@alert-1~a3", "dismiss"],
-    ["@alert-2~a3", "accept"],
+    [
+      "@alert-1~a3",
+      {
+        buttonIndex: 0,
+        buttonLabel: "Don’t Allow",
+        expectedMessage:
+          "“Contingency Public Login” Would Like to Send You Notifications",
+      },
+    ],
+    [
+      "@alert-2~a3",
+      {
+        buttonIndex: 1,
+        buttonLabel: "Allow",
+        expectedMessage:
+          "“Contingency Public Login” Would Like to Send You Notifications",
+      },
+    ],
   ]);
   expect(notifications.nodes).toEqual([
     expect.objectContaining({
+      bounds: { height: 450, width: 810, x: 198, y: 1032 },
       covered: false,
       hittable: false,
       name: "“Contingency Public Login” Would Like to Send You Notifications",
@@ -645,6 +676,7 @@ it("maps alert get buttons to unambiguous accept/dismiss actions matching Runner
       target: "@alert-0~a3",
     }),
     expect.objectContaining({
+      bounds: { height: 132, width: 405, x: 198, y: 1350 },
       covered: false,
       hittable: true,
       name: "Don’t Allow",
@@ -652,6 +684,7 @@ it("maps alert get buttons to unambiguous accept/dismiss actions matching Runner
       target: "@alert-1~a3",
     }),
     expect.objectContaining({
+      bounds: { height: 132, width: 405, x: 603, y: 1350 },
       covered: false,
       hittable: true,
       name: "Allow",
@@ -660,29 +693,68 @@ it("maps alert get buttons to unambiguous accept/dismiss actions matching Runner
     }),
   ]);
 
-  // Three-button location alert: accept chooses Allow While Using App, dismiss
-  // chooses Don’t Allow; Allow Once stays visible but non-hittable so
-  // activating it cannot silently press Allow While Using App.
+  // Three-button location alert: every button, including Allow Once, is
+  // uncovered, hittable, bounded, and targeted by its own label + message.
   const location = iosAlertNodes(
     {
+      buttons: [
+        {
+          label: "Allow Once",
+          rect: { height: 44, width: 270, x: 66, y: 460 },
+        },
+        {
+          label: "Allow While Using App",
+          rect: { height: 44, width: 270, x: 66, y: 504 },
+        },
+        {
+          label: "Don’t Allow",
+          rect: { height: 44, width: 270, x: 66, y: 548 },
+        },
+      ],
       items: ["Allow Once", "Allow While Using App", "Don’t Allow"],
       message: "Allow “Contingency Widgets” to use your location?",
+      rect: { height: 248, width: 270, x: 66, y: 344 },
     },
     "dev.contingency.ioswidgets",
-    4
+    4,
+    { sx: 1, sy: 1 }
   );
   expect([...location.actions.entries()]).toEqual([
-    ["@alert-2~a4", "accept"],
-    ["@alert-3~a4", "dismiss"],
+    [
+      "@alert-1~a4",
+      {
+        buttonIndex: 0,
+        buttonLabel: "Allow Once",
+        expectedMessage: "Allow “Contingency Widgets” to use your location?",
+      },
+    ],
+    [
+      "@alert-2~a4",
+      {
+        buttonIndex: 1,
+        buttonLabel: "Allow While Using App",
+        expectedMessage: "Allow “Contingency Widgets” to use your location?",
+      },
+    ],
+    [
+      "@alert-3~a4",
+      {
+        buttonIndex: 2,
+        buttonLabel: "Don’t Allow",
+        expectedMessage: "Allow “Contingency Widgets” to use your location?",
+      },
+    ],
   ]);
   expect(location.nodes[1]).toMatchObject({
-    covered: true,
-    hittable: false,
+    bounds: { height: 44, width: 270, x: 66, y: 460 },
+    covered: false,
+    hittable: true,
     name: "Allow Once",
     role: "button",
     target: "@alert-1~a4",
   });
   expect(location.nodes[2]).toMatchObject({
+    bounds: { height: 44, width: 270, x: 66, y: 504 },
     covered: false,
     hittable: true,
     name: "Allow While Using App",
@@ -690,20 +762,49 @@ it("maps alert get buttons to unambiguous accept/dismiss actions matching Runner
     target: "@alert-2~a4",
   });
   expect(location.nodes[3]).toMatchObject({
+    bounds: { height: 44, width: 270, x: 66, y: 548 },
     covered: false,
     hittable: true,
     name: "Don’t Allow",
     role: "button",
     target: "@alert-3~a4",
   });
+});
 
-  // Two-button once-only alert: Allow Once is uniquely matched by accept.
-  expect([
-    ...iosAlertButtonActions(["Allow Once", "Don’t Allow"]).entries(),
-  ]).toEqual([
-    [0, "accept"],
-    [1, "dismiss"],
-  ]);
+it("classifies replaced or missing alert press refusals as retriable target_changed", () => {
+  expect(
+    iosAlertActivateFailure(
+      new AppError(
+        "COMMAND_FAILED",
+        "alert message did not match expected message",
+        {
+          dispatched: "no",
+          reason: "alert_mismatch",
+          runnerErrorCode: "ALERT_MISMATCH",
+        }
+      )
+    )
+  ).toMatchObject({ code: "target_changed", operation: "activate" });
+  expect(
+    iosAlertActivateFailure(
+      new AppError("COMMAND_FAILED", "alert press button not found", {
+        dispatched: "no",
+        runnerErrorCode: "ALERT_BUTTON_NOT_FOUND",
+      })
+    )
+  ).toMatchObject({ code: "target_changed", operation: "activate" });
+  expect(
+    iosAlertActivateFailure(
+      new AppError("COMMAND_FAILED", "alert not found", {
+        dispatched: "no",
+        reason: "alert-not-found",
+        runnerErrorCode: "ALERT_NOT_FOUND",
+      })
+    )
+  ).toMatchObject({ code: "target_changed", operation: "activate" });
+  expect(
+    iosAlertActivateFailure(new AppError("COMMAND_FAILED", "transport down"))
+  ).toMatchObject({ code: "runtime_failed", operation: "activate" });
 });
 
 it("observes again when the bound app leaves the front mid-capture", () => {
